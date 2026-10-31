@@ -509,7 +509,7 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
   std::vector<uint32_t> ts_before, ts_after;
   uint32_t ts_copy_before = 0, ts_copy_after = 0;
   if (use_timestamps) {
-    total_ts = 2 + 2 * static_cast<uint32_t>(num_items) + (present_img ? 2 : 0);
+    total_ts = 3 + 2 * static_cast<uint32_t>(num_items) + (present_img ? 2 : 0);
     if (total_ts <= dev->timestamp_count) {
       ts_copy_before = 1;
       ts_copy_after = 2;
@@ -598,6 +598,23 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
     if (present_img) {
       vk_cmd_transition_for_present(cmd, present_img->image);
     }
+
+    // Write the slots that were reset but not used (no copy, present
+    // reservations) so that the WAIT_BIT readback below cannot block on
+    // queries that never become available.
+    if (use_timestamps) {
+      if (!(src_buf && dst_img)) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                            dev->timestamp_pool, ts_copy_before);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                            dev->timestamp_pool, ts_copy_after);
+      }
+      for (uint32_t q = 3 + 2 * static_cast<uint32_t>(num_items);
+           q < total_ts; ++q) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                            dev->timestamp_pool, q);
+      }
+    }
   });
 
   // Release references to push constant data
@@ -617,7 +634,7 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
                           VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
     PyObject *ts_list = PyList_New(total_ts);
     for (uint32_t i = 0; i < total_ts; ++i) {
-      double ns = ts_data[i] * dev->timestamp_period;
+      double ns = static_cast<double>(ts_data[i]) * dev->timestamp_period;
       PyList_SetItem(ts_list, i, PyFloat_FromDouble(ns));
     }
     PyMem_Free(ts_data);
