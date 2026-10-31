@@ -243,6 +243,15 @@ deband_enabled: false
 # Default: 0.3
 deband_strength: 0.3
 
+# --- Magpie effects engine ---
+# Which implementation of the Magpie effects runs (only one at a time):
+#   "native"   - effects ported by hand (anime4k_enabled, luma_sharpen_enabled,
+#                crt_enabled below): precompiled, bounds-checked, few effects.
+#   "magpiefx" - the magpie_effects chain below: Magpie's .hlsl files compiled
+#                at runtime, so most of Magpie's catalog can be used.
+# Default: "native"
+effects_engine: native
+
 # --- MagpieFX effects ---
 # Chain of effects written in Magpie's MagpieFX format, run after debanding
 # and before the final scaler. Each entry is a bundled effect name

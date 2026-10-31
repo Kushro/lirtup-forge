@@ -10,6 +10,29 @@ The MagpieFX chain runs on the captured (and optionally upscaled and
 debanded) frame, **before** the final scaler, so an effect that changes the
 size (e.g. `Anime4K_Upscale_S`, 2x) hands a larger image to the scaler.
 
+## Native or MagpieFX
+
+The Magpie effects come in two engines, and only the selected one runs
+(`effects_engine` in the config, `--effects-engine` on the CLI, or *Engine*
+in the GUI's Effects tab):
+
+| | Native | MagpieFX |
+|---|---|---|
+| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | Bundled ones plus any MagpieFX `.hlsl` you add |
+| Loading | Precompiled, instant | Compiled on first load, then cached |
+| Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
+| Settings | `anime4k_enabled`, `luma_sharpen_*`, `crt_*` | `magpie_effects` chain |
+
+Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, dxc):
+
+| Effect | Native | MagpieFX |
+|---|---|---|
+| LumaSharpen | 0.016 | 0.016 |
+| Anime4K_Upscale_S | 0.145 | 0.142 |
+| CRT_Easymode | 0.122 | 0.118 |
+
+The rest of this page is about the MagpieFX engine.
+
 ## Requirements
 
 One of these compilers must be installed:

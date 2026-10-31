@@ -1,11 +1,35 @@
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+import copy
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..sidebar import SettingsTab
+from ...styles import (
+    info_text_style,
+    path_browse_button_style,
+    setting_label_style,
+)
+from ....magpiefx import MagpieFXError, find_effect, list_effects, parse_effect
+from ....magpiefx.spec import parse_effect_chain
 from ....shaders import LUT_PRESETS
+
+# Reference GPU times (ms/frame) of the effects available in both engines:
+# headless, 1280x720 input, 2560x1440 target, AMD RX 9070 XT (RADV), dxc.
+# From scripts/bench-magpie-effects.py and scripts/magpiefx-bench.py.
+_REFERENCE_MS = (
+    ("LumaSharpen", 0.016, 0.016),
+    ("Anime4K_Upscale_S", 0.145, 0.142),
+    ("CRT_Easymode", 0.122, 0.118),
+)
 
 if TYPE_CHECKING:
     from ...config import GUIConfig
@@ -63,6 +87,32 @@ class EffectsTab(SettingsTab):
 
         # ---- Magpie effects ----
         self._add_section(self.tr("Magpie effects", "Settings section"))
+        self._engine_labels = {
+            "native": self.tr("Native", "Magpie effects engine"),
+            "magpiefx": self.tr("MagpieFX", "Magpie effects engine"),
+        }
+        self._add_combo(
+            self.tr("Engine", "Label of setting (must be short)"),
+            list(self._engine_labels.values()),
+            self._engine_labels.get(self._config.effects_engine),
+            self._on_effects_engine,
+            baseline=self._engine_labels.get(self.baseline_config.effects_engine),
+            field="effects_engine",
+            help=self.tr(
+                "Native: effects ported by hand, precompiled.\n"
+                "MagpieFX: Magpie's .hlsl effects compiled at runtime.\n"
+                "Only the selected engine runs.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._engine_info = QLabel()
+        self._engine_info.setWordWrap(True)
+        self._engine_info.setTextFormat(Qt.RichText)
+        self._engine_info.setStyleSheet(info_text_style(self._gui_config))
+        self._engine_info.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.content_layout.addWidget(self._engine_info)
+
+        native_start = self.content_layout.count()
         self._add_cb(
             self.tr("Enable Anime4K", "Label of setting (must be short)"),
             self._config.anime4k_enabled,
@@ -129,6 +179,20 @@ class EffectsTab(SettingsTab):
             ),
         )
         self._crt_mask_str.setEnabled(self._config.crt_enabled)
+        self._native_widgets = [
+            self.content_layout.itemAt(i).widget()
+            for i in range(native_start, self.content_layout.count())
+        ]
+
+        self._magpiefx_box = QWidget()
+        self._magpiefx_box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        box_layout = QVBoxLayout(self._magpiefx_box)
+        box_layout.setContentsMargins(0, 0, 0, 0)
+        box_layout.setSpacing(self.content_layout.spacing())
+        self.content_layout.addWidget(self._magpiefx_box)
+        self._owned_fields.add("magpie_effects")
+        self._build_magpiefx_chain()
+        self._update_engine_ui()
 
         # ---- CAS ----
         self._add_section(self.tr("CAS sharpening", "Settings section"))
@@ -378,6 +442,185 @@ class EffectsTab(SettingsTab):
         self._config.deband_enabled = enabled
         self._deband_str.setEnabled(enabled)
         self.config_changed.emit()
+
+    # ------------------------------------------------------------------
+    #  Magpie effects engine
+    # ------------------------------------------------------------------
+    def _on_effects_engine(self, text: str):
+        for engine, label in self._engine_labels.items():
+            if label == text:
+                self._config.effects_engine = engine
+        self._update_engine_ui()
+        self.config_changed.emit()
+
+    def _update_engine_ui(self) -> None:
+        native = self._config.effects_engine == "native"
+        for w in self._native_widgets:
+            w.setVisible(native)
+        self._magpiefx_box.setVisible(not native)
+        self._engine_info.setText(self._engine_info_html(native))
+
+    def _engine_info_html(self, native: bool) -> str:
+        if native:
+            pros = [
+                self.tr("Precompiled: loads instantly", "Magpie engine pro"),
+                self.tr("Bounds-checked writes on every GPU", "Magpie engine pro"),
+                self.tr("Tuned controls in this tab", "Magpie engine pro"),
+            ]
+            cons = [
+                self.tr("Only 3 effects for now", "Magpie engine con"),
+                self.tr("Each new effect is ported by hand", "Magpie engine con"),
+            ]
+        else:
+            pros = [
+                self.tr("Runs Magpie's .hlsl effects unmodified", "Magpie engine pro"),
+                self.tr(
+                    "More effects, plus your own in ~/.config/linux-rt-upscaler/effects",
+                    "Magpie engine pro",
+                ),
+                self.tr("Controls generated from each effect", "Magpie engine pro"),
+            ]
+            cons = [
+                self.tr(
+                    "Compiles on first load (needs dxc or glslangValidator)",
+                    "Magpie engine con",
+                ),
+                self.tr(
+                    "Effects with .dds lookup textures are not supported yet",
+                    "Magpie engine con",
+                ),
+            ]
+        items = "<br>".join([f"+ {p}" for p in pros] + [f"&minus; {c}" for c in cons])
+        rows = "".join(
+            f"<tr><td>{name}</td><td align='right'>{a:.3f}</td>"
+            f"<td align='right'>{b:.3f}</td></tr>"
+            for name, a, b in _REFERENCE_MS
+        )
+        head = (
+            f"<tr><th align='left'>{self.tr('Effect', 'Benchmark table')}</th>"
+            f"<th align='right'>{self._engine_labels['native']}</th>"
+            f"<th align='right'>{self._engine_labels['magpiefx']}</th></tr>"
+        )
+        note = self.tr(
+            "Reference GPU time in ms/frame (720p to 1440p, RX 9070 XT).",
+            "Benchmark table caption",
+        )
+        return (
+            f"<p>{items}</p>"
+            f"<table cellspacing='0' cellpadding='3'>{head}{rows}</table>"
+            f"<p>{note}</p>"
+        )
+
+    def _magpiefx_chain(self) -> List[Dict[str, Any]]:
+        """The configured MagpieFX chain as a list of {name, params} dicts."""
+        try:
+            specs = parse_effect_chain(self._config.magpie_effects or [])
+        except ValueError:
+            specs = []
+        return [{"name": n, "params": dict(p)} for n, p in specs]
+
+    def _set_magpiefx_chain(self, chain: List[Dict[str, Any]]) -> None:
+        # Assign a new list so the dirty check sees the change
+        self._config.magpie_effects = copy.deepcopy(chain)
+        self.config_changed.emit()
+
+    def _build_magpiefx_chain(self) -> None:
+        """(Re)create the MagpieFX chain editor inside its container."""
+        box_layout = self._magpiefx_box.layout()
+        while box_layout.count():
+            w = box_layout.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+
+        # Reuse the row helpers by pointing them at the container
+        main_layout, self.content_layout = self.content_layout, box_layout
+        try:
+            placeholder = self.tr("Add effect…", "MagpieFX effect picker")
+            self._add_combo(
+                self.tr("Effects", "Label of setting (must be short)"),
+                [placeholder] + list_effects(),
+                placeholder,
+                lambda name: name != placeholder and self._on_add_magpiefx(name),
+                help=self.tr(
+                    "Effects run in the order they are added, before scaling.",
+                    "Description of a setting (tooltip)",
+                ),
+            )
+            baseline_chain = parse_effect_chain(
+                self.baseline_config.magpie_effects or []
+            )
+            for index, entry in enumerate(self._magpiefx_chain()):
+                base = baseline_chain[index] if index < len(baseline_chain) else None
+                if base is not None and base[0] != entry["name"]:
+                    base = None
+                self._add_magpiefx_entry(index, entry, base[1] if base else None)
+        finally:
+            self.content_layout = main_layout
+
+    def _add_magpiefx_entry(
+        self, index: int, entry: Dict[str, Any], baseline: Optional[Dict[str, float]]
+    ) -> None:
+        remove = QPushButton(self.tr("Remove", "MagpieFX effect button"))
+        remove.setStyleSheet(path_browse_button_style(self._gui_config))
+        remove.clicked.connect(lambda: self._on_remove_magpiefx(index))
+        self._add_row(entry["name"], remove)
+        name_label = self.content_layout.itemAt(
+            self.content_layout.count() - 1
+        ).layout().itemAt(0).widget()
+        name_label.setStyleSheet(
+            setting_label_style(self._gui_config, self._gui_config.palette.text)
+            + "QLabel { font-weight: bold; }"
+        )
+
+        try:
+            with open(find_effect(entry["name"]), encoding="utf-8") as f:
+                desc = parse_effect(f.read(), entry["name"])
+        except (OSError, MagpieFXError) as e:
+            error = QLabel(str(e))
+            error.setWordWrap(True)
+            error.setStyleSheet(info_text_style(self._gui_config))
+            self.content_layout.addWidget(error)
+            return
+
+        for p in desc.params:
+            scale = 1
+            if p.type != "int":
+                step = p.step if p.step > 0 else 0.01
+                while scale < 1000 and abs(step * scale - round(step * scale)) > 1e-6:
+                    scale *= 10
+            value = entry["params"].get(p.name, p.default)
+            base_value = baseline.get(p.name, p.default) if baseline is not None else None
+            self._add_slider(
+                p.label or p.name,
+                round(p.min * scale),
+                round(p.max * scale),
+                round(value * scale),
+                scale_factor=scale,
+                float_slot=lambda v, i=index, n=p.name: self._on_magpiefx_param(i, n, v),
+                baseline=base_value,
+                help=f"{p.name}: {p.min:g} – {p.max:g}, "
+                + self.tr("default", "MagpieFX parameter tooltip")
+                + f" {p.default:g}",
+            )
+
+    def _on_add_magpiefx(self, name: str) -> None:
+        chain = self._magpiefx_chain()
+        chain.append({"name": name, "params": {}})
+        self._set_magpiefx_chain(chain)
+        QTimer.singleShot(0, self._build_magpiefx_chain)
+
+    def _on_remove_magpiefx(self, index: int) -> None:
+        chain = self._magpiefx_chain()
+        if 0 <= index < len(chain):
+            del chain[index]
+            self._set_magpiefx_chain(chain)
+        QTimer.singleShot(0, self._build_magpiefx_chain)
+
+    def _on_magpiefx_param(self, index: int, name: str, value: float) -> None:
+        chain = self._magpiefx_chain()
+        if 0 <= index < len(chain):
+            chain[index]["params"][name] = value
+            self._set_magpiefx_chain(chain)
 
     def _on_anime4k_enabled(self, state: int):
         self._config.anime4k_enabled = bool(state)

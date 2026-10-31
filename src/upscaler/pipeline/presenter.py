@@ -735,6 +735,19 @@ class Presenter:
 
         if specs == self._magpie_specs:
             return
+        if (
+            self._magpie
+            and [n for n, _ in specs] == [n for n, _ in self._magpie_specs]
+            and self._magpie_active == self._magpie_specs
+        ):
+            # Same effects, new parameter values: no recompile (GUI sliders)
+            try:
+                for fx, (_, params) in zip(self._magpie, specs):
+                    fx.set_params(params)
+                self._magpie_specs = self._magpie_active = specs
+                return
+            except MagpieFXError as e:
+                logger.error("Invalid MagpieFX parameters: %s", e)
         self._magpie_specs = specs
         self._build_magpie_chain(specs)
 

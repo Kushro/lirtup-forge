@@ -663,6 +663,167 @@ Larger values produce coarser, more visible grain.</source>
       <comment>Description of a setting (tooltip)</comment>
       <translation type="unfinished" />
     </message>
+    <message>
+      <source>Reference GPU time in ms/frame (720p to 1440p, RX 9070 XT).</source>
+      <comment>Benchmark table caption</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Magpie effects</source>
+      <comment>Settings section</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Native</source>
+      <comment>Magpie effects engine</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>MagpieFX</source>
+      <comment>Magpie effects engine</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Engine</source>
+      <comment>Label of setting (must be short)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Enable Anime4K</source>
+      <comment>Label of setting (must be short)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Enable LumaSharpen</source>
+      <comment>Label of setting (must be short)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Enable CRT</source>
+      <comment>Label of setting (must be short)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Mask strength</source>
+      <comment>Label of setting (must be short)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Add effect…</source>
+      <comment>MagpieFX effect picker</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Remove</source>
+      <comment>MagpieFX effect button</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Native: effects ported by hand, precompiled.
+MagpieFX: Magpie&apos;s .hlsl effects compiled at runtime.
+Only the selected engine runs.</source>
+      <comment>Description of a setting (tooltip)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Anime4K_Upscale_S: small 2x CNN upscaler for anime and line art,
+applied after the AI upscaler.</source>
+      <comment>Description of a setting (tooltip)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Unsharp mask on luma, with a clamp that limits halos.</source>
+      <comment>Description of a setting (tooltip)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>LumaSharpen strength.
+Default: 0.65.</source>
+      <comment>Description of a setting (tooltip)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>CRT-Easymode: scanlines and RGB mask. Replaces the final scaler.
+Scanlines only appear on low resolution sources.</source>
+      <comment>Description of a setting (tooltip)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Strength of the RGB mask.
+Default: 0.30.</source>
+      <comment>Description of a setting (tooltip)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Precompiled: loads instantly</source>
+      <comment>Magpie engine pro</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Bounds-checked writes on every GPU</source>
+      <comment>Magpie engine pro</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Tuned controls in this tab</source>
+      <comment>Magpie engine pro</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Only 3 effects for now</source>
+      <comment>Magpie engine con</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Each new effect is ported by hand</source>
+      <comment>Magpie engine con</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Runs Magpie&apos;s .hlsl effects unmodified</source>
+      <comment>Magpie engine pro</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>More effects, plus your own in ~/.config/linux-rt-upscaler/effects</source>
+      <comment>Magpie engine pro</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Controls generated from each effect</source>
+      <comment>Magpie engine pro</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Compiles on first load (needs dxc or glslangValidator)</source>
+      <comment>Magpie engine con</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Effects with .dds lookup textures are not supported yet</source>
+      <comment>Magpie engine con</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Effect</source>
+      <comment>Benchmark table</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Effects</source>
+      <comment>Label of setting (must be short)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>Effects run in the order they are added, before scaling.</source>
+      <comment>Description of a setting (tooltip)</comment>
+      <translation type="unfinished" />
+    </message>
+    <message>
+      <source>default</source>
+      <comment>MagpieFX parameter tooltip</comment>
+      <translation type="unfinished" />
+    </message>
   </context>
   <context>
     <name>ExtrasTab</name>
