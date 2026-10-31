@@ -33,6 +33,7 @@ from .compiler import compile_hlsl
 from .expr import evaluate_size
 from .formats import FORMATS
 from .parser import EffectDesc, MagpieFXError, parse_effect
+from .swizzle import SwapUnsupported, rewrite
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,8 @@ class MagpieEffect:
         desc: Parsed effect description.
         output: The OUTPUT texture of the last :meth:`process` call.
         last_gpu_ms: Per-pass GPU times (ms) of the last profiled run.
+        swap_passes: Number of separate SwapRB passes this instance needs
+            (0 when the red/blue swap is folded into the shaders).
     """
 
     def __init__(
@@ -96,8 +99,13 @@ class MagpieEffect:
         desc: EffectDesc,
         spirv: Sequence[bytes],
         params: Optional[Mapping[str, float]] = None,
+        pre: Optional["MagpieEffect"] = None,
+        post: Optional["MagpieEffect"] = None,
     ) -> None:
         self.desc = desc
+        self._pre = pre
+        self._post = post
+        self.swap_passes = int(pre is not None) + int(post is not None)
         self._spirv = list(spirv)
         self._params: Dict[str, float] = {}
         self.set_params(params or {})
@@ -132,12 +140,34 @@ class MagpieEffect:
         name_or_path: str,
         params: Optional[Mapping[str, float]] = None,
         use_cache: bool = True,
+        swap_input: bool = False,
+        swap_output: bool = False,
     ) -> "MagpieEffect":
+        """
+        Load and compile an effect.
+
+        Args:
+            swap_input: Read INPUT as BGRA (swap red/blue on every read).
+            swap_output: Store OUTPUT as BGRA (swap red/blue on every write).
+
+        The swaps are folded into the generated shaders. When an effect uses
+        INPUT/OUTPUT in a way that cannot be rewritten, that side falls back
+        to a separate SwapRB pass.
+        """
         path = find_effect(name_or_path)
-        desc, spirv = compile_effect(path, use_cache=use_cache)
+        desc, spirv, done_in, done_out = compile_effect(
+            path, use_cache=use_cache, swap_input=swap_input, swap_output=swap_output
+        )
         for w in desc.warnings:
             logger.warning("MagpieFX %s: %s", desc.name, w)
-        return cls(desc, spirv, params)
+        pre = post = None
+        if swap_input and not done_in:
+            logger.info("MagpieFX %s: INPUT swap needs a separate pass", desc.name)
+            pre = cls.load(SWAP_RB_EFFECT, use_cache=use_cache)
+        if swap_output and not done_out:
+            logger.info("MagpieFX %s: OUTPUT swap needs a separate pass", desc.name)
+            post = cls.load(SWAP_RB_EFFECT, use_cache=use_cache)
+        return cls(desc, spirv, params, pre=pre, post=post)
 
     @staticmethod
     def _address(mode: str) -> int:
@@ -291,6 +321,10 @@ class MagpieEffect:
             frame_count: Value of ``__frameCount`` for ``USE _DYNAMIC`` effects.
             profile: Collect GPU timestamps into :attr:`last_gpu_ms`.
         """
+        extra_ms: List[float] = []
+        if self._pre is not None:
+            src = self._pre.process(src, target_size, profile=profile)
+            extra_ms += self._pre.last_gpu_ms
         if (
             src is not self._input
             or (not self.desc.output.width_expr and tuple(target_size) != self._target_size)
@@ -310,11 +344,28 @@ class MagpieEffect:
             self.last_gpu_ms = [
                 (ts[4 + 2 * i] - ts[3 + 2 * i]) / 1e6 for i in range(n)
             ]
+        if self._post is not None:
+            out = self._post.process(self.output, target_size, profile=profile)
+            if profile:
+                self.last_gpu_ms = extra_ms + self.last_gpu_ms + self._post.last_gpu_ms
+            return out
+        if profile and extra_ms:
+            self.last_gpu_ms = extra_ms + self.last_gpu_ms
         return self.output
 
 
-def compile_effect(path: str, use_cache: bool = True) -> Tuple[EffectDesc, List[bytes]]:
-    """Parse *path* and compile all of its passes, returning ``(desc, spirv)``."""
+def compile_effect(
+    path: str,
+    use_cache: bool = True,
+    swap_input: bool = False,
+    swap_output: bool = False,
+) -> Tuple[EffectDesc, List[bytes], bool, bool]:
+    """
+    Parse *path* and compile all of its passes.
+
+    Returns ``(desc, spirv, input_swapped, output_swapped)``; the flags say
+    which requested red/blue swaps were folded into the shaders.
+    """
     with open(path, "r", encoding="utf-8-sig") as f:
         source = f.read()
     name = os.path.splitext(os.path.basename(path))[0]
@@ -323,13 +374,41 @@ def compile_effect(path: str, use_cache: bool = True) -> Tuple[EffectDesc, List[
         names = ", ".join(t.source for t in desc.textures if t.source)
         raise MagpieFXError(f"{name}: //!SOURCE textures are not supported ({names})")
     include_dir = os.path.dirname(path)
-    spirv = [
-        compile_hlsl(
-            generate_pass_source(desc, p.index),
-            f"{name}_Pass{p.index}",
-            include_dir=include_dir,
-            use_cache=use_cache,
-        )
-        for p in desc.passes
-    ]
-    return desc, spirv
+
+    # Try the requested swaps, dropping a side whose rewrite is unsupported
+    attempts = [(swap_input, swap_output)]
+    if swap_input and swap_output:
+        attempts += [(True, False), (False, True)]
+    if swap_input or swap_output:
+        attempts.append((False, False))
+
+    last_error: Optional[SwapUnsupported] = None
+    for sin, sout in attempts:
+        try:
+            spirv = [
+                _compile_pass(desc, p, name, include_dir, use_cache, sin, sout)
+                for p in desc.passes
+            ]
+        except SwapUnsupported as e:
+            last_error = e
+            continue
+        if last_error is not None:
+            logger.debug("MagpieFX %s: swap rewrite limited: %s", name, last_error)
+        return desc, spirv, sin, sout
+    raise AssertionError("unreachable")
+
+
+def _compile_pass(desc, p, name, include_dir, use_cache, swap_input, swap_output) -> bytes:
+    sin = swap_input and 0 in p.inputs
+    sout = swap_output and 1 in p.outputs
+    transform = None
+    if sin or sout:
+        transform = lambda text: rewrite(text, sin, sout)[0]  # noqa: E731
+    return compile_hlsl(
+        generate_pass_source(desc, p.index),
+        f"{name}_Pass{p.index}",
+        include_dir=include_dir,
+        use_cache=use_cache,
+        transform=transform,
+        transform_key=f"swaprb:{int(sin)}{int(sout)}" if transform else "",
+    )

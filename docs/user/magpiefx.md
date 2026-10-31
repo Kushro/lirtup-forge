@@ -57,8 +57,7 @@ chain keeps working.
 
 - In the app: `--magpie-profile` (or `magpie_profile: true`) logs the median
   GPU time per effect every 5 seconds, measured with Vulkan timestamps around
-  each dispatch. The two `SwapRB` entries are the red/blue swap done around
-  the chain (the capture pipeline carries BGRA data).
+  each dispatch.
 - Headless: `scripts/magpiefx-bench.py` runs effects on an image and prints
   the median GPU time per frame and per pass:
 
@@ -69,6 +68,14 @@ chain keeps working.
 
 - `scripts/magpiefx-compile-all.py MAGPIE/src/Effects --run` tries every
   effect of a Magpie checkout and prints a compatibility table.
+
+## Color channels
+
+Captured frames travel through the app as BGRA bytes, while MagpieFX effects
+expect RGBA. The loader swaps red and blue inside the generated shaders of
+the first effect (on every read of `INPUT`) and of the last effect (on every
+store to `OUTPUT`), at no measurable cost. Effects that pass `INPUT` or
+`OUTPUT` to a function (FXAA) get a separate swap pass instead.
 
 ## Limitations
 

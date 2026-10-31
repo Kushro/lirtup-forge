@@ -21,7 +21,7 @@ from ..shaders import (
     NISScaler,
     Vignette,
 )
-from ..magpiefx import SWAP_RB_EFFECT, MagpieEffect, MagpieFXError
+from ..magpiefx import MagpieEffect, MagpieFXError
 from ..magpiefx.spec import EffectSpec, parse_effect_chain
 from ..utils import calculate_scaling_rect
 from ..vulkan import Texture2D, R16G16B16A16_FLOAT
@@ -153,7 +153,6 @@ class Presenter:
         # MagpieFX chain
         self._magpie_specs: List[EffectSpec] = []
         self._magpie: List[MagpieEffect] = []
-        self._magpie_swap: Optional[Tuple[MagpieEffect, MagpieEffect]] = None
         self._magpie_stats: List[List[float]] = []
         self._magpie_stats_since = time.perf_counter()
         self._load_magpie_effects(config)
@@ -430,7 +429,6 @@ class Presenter:
         self._deband = None
         self._deband_tex = None
         self._magpie = []
-        self._magpie_swap = None
         self._cas = None
         self._bloom = None
         self._vignette = None
@@ -561,48 +559,59 @@ class Presenter:
         if specs == self._magpie_specs:
             return
         self._magpie_specs = specs
+        self._build_magpie_chain(specs)
+
+    def _build_magpie_chain(self, specs: List[EffectSpec]) -> None:
+        """
+        Load the effects of *specs*. Frames travel as BGRA bytes in R8G8B8A8
+        textures while MagpieFX effects expect RGBA, so the first effect
+        swaps red/blue on read and the last one on write (folded into the
+        generated shaders; between effects the data stays RGBA).
+        """
         self._magpie = []
-        for name, params in specs:
-            try:
-                start = time.perf_counter()
-                fx = MagpieEffect.load(name, params)
+        self._magpie_active: List[EffectSpec] = []
+        specs = list(specs)
+        while specs:
+            chain: List[MagpieEffect] = []
+            failed = None
+            last = len(specs) - 1
+            for i, (name, params) in enumerate(specs):
+                try:
+                    start = time.perf_counter()
+                    fx = MagpieEffect.load(
+                        name, params, swap_input=i == 0, swap_output=i == last
+                    )
+                except MagpieFXError as e:
+                    logger.error("MagpieFX effect '%s' disabled: %s", name, e)
+                    failed = i
+                    break
                 logger.info(
                     "MagpieFX effect '%s' loaded (%d passes, %.0f ms)",
                     fx.desc.name,
                     len(fx.desc.passes),
                     (time.perf_counter() - start) * 1000,
                 )
-                self._magpie.append(fx)
-            except MagpieFXError as e:
-                logger.error("MagpieFX effect '%s' disabled: %s", name, e)
-
-        # Frames travel as BGRA bytes in R8G8B8A8 textures, MagpieFX effects
-        # expect RGBA: swap red/blue around the chain.
-        self._magpie_swap = None
-        if self._magpie:
-            try:
-                self._magpie_swap = (
-                    MagpieEffect.load(SWAP_RB_EFFECT),
-                    MagpieEffect.load(SWAP_RB_EFFECT),
-                )
-            except MagpieFXError as e:
-                logger.error("MagpieFX disabled, channel swap failed: %s", e)
-                self._magpie = []
+                chain.append(fx)
+            if failed is None:
+                self._magpie = chain
+                self._magpie_active = specs
+                break
+            # The ends of the chain may have moved: reload without it
+            del specs[failed]
         self._magpie_stats = []
         self._magpie_stats_since = time.perf_counter()
 
     def _apply_magpie_effects(self, src: Texture2D) -> Texture2D:
         """Run the MagpieFX chain; each effect's OUTPUT feeds the next one."""
-        if not self._magpie or self._magpie_swap is None:
+        if not self._magpie:
             return src
 
-        stages = [self._magpie_swap[0], *self._magpie, self._magpie_swap[1]]
         profile = self.config.magpie_profile
-        if len(self._magpie_stats) != len(stages):
-            self._magpie_stats = [[] for _ in stages]
+        if len(self._magpie_stats) != len(self._magpie):
+            self._magpie_stats = [[] for _ in self._magpie]
 
         input_tex = src
-        for i, fx in enumerate(stages):
+        for i, fx in enumerate(self._magpie):
             _, _, r_w, r_h = calculate_scaling_rect(
                 src.width,
                 src.height,
@@ -621,25 +630,24 @@ class Presenter:
                 logger.error(
                     "MagpieFX effect '%s' failed, disabling: %s", fx.desc.name, e
                 )
-                if fx in self._magpie:
-                    self._magpie.remove(fx)
-                else:
-                    self._magpie = []
-                self._magpie_stats = []
+                # Rebuild without it so the BGRA swaps move to the new ends
+                specs = list(self._magpie_active)
+                del specs[i]
+                self._build_magpie_chain(specs)
                 return input_tex
             if profile:
                 self._magpie_stats[i].append(sum(fx.last_gpu_ms))
 
         if profile:
-            self._log_magpie_stats(stages)
+            self._log_magpie_stats()
         return src
 
-    def _log_magpie_stats(self, stages: List[MagpieEffect], interval: float = 5.0) -> None:
+    def _log_magpie_stats(self, interval: float = 5.0) -> None:
         now = time.perf_counter()
         if now - self._magpie_stats_since < interval or not self._magpie_stats[0]:
             return
         parts: List[Tuple[str, float]] = []
-        for fx, samples in zip(stages, self._magpie_stats):
+        for fx, samples in zip(self._magpie, self._magpie_stats):
             samples.sort()
             parts.append((fx.desc.name, samples[len(samples) // 2]))
         frames = len(self._magpie_stats[0])
@@ -649,7 +657,7 @@ class Presenter:
             ", ".join(f"{n} {ms:.3f} ms" for n, ms in parts),
             sum(ms for _, ms in parts),
         )
-        self._magpie_stats = [[] for _ in stages]
+        self._magpie_stats = [[] for _ in self._magpie]
         self._magpie_stats_since = now
 
     def _apply_cas_if_enabled(self) -> None:

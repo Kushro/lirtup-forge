@@ -27,7 +27,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from .parser import MagpieFXError
 
@@ -143,6 +143,28 @@ def _command(
     return cmd
 
 
+def _preprocess(
+    backend: str, exe: str, src: str, include_dir: Optional[str], name: str
+) -> str:
+    """Run the backend's preprocessor on *src* and return the expanded text."""
+    if backend == "dxc":
+        out = src + ".i"
+        cmd = [exe, "-P", "-Fi", out, src]
+    else:
+        out = None
+        cmd = [exe, "-E", "-D", "-S", "comp", src]
+    if include_dir:
+        cmd.insert(1, f"-I{include_dir}")
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        diag = (proc.stderr or proc.stdout or "").strip()
+        raise MagpieFXError(f"{backend} failed to preprocess {name}:\n{diag}")
+    if out is None:
+        return proc.stdout
+    with open(out, encoding="utf-8") as f:
+        return f.read()
+
+
 def _include_digest(include_dir: Optional[str]) -> str:
     """Hash the ``.hlsli`` files next to the effect (they may be #included)."""
     if not include_dir or not os.path.isdir(include_dir):
@@ -160,6 +182,8 @@ def compile_hlsl(
     name: str,
     include_dir: Optional[str] = None,
     use_cache: bool = True,
+    transform: Optional[Callable[[str], str]] = None,
+    transform_key: str = "",
 ) -> bytes:
     """
     Compile a generated pass to SPIR-V and return the bytecode.
@@ -169,6 +193,10 @@ def compile_hlsl(
         name: Human-readable name used in error messages and temp files.
         include_dir: Directory searched for ``#include`` files.
         use_cache: Read/write the on-disk SPIR-V cache.
+        transform: Optional rewrite applied to the *preprocessed* source
+            (macros and includes expanded by the same backend) before
+            compiling. Exceptions it raises propagate to the caller.
+        transform_key: Identifies *transform* in the cache key.
 
     Raises:
         MagpieFXError: with the compiler's diagnostics if compilation fails.
@@ -176,7 +204,9 @@ def compile_hlsl(
     errors: List[str] = []
     for backend, exe in select_backends():
         try:
-            spirv = _compile_with(backend, exe, source, name, include_dir, use_cache)
+            spirv = _compile_with(
+                backend, exe, source, name, include_dir, use_cache, transform, transform_key
+            )
         except MagpieFXError as e:
             errors.append(str(e))
             continue
@@ -193,6 +223,8 @@ def _compile_with(
     name: str,
     include_dir: Optional[str],
     use_cache: bool,
+    transform: Optional[Callable[[str], str]] = None,
+    transform_key: str = "",
 ) -> bytes:
     probe = _command(backend, exe, "SRC", "OUT", include_dir)
 
@@ -200,6 +232,7 @@ def _compile_with(
     for part in (_CACHE_VERSION, backend, " ".join(probe[1:])):
         key.update(part.encode() + b"\0")
     key.update(_include_digest(include_dir).encode() + b"\0")
+    key.update(transform_key.encode() + b"\0")
     key.update(source.encode())
     digest = key.hexdigest()
     cache_path = os.path.join(cache_dir(), f"{digest}.spv")
@@ -214,6 +247,10 @@ def _compile_with(
         out = os.path.join(tmp, f"{safe}.spv")
         with open(src, "w", encoding="utf-8") as f:
             f.write(source)
+        if transform is not None:
+            expanded = _preprocess(backend, exe, src, include_dir, name)
+            with open(src, "w", encoding="utf-8") as f:
+                f.write(transform(expanded))
         cmd = _command(backend, exe, src, out, include_dir)
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0 or not os.path.isfile(out):

@@ -20,7 +20,7 @@ import time
 import traceback
 from typing import Dict, List
 
-from upscaler.magpiefx import MagpieFXError, compile_effect, parse_effect
+from upscaler.magpiefx import MagpieFXError, parse_effect
 from upscaler.magpiefx.codegen import generate_pass_source
 from upscaler.magpiefx.compiler import compile_hlsl
 
@@ -93,10 +93,11 @@ def main() -> int:
                 try:
                     from upscaler.magpiefx import MagpieEffect
 
-                    desc, spirv = compile_effect(path)
-                    fx = MagpieEffect(desc, spirv)
+                    # Like a single effect in the app: BGRA in and out
+                    fx = MagpieEffect.load(path, swap_input=True, swap_output=True)
                     fx.process(src_tex, (2560, 1440), profile=True)
-                    row["run"] = f"ok {sum(fx.last_gpu_ms):.3f} ms"
+                    note = f", {fx.swap_passes} SwapRB pass(es)" if fx.swap_passes else ""
+                    row["run"] = f"ok {sum(fx.last_gpu_ms):.3f} ms{note}"
                 except Exception as e:  # noqa: BLE001
                     row["run"] = "FAIL"
                     details.setdefault(rel, []).append(

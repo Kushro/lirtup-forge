@@ -1,6 +1,9 @@
 // Swaps the red and blue channels.
 // The capture/upscale pipeline carries BGRA bytes in R8G8B8A8 textures, while
-// MagpieFX effects expect RGBA. This runs before and after a MagpieFX chain.
+// MagpieFX effects expect RGBA. Normally the swap is folded into the
+// generated shaders (see swizzle.py); this pass is the fallback for effects
+// that use INPUT/OUTPUT in ways the rewriter cannot handle (e.g. FXAA passes
+// INPUT to a function).
 
 //!MAGPIE EFFECT
 //!VERSION 4
