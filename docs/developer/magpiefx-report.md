@@ -77,6 +77,11 @@ Summary:
   only tested with `#ifdef` and are left undefined. `GetFrameCount()` /
   `__frameCount` (`//!USE _DYNAMIC`) is only declared in `StubDefs.hlsli`;
   no shipped effect uses it, but the loader supports it.
+- Out-of-bounds UAV writes: CS passes such as Anime4K's write 2x2 blocks
+  without bounds checks, relying on D3D11 discarding out-of-range writes. In
+  Vulkan that is undefined without `robustImageAccess`; RADV discards them in
+  practice (odd sizes looked clean), but enabling `robustImageAccess` at
+  device creation would make it well-defined.
 - dxc is run with `-HV 2018` because Magpie effects target fxc semantics
   (not compared against 2021 for the whole set).
 
