@@ -72,5 +72,6 @@ nav:
   - Developer:
       - Overview: developer/overview.md
       - MagpieFX Report: developer/magpiefx-report.md
+      - Frame Generation Analysis: developer/frame-generation-analysis.md
       - Architecture:
           - Architecture Limitations: developer/architecture/limitations.md
