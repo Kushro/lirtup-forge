@@ -243,6 +243,27 @@ deband_enabled: false
 # Default: 0.3
 deband_strength: 0.3
 
+# --- MagpieFX effects ---
+# Chain of effects written in Magpie's MagpieFX format, run after debanding
+# and before the final scaler. Each entry is a bundled effect name
+# (LumaSharpen, Anime4K_Upscale_S, CRT_Easymode), an effect placed in
+# ~/.config/linux-rt-upscaler/effects, or a path to a .hlsl file. Parameters
+# use the names declared in the effect (see its //!PARAMETER blocks).
+# Effects are compiled at runtime with dxc (or glslangValidator) and cached
+# in ~/.cache/linux-rt-upscaler/magpiefx.
+# Default: []
+magpie_effects: []
+# magpie_effects:
+#   - LumaSharpen
+#   - name: CRT_Easymode
+#     params:
+#       maskStrength: 0.5
+#       scanlineStrength: 1
+
+# Log the GPU time of the MagpieFX chain (median ms/frame every 5 s).
+# Default: false
+magpie_profile: false
+
 # ------------------------------------------------------------------------------
 # Magpie Effects (ported from Magpie, applied at source resolution before
 # scaling, in this order: Anime4K -> LumaSharpen -> CRT-Easymode)

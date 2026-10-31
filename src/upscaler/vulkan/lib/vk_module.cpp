@@ -165,6 +165,9 @@ PyMODINIT_FUNC PyInit_vulkan(void) {
   vk_format_map[R10G10B10A2_UNORM] = {VK_FORMAT_A2B10G10R10_UNORM_PACK32, 4};
   vk_format_map[R10G10B10A2_UINT] = {VK_FORMAT_A2B10G10R10_UINT_PACK32, 4};
 
+  // Packed float format used by some MagpieFX effects
+  vk_format_map[R11G11B10_FLOAT] = {VK_FORMAT_B10G11R11_UFLOAT_PACK32, 4};
+
 #undef VK_FORMAT_MAP
 #undef VK_FORMAT_MAP_FLOAT
 #undef VK_FORMAT_MAP_SRGB

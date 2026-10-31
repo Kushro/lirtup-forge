@@ -509,10 +509,7 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
   std::vector<uint32_t> ts_before, ts_after;
   uint32_t ts_copy_before = 0, ts_copy_after = 0;
   if (use_timestamps) {
-    // [0] start, [1]/[2] around the optional copy, then a pair per pass.
-    // Every query is written (the copy pair even without a copy), otherwise
-    // vkGetQueryPoolResults with WAIT_BIT would block forever.
-    total_ts = 3 + 2 * static_cast<uint32_t>(num_items);
+    total_ts = 3 + 2 * static_cast<uint32_t>(num_items) + (present_img ? 2 : 0);
     if (total_ts <= dev->timestamp_count) {
       ts_copy_before = 1;
       ts_copy_after = 2;
@@ -535,11 +532,11 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
     }
 
     // Optional pre-copy from buffer to texture
-    if (use_timestamps) {
-      vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                          dev->timestamp_pool, ts_copy_before);
-    }
     if (src_buf && dst_img) {
+      if (use_timestamps) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            dev->timestamp_pool, ts_copy_before);
+      }
       vk_cmd_transition_for_copy_dst(cmd, dst_img->image, copy_slice, 1);
       VkBufferImageCopy region = {};
       region.bufferOffset = 0;
@@ -551,10 +548,10 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
       vkCmdCopyBufferToImage(cmd, src_buf->buffer, dst_img->image,
                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
       vk_cmd_transition_for_compute(cmd, dst_img->image, copy_slice, 1);
-    }
-    if (use_timestamps) {
-      vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                          dev->timestamp_pool, ts_copy_after);
+      if (use_timestamps) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            dev->timestamp_pool, ts_copy_after);
+      }
     }
 
     // Dispatch each pass
@@ -600,6 +597,23 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
     // Transition the present image if requested
     if (present_img) {
       vk_cmd_transition_for_present(cmd, present_img->image);
+    }
+
+    // Write the slots that were reset but not used (no copy, present
+    // reservations) so that the WAIT_BIT readback below cannot block on
+    // queries that never become available.
+    if (use_timestamps) {
+      if (!(src_buf && dst_img)) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                            dev->timestamp_pool, ts_copy_before);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                            dev->timestamp_pool, ts_copy_after);
+      }
+      for (uint32_t q = 3 + 2 * static_cast<uint32_t>(num_items);
+           q < total_ts; ++q) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                            dev->timestamp_pool, q);
+      }
     }
   });
 
