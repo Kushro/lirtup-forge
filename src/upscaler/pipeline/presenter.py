@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, TYPE_CHECKING
+import os
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from ..shaders import (
+    Anime4KUpscaleS,
     Bloom,
     CAS,
     CatmullRomScaler,
     Clear,
     CopyScaler,
+    CRTEasymode,
     Deband,
     Delinearize,
     DitherCopy,
@@ -16,6 +19,7 @@ from ..shaders import (
     FSRScaler,
     LanczosScaler,
     Linearize,
+    LumaSharpen,
     LUT,
     NISScaler,
     Vignette,
@@ -31,6 +35,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Set UPSCALER_EFFECT_TIMING=1 to log the GPU time of the Magpie effects
+# (Vulkan timestamp queries), averaged every `_TIMING_WINDOW` frames.
+_EFFECT_TIMING = os.environ.get("UPSCALER_EFFECT_TIMING", "") not in ("", "0")
+_TIMING_WINDOW = 120
+
 
 class Presenter:
     """
@@ -38,6 +47,9 @@ class Presenter:
 
     The processing chain (executed in :meth:`present`):
         1. Optional debanding (uses a temporary texture).
+        1b. Optional Magpie effects at source resolution, each into its own
+            texture: Anime4K (2x) -> LumaSharpen -> CRT-Easymode (renders at
+            the destination size, so the following scaler is a copy).
         2. Lanczos scaling.
         3. Optional contrast adaptive sharpening (CAS).
         4. Optional bloom.
@@ -146,6 +158,16 @@ class Presenter:
             self._deband = Deband()
             logger.debug("Deband pass created")
 
+        # Magpie effects (each one writes to its own texture)
+        self._anime4k: Optional[Anime4KUpscaleS] = None
+        self._luma_sharpen: Optional[LumaSharpen] = None
+        self._luma_sharpen_tex: Optional[Texture2D] = None
+        self._crt: Optional[CRTEasymode] = None
+        self._crt_tex: Optional[Texture2D] = None
+        self._effect_times: Dict[str, float] = {}
+        self._effect_frames: int = 0
+        self._sync_magpie_effects(config)
+
         # CAS
         self._cas: Optional[CAS] = None
         if config.cas_enabled:
@@ -217,6 +239,9 @@ class Presenter:
 
         # ---- Debanding ------------------------------------------------------
         src = self._apply_deband_if_enabled(src)
+
+        # ---- Magpie effects -------------------------------------------------
+        src = self._apply_magpie_effects(src)
         self._active_source_texture = src
 
         # ---- Linearize and scale --------------------------------------------
@@ -290,6 +315,9 @@ class Presenter:
             if self._deband is not None:
                 self._deband = None
                 self._deband_tex = None
+
+        # ---- Magpie effects ----
+        self._sync_magpie_effects(config)
 
         # ---- CAS ----
         if config.cas_enabled:
@@ -413,6 +441,11 @@ class Presenter:
 
         self._deband = None
         self._deband_tex = None
+        self._anime4k = None
+        self._luma_sharpen = None
+        self._luma_sharpen_tex = None
+        self._crt = None
+        self._crt_tex = None
         self._cas = None
         self._bloom = None
         self._vignette = None
@@ -531,6 +564,139 @@ class Presenter:
         )
         self._deband.dispatch_auto()
         return self._deband_tex
+
+    def _sync_magpie_effects(self, config: Config) -> None:
+        """Create or drop the Magpie effect passes to match `config`."""
+        if config.anime4k_enabled:
+            if self._anime4k is None:
+                self._anime4k = Anime4KUpscaleS()
+                logger.debug("Anime4K_Upscale_S pass created")
+        else:
+            self._anime4k = None
+
+        if config.luma_sharpen_enabled:
+            if self._luma_sharpen is None:
+                self._luma_sharpen = LumaSharpen()
+                logger.debug("LumaSharpen pass created")
+        else:
+            self._luma_sharpen = None
+            self._luma_sharpen_tex = None
+
+        if config.crt_enabled:
+            if self._crt is None:
+                self._crt = CRTEasymode()
+                logger.debug("CRT-Easymode pass created")
+        else:
+            self._crt = None
+            self._crt_tex = None
+
+    def _apply_magpie_effects(self, src: Texture2D) -> Texture2D:
+        """
+        Run the enabled Magpie effects on `src` in a single submission and
+        return the resulting texture (or `src` if none is enabled).
+        """
+        sequence = []
+        labels: List[str] = []
+
+        if self._anime4k is not None:
+            self._anime4k.set_source_texture(src)
+            passes = self._anime4k.sequence()
+            sequence += passes
+            labels += ["anime4k"] * len(passes)
+            src = self._anime4k.output_texture
+
+        if self._luma_sharpen is not None:
+            tex = self._luma_sharpen_tex
+            if tex is None or tex.width != src.width or tex.height != src.height:
+                tex = self._luma_sharpen_tex = Texture2D(src.width, src.height)
+            c = self.config
+            self._luma_sharpen.set_source_texture(src)
+            self._luma_sharpen.set_target_texture(tex)
+            self._luma_sharpen.update_constants(
+                strength=c.luma_sharpen_strength,
+                clamp=c.luma_sharpen_clamp,
+                pattern=c.luma_sharpen_pattern,
+                offset_bias=c.luma_sharpen_offset_bias,
+            )
+            sequence.append(
+                (
+                    self._luma_sharpen.compute,
+                    (tex.width + 15) // 16,
+                    (tex.height + 15) // 16,
+                    1,
+                    b"",
+                )
+            )
+            labels.append("luma_sharpen")
+            src = tex
+
+        if self._crt is not None:
+            # CRT-Easymode is also the scaler: render at the destination size
+            _, _, r_w, r_h, _, _ = self._compute_scaling_params(src.width, src.height)
+            r_w, r_h = max(r_w, 1), max(r_h, 1)
+            tex = self._crt_tex
+            if tex is None or tex.width != r_w or tex.height != r_h:
+                tex = self._crt_tex = Texture2D(r_w, r_h)
+            c = self.config
+            self._crt.set_source_texture(src)
+            self._crt.set_target_texture(tex)
+            self._crt.update_constants(
+                sharpness_h=c.crt_sharpness_h,
+                sharpness_v=c.crt_sharpness_v,
+                mask_strength=c.crt_mask_strength,
+                mask_dot_width=c.crt_mask_dot_width,
+                mask_dot_height=c.crt_mask_dot_height,
+                mask_stagger=c.crt_mask_stagger,
+                mask_size=c.crt_mask_size,
+                scanline_strength=c.crt_scanline_strength,
+                scanline_beam_width_min=c.crt_scanline_beam_width_min,
+                scanline_beam_width_max=c.crt_scanline_beam_width_max,
+                scanline_bright_min=c.crt_scanline_bright_min,
+                scanline_bright_max=c.crt_scanline_bright_max,
+                scanline_cutoff=c.crt_scanline_cutoff,
+                gamma_input=c.crt_gamma_input,
+                gamma_output=c.crt_gamma_output,
+                bright_boost=c.crt_bright_boost,
+                dilation=c.crt_dilation,
+            )
+            sequence.append(
+                (self._crt.compute, (r_w + 15) // 16, (r_h + 15) // 16, 1, b"")
+            )
+            labels.append("crt_easymode")
+            src = tex
+
+        if not sequence:
+            return src
+
+        result = sequence[0][0].dispatch_sequence(sequence, timestamps=_EFFECT_TIMING)
+        if result is not None:
+            self._record_effect_times(labels, result[1])
+        return src
+
+    def _record_effect_times(self, labels: List[str], ts: List[float]) -> None:
+        """Accumulate per-effect GPU time and log the average periodically."""
+        # dispatch_sequence writes timestamps 3 + 2i / 4 + 2i around pass i
+        spans: Dict[str, List[float]] = {}
+        for i, label in enumerate(labels):
+            start, end = ts[3 + 2 * i], ts[4 + 2 * i]
+            span = spans.setdefault(label, [start, end])
+            span[0], span[1] = min(span[0], start), max(span[1], end)
+        for label, (start, end) in spans.items():
+            self._effect_times[label] = self._effect_times.get(label, 0.0) + (
+                end - start
+            )
+        self._effect_frames += 1
+        if self._effect_frames >= _TIMING_WINDOW:
+            n = self._effect_frames
+            logger.info(
+                "Magpie effects GPU time (avg of %d frames): %s",
+                n,
+                ", ".join(
+                    f"{k} {v / n / 1e6:.3f} ms" for k, v in self._effect_times.items()
+                ),
+            )
+            self._effect_times.clear()
+            self._effect_frames = 0
 
     def _apply_cas_if_enabled(self) -> None:
         if self._cas is not None and self.config.cas_enabled:

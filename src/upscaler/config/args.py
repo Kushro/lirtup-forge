@@ -622,6 +622,131 @@ Default: %(default)s.
     )
 
     # ----------------------------------------------------------------------
+    # Magpie effects (applied at source resolution, before scaling)
+    # ----------------------------------------------------------------------
+    magpie_group = parser.add_argument_group(
+        "MAGPIE EFFECTS",
+        "Effects ported from Magpie. Applied in this order before the final "
+        "scaler: Anime4K -> LumaSharpen -> CRT-Easymode.",
+    )
+
+    # --- Anime4K_Upscale_S ---
+    magpie_group.add_argument(
+        "--enable-anime4k",
+        action="store_true",
+        default=DEFAULT_CONFIG.anime4k_enabled,
+        dest="anime4k_enabled",
+        help="""Apply Anime4K_Upscale_S, a small 2x CNN upscaler for
+anime/line art, to the (already upscaled) source.
+
+""",
+    )
+
+    # --- LumaSharpen ---
+    magpie_group.add_argument(
+        "--enable-luma-sharpen",
+        action="store_true",
+        default=DEFAULT_CONFIG.luma_sharpen_enabled,
+        dest="luma_sharpen_enabled",
+        help="""Apply LumaSharpen, an unsharp mask on luma with a
+clamp that limits halos.
+
+""",
+    )
+    magpie_group.add_argument(
+        "--luma-sharpen-strength",
+        type=float,
+        default=DEFAULT_CONFIG.luma_sharpen_strength,
+        help="""LumaSharpen strength (0.0 - 3.0).
+
+Default: %(default)s.
+
+""",
+    )
+    magpie_group.add_argument(
+        "--luma-sharpen-clamp",
+        type=float,
+        default=DEFAULT_CONFIG.luma_sharpen_clamp,
+        help="""Maximum sharpening a pixel receives (0.0 - 1.0).
+
+Default: %(default)s.
+
+""",
+    )
+    magpie_group.add_argument(
+        "--luma-sharpen-pattern",
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=DEFAULT_CONFIG.luma_sharpen_pattern,
+        help="""Sample pattern: 0 = fast, 1 = normal, 2 = wider,
+3 = pyramid.
+
+Default: %(default)s.
+
+""",
+    )
+    magpie_group.add_argument(
+        "--luma-sharpen-offset-bias",
+        type=float,
+        default=DEFAULT_CONFIG.luma_sharpen_offset_bias,
+        help="""Radius of the sample pattern (0.0 - 6.0).
+
+Default: %(default)s.
+
+""",
+    )
+
+    # --- CRT-Easymode ---
+    magpie_group.add_argument(
+        "--enable-crt",
+        action="store_true",
+        default=DEFAULT_CONFIG.crt_enabled,
+        dest="crt_enabled",
+        help="""Render the content with CRT-Easymode (scanlines and
+RGB mask). Replaces the final scaler.
+
+""",
+    )
+    # (option suffix, type, range, description) - ranges from Magpie
+    crt_params = (
+        ("sharpness-h", float, "0.0 - 1.0", "Horizontal sharpness"),
+        ("sharpness-v", float, "0.0 - 1.0", "Vertical sharpness"),
+        ("mask-strength", float, "0.0 - 1.0", "RGB mask strength"),
+        ("mask-dot-width", int, "1 - 100", "Mask dot width"),
+        ("mask-dot-height", int, "1 - 100", "Mask dot height"),
+        ("mask-stagger", int, "0 - 100", "Mask stagger"),
+        ("mask-size", int, "1 - 100", "Mask size"),
+        ("scanline-strength", float, "0.0 - 1.0", "Scanline strength"),
+        ("scanline-beam-width-min", float, "0.5 - 5.0", "Min scanline beam width"),
+        ("scanline-beam-width-max", float, "0.5 - 5.0", "Max scanline beam width"),
+        ("scanline-bright-min", float, "0.0 - 1.0", "Min scanline brightness"),
+        ("scanline-bright-max", float, "0.0 - 1.0", "Max scanline brightness"),
+        (
+            "scanline-cutoff",
+            int,
+            "1 - 1000",
+            "No scanlines when the source height is at least this",
+        ),
+        ("gamma-input", float, "0.1 - 5.0", "Input gamma"),
+        ("gamma-output", float, "0.1 - 5.0", "Output gamma"),
+        ("bright-boost", float, "1.0 - 2.0", "Brightness boost"),
+        ("dilation", int, "0 - 1", "Dilation"),
+    )
+    for suffix, type_, range_, desc in crt_params:
+        dest = "crt_" + suffix.replace("-", "_")
+        magpie_group.add_argument(
+            f"--crt-{suffix}",
+            type=type_,
+            dest=dest,
+            default=getattr(DEFAULT_CONFIG, dest),
+            help=f"""{desc} ({range_}).
+
+Default: %(default)s.
+
+""",
+        )
+
+    # ----------------------------------------------------------------------
     # Post-processing options
     # ----------------------------------------------------------------------
     post_processing_group = parser.add_argument_group("POST-PROCESSING OPTIONS")
