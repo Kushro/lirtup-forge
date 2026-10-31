@@ -7,8 +7,10 @@
 //          https://github.com/bloc97/Anime4K/blob/master/glsl/Upscale/Anime4K_Upscale_CNN_x2_S.glsl
 //  Anime4K (c) bloc97, MIT license.
 //
-//  Port notes: see anime4k_common.hlsli. The pass body below is Magpie's,
-//  unchanged.
+//  Port notes: see anime4k_common.hlsli. INPUT is BGRA and is read raw: the
+//  CNN residual is added equally to the three channels, so the output keeps
+//  the input's BGRA order (swapping on read and on write would cancel out).
+//  The pass body below is Magpie's, unchanged.
 //
 //  Distributed under the GPL-3.0 license.
 // ============================================================================

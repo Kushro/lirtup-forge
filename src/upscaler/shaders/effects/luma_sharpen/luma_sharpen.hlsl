@@ -18,6 +18,8 @@
 //    - Magpie runs this as a pixel-shader pass (//!STYLE PS). Here it is a
 //      16x16 compute shader that evaluates Pass1() at the pixel centre and
 //      writes the result to an RGBA8 UAV.
+//    - The input is BGRA (see ../bgra_input.hlsli); the result is swapped
+//      back to BGRA when written.
 //    - Magpie's implicit GetInputPt()/GetOutputSize() helpers are provided
 //      from the constant buffer below.
 //    - The body of Pass1() is unchanged.
@@ -25,7 +27,7 @@
 //  Distributed under the GPL-3.0 license.
 // ============================================================================
 
-Texture2D<float4> INPUT : register(t0);
+#include "../bgra_input.hlsli"
 [[vk::image_format("rgba8")]]
 RWTexture2D<float4> OUTPUT : register(u0);
 SamplerState sam : register(s0); // LINEAR, CLAMP
@@ -185,5 +187,5 @@ float4 Pass1(float2 pos) {
     return;
 
   float2 pos = (dtid.xy + 0.5f) * _outputPt;
-  OUTPUT[dtid.xy] = Pass1(pos);
+  OUTPUT[dtid.xy] = Pass1(pos).bgra; // back to BGRA
 }

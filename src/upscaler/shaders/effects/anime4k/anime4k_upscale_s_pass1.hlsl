@@ -7,14 +7,15 @@
 //          https://github.com/bloc97/Anime4K/blob/master/glsl/Upscale/Anime4K_Upscale_CNN_x2_S.glsl
 //  Anime4K (c) bloc97, MIT license.
 //
-//  Port notes: see anime4k_common.hlsli. The pass body below is Magpie's,
-//  except that the 2x2 quad writes are bounds-checked
+//  Port notes: see anime4k_common.hlsli. INPUT is BGRA, read through the
+//  swapping view in ../bgra_input.hlsli so the RGB weights apply correctly.
+//  The pass body below is Magpie's, except that the 2x2 quad writes are bounds-checked
 //  (Magpie relies on D3D11 discarding out-of-bounds UAV writes).
 //
 //  Distributed under the GPL-3.0 license.
 // ============================================================================
 
-Texture2D<float4> INPUT : register(t0);
+#include "../bgra_input.hlsli"
 [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> tex1 : register(u0);
 SamplerState sam : register(s0); // POINT, CLAMP

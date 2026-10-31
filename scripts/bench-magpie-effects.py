@@ -28,9 +28,15 @@ def parse_size(text):
     return int(w), int(h)
 
 
+def swap_rb(img: Image.Image) -> Image.Image:
+    r, g, b, a = img.split()
+    return Image.merge("RGBA", (b, g, r, a))
+
+
 def upload(img: Image.Image) -> Texture2D:
+    """Upload as BGRA bytes, like the captured frames the presenter gets."""
     tex = Texture2D(img.width, img.height)
-    tex.upload_subresources([(img.tobytes(), 0, 0, img.width, img.height)])
+    tex.upload_subresources([(swap_rb(img).tobytes(), 0, 0, img.width, img.height)])
     return tex
 
 
@@ -40,7 +46,7 @@ def download(tex: Texture2D) -> Image.Image:
     rows = b"".join(
         data[y * pitch : y * pitch + tex.width * 4] for y in range(tex.height)
     )
-    return Image.frombytes("RGBA", (tex.width, tex.height), rows)
+    return swap_rb(Image.frombytes("RGBA", (tex.width, tex.height), rows))
 
 
 def build(effect: str, src: Texture2D, output_size, params):
