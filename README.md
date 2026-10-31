@@ -28,6 +28,7 @@ A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It u
 - **Tile-Based processing** that upscales only the frame regions that change, reducing GPU load for mostly static content.
 - **Customizable output geometry**: scaling mode (fit, stretch, cover), offset, crop and zoom.
 - **Input forwarding** as if interacting directly with the original window.
+- **Magpie effects** with a choice of engine: a few effects ported by hand, or 86 effects from [Magpie](https://github.com/Blinue/Magpie) run unmodified by a MagpieFX loader (see below).
 
 ## Requirements
 
@@ -58,6 +59,106 @@ After installation, the `upscale` and `upscale-gui` commands will be available g
 - [Controls](https://baronsmv.github.io/linux-rt-upscaler/user/controls/)
 - [Configuration](https://baronsmv.github.io/linux-rt-upscaler/user/configuration/)
 - [API Reference](https://baronsmv.github.io/linux-rt-upscaler/api/overview/)
+
+## Magpie effects
+
+The effects of [Magpie](https://github.com/Blinue/Magpie) (Windows) run here
+through two engines. You pick one in the GUI (*Effects* tab > *Engine*), with
+`effects_engine` in the config or with `--effects-engine` on the CLI. Only the
+selected engine runs.
+
+| | Native | MagpieFX |
+|---|---|---|
+| How | Each effect ported by hand to a fixed shader class | Magpie's `.hlsl` files run unmodified by a generic loader |
+| Effects | 3 | 86 bundled, plus any you add to `~/.config/linux-rt-upscaler/effects` |
+| Loading | Precompiled, instant | Compiled on first load (dxc, or glslangValidator as fallback), then cached |
+| Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
+| Settings | Tuned controls | Controls generated from each effect's parameters |
+
+Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, RADV,
+dxc), measured without a window:
+
+| Effect | Native | MagpieFX |
+|---|---|---|
+| LumaSharpen | 0.016 | 0.016 |
+| Anime4K_Upscale_S | 0.145 | 0.142 |
+| CRT_Easymode | 0.122 | 0.118 |
+
+Details: [MagpieFX guide](docs/user/magpiefx.md) and
+[compatibility report](docs/developer/magpiefx-report.md).
+
+### Status
+
+**Ported by hand (Native engine)**
+
+- `LumaSharpen`, `Anime4K_Upscale_S` (4 passes) and `CRT_Easymode`, each with
+  its config, CLI options and GUI controls.
+- Adaptations: frames arrive as BGRA, so the shaders swap red and blue when
+  they read and write (the Magpie code itself is unchanged). Anime4K's 2x2
+  writes are bounds-checked.
+
+**Adapted (MagpieFX engine)**
+
+- A loader for the MagpieFX format (version 4). It reads the `//!`
+  directives, generates one compute shader per pass (CS and PS styles,
+  multiple outputs, `MulAdd`, `Rmp8x8`, the `MP_*` macros) and compiles them
+  to SPIR-V at runtime with a cache. It also runs the passes with their
+  intermediate textures.
+- The red/blue swap is built into the generated shaders, at no measurable
+  cost. Only the 3 FXAA effects still need a separate swap pass.
+- 86 effects from Magpie's `src/Effects` (commit `241e0a44`) are bundled
+  unmodified under GPLv3.
+- Changing a parameter in the GUI updates the running effect without
+  recompiling it.
+
+**Shared changes**
+
+- An `effects_engine` setting, plus a GUI section with the engine selector,
+  its pros and cons and the reference timings above.
+- Fix for GPU timestamps in `Compute.dispatch_sequence`. The readback could
+  block forever, and the conversion to milliseconds was only accurate to
+  about 1 ms.
+- Spanish translations for the new GUI strings.
+
+**Verified**
+
+- All 86 bundled effects compile and run once on a 1280x720 frame: 83 with
+  dxc, and the three `Anime4K_Denoise_Bilateral_*` with glslang (dxc rejects
+  their array sizes).
+- Both engines give correct colors, checked in the running app with a
+  red/green/blue test image. Their output matches the reference
+  bit for bit.
+- Both engines were measured in the running app on their own branches, before
+  they were merged. Merging them changed none of the numbers above (measured
+  without a window).
+- Picking an engine turns the other one off. A parameter change applies in
+  about 0.02 ms without recompiling.
+- The built wheel contains the 86 effects, their license and the Native
+  shaders.
+
+**Not included**
+
+- The 31 Magpie effects that need `.dds` lookup textures: the 26 `RAVU`
+  effects, the 4 `SMAA` effects and `NIS`.
+
+**Not tested yet**
+
+- The GUI and the engine selector in the running app on the merged branch
+  (only checked without a window).
+- GPUs other than AMD RADV (NVIDIA, Intel), and sources at odd sizes on
+  drivers that do not discard out-of-range writes.
+- How the MagpieFX engine behaves on a system without `glslangValidator` (the
+  three Denoise effects should fail with a clear error).
+
+**Pending**
+
+- Reading `.dds` textures, to support RAVU, SMAA and NIS.
+- Enabling `robustImageAccess` so out-of-range writes are well defined on
+  every driver.
+- A "Measure on my GPU" button in the GUI, to replace the fixed reference
+  numbers.
+- FP16 (`//!CAPABILITY FP16`), which is currently ignored.
+- More native ports, where the effort pays off.
 
 ## Future plans
 
