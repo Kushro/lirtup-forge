@@ -621,6 +621,41 @@ Default: %(default)s.
 """,
     )
 
+    # --- MagpieFX effects ---
+    pre_processing_group.add_argument(
+        "--list-magpie-effects",
+        action="store_true",
+        help="List the bundled and user MagpieFX effects and exit.",
+    )
+    pre_processing_group.add_argument(
+        "--magpie-effect",
+        action="append",
+        default=None,
+        dest="magpie_effects",
+        metavar="NAME[:PARAM=VALUE,...]",
+        help="""Run a MagpieFX effect (Magpie's .hlsl format) on the
+frame before scaling. Repeat to chain several effects.
+
+NAME is a bundled effect (e.g. LumaSharpen, Anime4K_Upscale_S,
+CRT_Easymode), an effect in ~/.config/linux-rt-upscaler/effects,
+or a path to a .hlsl file. Parameters use the names declared
+in the effect, e.g. LumaSharpen:sharpStrength=1.2
+
+Effects are compiled at runtime with dxc (or glslangValidator).
+
+""",
+    )
+    pre_processing_group.add_argument(
+        "--magpie-profile",
+        action="store_true",
+        default=DEFAULT_CONFIG.magpie_profile,
+        dest="magpie_profile",
+        help="""Log the GPU time (ms/frame) of the MagpieFX chain every
+few seconds, measured with Vulkan timestamps.
+
+""",
+    )
+
     # ----------------------------------------------------------------------
     # Post-processing options
     # ----------------------------------------------------------------------
@@ -1191,6 +1226,11 @@ Minimum is 0.0. Default: %(default)s.""",
         sys.exit(0)
     if args.list_monitors:
         print_monitors()
+        sys.exit(0)
+    if args.list_magpie_effects:
+        from ..magpiefx import list_effects
+
+        print("\n".join(list_effects()))
         sys.exit(0)
 
     # Scan sys.argv for options that were actually typed by the user

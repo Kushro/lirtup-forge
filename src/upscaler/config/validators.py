@@ -203,6 +203,16 @@ def validate_monitor(identifier: str, _: str) -> None:
     )
 
 
+def validate_magpie_effects(value: Any, arg_name: str) -> None:
+    """Check the shape of a MagpieFX effect chain (not that effects exist)."""
+    from ..magpiefx.spec import parse_effect_chain
+
+    try:
+        parse_effect_chain(value)
+    except ValueError as e:
+        raise ConfigError(f"Invalid '{arg_name}': {e}") from None
+
+
 _VALIDATORS: Dict[str, Tuple] = {
     # Timing
     "daemon_poll_interval": (validate_number, 0.1),
@@ -219,6 +229,7 @@ _VALIDATORS: Dict[str, Tuple] = {
     "kernel_radius": (validate_number, 2, 10),
     # Pre-processing
     "deband_strength": (validate_number, 0.0, 1.0),
+    "magpie_effects": (validate_magpie_effects,),
     # Post-processing
     "cas_strength": (validate_number, 0.0, 1.0),
     "bloom_strength": (validate_number, 0.0, 1.0),

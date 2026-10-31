@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, TYPE_CHECKING
+import time
+from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from ..shaders import (
     Bloom,
@@ -20,6 +21,8 @@ from ..shaders import (
     NISScaler,
     Vignette,
 )
+from ..magpiefx import SWAP_RB_EFFECT, MagpieEffect, MagpieFXError
+from ..magpiefx.spec import EffectSpec, parse_effect_chain
 from ..utils import calculate_scaling_rect
 from ..vulkan import Texture2D, R16G16B16A16_FLOAT
 
@@ -38,6 +41,7 @@ class Presenter:
 
     The processing chain (executed in :meth:`present`):
         1. Optional debanding (uses a temporary texture).
+        1b. Optional MagpieFX effects (each one owns its output texture).
         2. Lanczos scaling.
         3. Optional contrast adaptive sharpening (CAS).
         4. Optional bloom.
@@ -146,6 +150,14 @@ class Presenter:
             self._deband = Deband()
             logger.debug("Deband pass created")
 
+        # MagpieFX chain
+        self._magpie_specs: List[EffectSpec] = []
+        self._magpie: List[MagpieEffect] = []
+        self._magpie_swap: Optional[Tuple[MagpieEffect, MagpieEffect]] = None
+        self._magpie_stats: List[List[float]] = []
+        self._magpie_stats_since = time.perf_counter()
+        self._load_magpie_effects(config)
+
         # CAS
         self._cas: Optional[CAS] = None
         if config.cas_enabled:
@@ -217,6 +229,7 @@ class Presenter:
 
         # ---- Debanding ------------------------------------------------------
         src = self._apply_deband_if_enabled(src)
+        src = self._apply_magpie_effects(src)
         self._active_source_texture = src
 
         # ---- Linearize and scale --------------------------------------------
@@ -290,6 +303,9 @@ class Presenter:
             if self._deband is not None:
                 self._deband = None
                 self._deband_tex = None
+
+        # ---- MagpieFX ----
+        self._load_magpie_effects(config)
 
         # ---- CAS ----
         if config.cas_enabled:
@@ -413,6 +429,8 @@ class Presenter:
 
         self._deband = None
         self._deband_tex = None
+        self._magpie = []
+        self._magpie_swap = None
         self._cas = None
         self._bloom = None
         self._vignette = None
@@ -531,6 +549,108 @@ class Presenter:
         )
         self._deband.dispatch_auto()
         return self._deband_tex
+
+    def _load_magpie_effects(self, config: Config) -> None:
+        """(Re)build the MagpieFX chain when the configured specs change."""
+        try:
+            specs = parse_effect_chain(config.magpie_effects or [])
+        except ValueError as e:
+            logger.error("Invalid MagpieFX configuration: %s", e)
+            specs = []
+
+        if specs == self._magpie_specs:
+            return
+        self._magpie_specs = specs
+        self._magpie = []
+        for name, params in specs:
+            try:
+                start = time.perf_counter()
+                fx = MagpieEffect.load(name, params)
+                logger.info(
+                    "MagpieFX effect '%s' loaded (%d passes, %.0f ms)",
+                    fx.desc.name,
+                    len(fx.desc.passes),
+                    (time.perf_counter() - start) * 1000,
+                )
+                self._magpie.append(fx)
+            except MagpieFXError as e:
+                logger.error("MagpieFX effect '%s' disabled: %s", name, e)
+
+        # Frames travel as BGRA bytes in R8G8B8A8 textures, MagpieFX effects
+        # expect RGBA: swap red/blue around the chain.
+        self._magpie_swap = None
+        if self._magpie:
+            try:
+                self._magpie_swap = (
+                    MagpieEffect.load(SWAP_RB_EFFECT),
+                    MagpieEffect.load(SWAP_RB_EFFECT),
+                )
+            except MagpieFXError as e:
+                logger.error("MagpieFX disabled, channel swap failed: %s", e)
+                self._magpie = []
+        self._magpie_stats = []
+        self._magpie_stats_since = time.perf_counter()
+
+    def _apply_magpie_effects(self, src: Texture2D) -> Texture2D:
+        """Run the MagpieFX chain; each effect's OUTPUT feeds the next one."""
+        if not self._magpie or self._magpie_swap is None:
+            return src
+
+        stages = [self._magpie_swap[0], *self._magpie, self._magpie_swap[1]]
+        profile = self.config.magpie_profile
+        if len(self._magpie_stats) != len(stages):
+            self._magpie_stats = [[] for _ in stages]
+
+        input_tex = src
+        for i, fx in enumerate(stages):
+            _, _, r_w, r_h = calculate_scaling_rect(
+                src.width,
+                src.height,
+                self.content_width,
+                self.content_height,
+                self.scale_mode,
+            )
+            try:
+                src = fx.process(
+                    src,
+                    (max(1, r_w), max(1, r_h)),
+                    frame_count=self._frame_counter,
+                    profile=profile,
+                )
+            except Exception as e:  # keep presenting without the effect
+                logger.error(
+                    "MagpieFX effect '%s' failed, disabling: %s", fx.desc.name, e
+                )
+                if fx in self._magpie:
+                    self._magpie.remove(fx)
+                else:
+                    self._magpie = []
+                self._magpie_stats = []
+                return input_tex
+            if profile:
+                self._magpie_stats[i].append(sum(fx.last_gpu_ms))
+
+        if profile:
+            self._log_magpie_stats(stages)
+        return src
+
+    def _log_magpie_stats(self, stages: List[MagpieEffect], interval: float = 5.0) -> None:
+        now = time.perf_counter()
+        if now - self._magpie_stats_since < interval or not self._magpie_stats[0]:
+            return
+        parts: List[Tuple[str, float]] = []
+        for fx, samples in zip(stages, self._magpie_stats):
+            samples.sort()
+            parts.append((fx.desc.name, samples[len(samples) // 2]))
+        frames = len(self._magpie_stats[0])
+        logger.info(
+            "MagpieFX GPU median over %d frames: %s | total %.3f ms/frame",
+            frames,
+            ", ".join(f"{n} {ms:.3f} ms" for n, ms in parts),
+            sum(ms for _, ms in parts),
+        )
+        self._magpie_stats = [[] for _ in stages]
+        self._magpie_stats_since = now
 
     def _apply_cas_if_enabled(self) -> None:
         if self._cas is not None and self.config.cas_enabled:

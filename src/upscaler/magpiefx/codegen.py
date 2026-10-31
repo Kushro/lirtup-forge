@@ -89,6 +89,15 @@ def _macros(desc: EffectDesc, p: EffectPass) -> List[str]:
     ]
     if p.ps_style:
         lines.append("#define MP_PS_STYLE")
+    # Explicit storage image formats; glslang does not know the attribute
+    # and infers the format from the texel type instead.
+    lines += [
+        "#ifdef __hlsl_dx_compiler",
+        "#define MP_IMAGE_FORMAT(f) [[vk::image_format(f)]]",
+        "#else",
+        "#define MP_IMAGE_FORMAT(f)",
+        "#endif",
+    ]
     # FP16 is not implemented: MF types are always 32-bit floats
     lines.append("#define MF float")
     for i in _NUMBERS:
@@ -185,7 +194,7 @@ def generate_pass_source(desc: EffectDesc, pass_index: int) -> str:
         tex = desc.textures[t]
         fmt = FORMATS[tex.format]
         decls.append(
-            f'[[vk::image_format("{fmt.spirv_format}")]] '
+            f'MP_IMAGE_FORMAT("{fmt.spirv_format}") '
             f"RWTexture2D<{fmt.uav_type}> {tex.name} : register(u{i});"
         )
     for i, s in enumerate(desc.samplers):

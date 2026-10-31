@@ -6,10 +6,11 @@ generator, :mod:`.compiler` for the runtime SPIR-V compilation and
 :mod:`.effect` for the multi-pass executor.
 """
 
-from .effect import MagpieEffect, compile_effect, find_effect, list_effects
+from .effect import SWAP_RB_EFFECT, MagpieEffect, compile_effect, find_effect, list_effects
 from .parser import EffectDesc, MagpieFXError, parse_effect
 
 __all__ = [
+    "SWAP_RB_EFFECT",
     "EffectDesc",
     "MagpieEffect",
     "MagpieFXError",

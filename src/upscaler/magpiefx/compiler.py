@@ -10,8 +10,9 @@ Two backends are supported:
   dialect, but it is less complete than dxc.
 
 The backend is chosen with the ``UPSCALER_MAGPIEFX_COMPILER`` environment
-variable (``dxc``, ``glslang`` or ``auto``, the default). The dxc binary can
-be overridden with ``DXC``.
+variable (``dxc``, ``glslang`` or ``auto``, the default: dxc first, glslang
+if dxc is missing or rejects the source). The dxc binary can be overridden
+with ``DXC``.
 
 Compiled SPIR-V is cached under ``$XDG_CACHE_HOME/linux-rt-upscaler/magpiefx``
 keyed by a SHA-256 of the generated source, include directory contents that
@@ -51,23 +52,36 @@ def _find_glslang() -> Optional[str]:
     return shutil.which("glslangValidator") or shutil.which("glslang")
 
 
-def select_backend() -> Tuple[str, str]:
-    """Return ``(backend_name, executable_path)``."""
+def select_backends() -> List[Tuple[str, str]]:
+    """
+    Return the ``(backend_name, executable_path)`` pairs to try, in order.
+
+    In ``auto`` mode dxc comes first and glslang is kept as a fallback for
+    sources dxc rejects (e.g. fxc-only constant folding in array sizes).
+    """
     wanted = os.environ.get("UPSCALER_MAGPIEFX_COMPILER", "auto").lower()
-    dxc = _find_dxc() if wanted in ("auto", "dxc") else None
-    if dxc:
-        return "dxc", dxc
-    if wanted == "dxc":
+    found: List[Tuple[str, str]] = []
+    if wanted in ("auto", "dxc"):
+        dxc = _find_dxc()
+        if dxc:
+            found.append(("dxc", dxc))
+        elif wanted == "dxc":
+            raise MagpieFXError(
+                "dxc requested but not found "
+                "(install 'directx-shader-compiler' or set DXC)"
+            )
+    if wanted in ("auto", "glslang"):
+        glslang = _find_glslang()
+        if glslang:
+            found.append(("glslang", glslang))
+        elif wanted == "glslang":
+            raise MagpieFXError("glslangValidator requested but not found")
+    if not found:
         raise MagpieFXError(
-            "dxc requested but not found (install 'directx-shader-compiler' or set DXC)"
+            "No HLSL compiler found: install dxc ('directx-shader-compiler') "
+            "or glslangValidator"
         )
-    glslang = _find_glslang() if wanted in ("auto", "glslang") else None
-    if glslang:
-        return "glslang", glslang
-    raise MagpieFXError(
-        "No HLSL compiler found: install dxc ('directx-shader-compiler') "
-        "or glslangValidator"
-    )
+    return found
 
 
 def _command(
@@ -159,7 +173,27 @@ def compile_hlsl(
     Raises:
         MagpieFXError: with the compiler's diagnostics if compilation fails.
     """
-    backend, exe = select_backend()
+    errors: List[str] = []
+    for backend, exe in select_backends():
+        try:
+            spirv = _compile_with(backend, exe, source, name, include_dir, use_cache)
+        except MagpieFXError as e:
+            errors.append(str(e))
+            continue
+        if errors:
+            logger.warning("%s: dxc failed, compiled with %s instead", name, backend)
+        return spirv
+    raise MagpieFXError("\n".join(errors))
+
+
+def _compile_with(
+    backend: str,
+    exe: str,
+    source: str,
+    name: str,
+    include_dir: Optional[str],
+    use_cache: bool,
+) -> bytes:
     probe = _command(backend, exe, "SRC", "OUT", include_dir)
 
     key = hashlib.sha256()

@@ -10,11 +10,11 @@ iterations is reported. The OUTPUT of the last run is saved as a PNG.
 
 Usage:
     python scripts/magpiefx-bench.py IMAGE EFFECT [EFFECT...] \
-        [--target 3840x2160] [--iters 200] [--out DIR] [--param EFFECT:name=value]
+        [--resize 1280x720] [--target 3840x2160] [--iters 200] [--out DIR] [--param EFFECT:name=value]
 
 Example:
     python scripts/magpiefx-bench.py docs/assets/comparisons/fatamoru/original.png \
-        LumaSharpen Anime4K_Upscale_S CRT_Easymode --target 2560x1440
+        LumaSharpen Anime4K_Upscale_S CRT_Easymode --resize 1280x720 --target 2560x1440
 """
 
 import argparse
@@ -33,6 +33,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("image")
     ap.add_argument("effects", nargs="+")
+    ap.add_argument("--resize", default=None, help="WxH to resize the input image to (Lanczos) before uploading")
     ap.add_argument("--target", default=None, help="WxH for effects without fixed OUTPUT size (default: input size)")
     ap.add_argument("--iters", type=int, default=200)
     ap.add_argument("--warmup", type=int, default=20)
@@ -41,6 +42,8 @@ def main() -> int:
     args = ap.parse_args()
 
     img = Image.open(args.image).convert("RGBA")
+    if args.resize:
+        img = img.resize(tuple(int(v) for v in args.resize.split("x")), Image.LANCZOS)
     w, h = img.size
     target = tuple(int(v) for v in args.target.split("x")) if args.target else (w, h)
 

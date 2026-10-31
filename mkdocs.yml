@@ -59,6 +59,7 @@ nav:
       - Command-Line Interface (CLI): user/cli.md
       - Controls: user/controls.md
       - Configuration: user/configuration.md
+      - MagpieFX Effects: user/magpiefx.md
   - API Reference:
       - API Overview: api/overview.md
       - Classes:

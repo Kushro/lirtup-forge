@@ -39,6 +39,9 @@ logger = logging.getLogger(__name__)
 # Effects bundled with the package (copied from Magpie, GPLv3)
 BUILTIN_EFFECTS_DIR = os.path.join(os.path.dirname(__file__), "effects")
 
+# Internal helper effect that swaps red and blue (BGRA <-> RGBA)
+SWAP_RB_EFFECT = os.path.join(os.path.dirname(__file__), "internal", "SwapRB.hlsl")
+
 
 def find_effect(name_or_path: str) -> str:
     """

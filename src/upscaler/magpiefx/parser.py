@@ -292,8 +292,8 @@ def _resolve_texture(desc: EffectDesc, lines: List[str], idx: int) -> None:
 
     if ("WIDTH" in seen) != ("HEIGHT" in seen):
         raise MagpieFXError(f"Texture #{idx}: WIDTH and HEIGHT must come in pairs")
-    if "SOURCE" in seen and ("WIDTH" in seen or "FORMAT" in seen):
-        raise MagpieFXError(f"Texture #{idx}: SOURCE excludes WIDTH/HEIGHT/FORMAT")
+    if "SOURCE" in seen and "WIDTH" in seen:
+        raise MagpieFXError(f"Texture #{idx}: SOURCE excludes WIDTH/HEIGHT")
 
     m = _DECL_RE.match(code)
     if not m or m.group(1) != "Texture2D":

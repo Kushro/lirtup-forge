@@ -92,6 +92,10 @@ class Config:
         kernel_radius: Override automatic Lanczos radius.
         deband_enabled: If True, apply debanding before scaling.
         deband_strength: Debanding intensity.
+        magpie_effects: Chain of MagpieFX effects run on the frame before
+            scaling. Items are "Name", "Name:param=value,..." or
+            {"name": ..., "params": {...}}; names may also be .hlsl paths.
+        magpie_profile: If True, log the GPU time of the MagpieFX chain.
         cas_enabled: If True, apply Contrast Adaptive Sharpening.
         cas_strength: CAS intensity.
         bloom_enabled: If True, apply bloom.
@@ -186,6 +190,10 @@ class Config:
     # Debanding
     deband_enabled: bool = False
     deband_strength: float = 0.3
+
+    # MagpieFX effects
+    magpie_effects: List[Any] = field(default_factory=list)
+    magpie_profile: bool = False
 
     # Contrast Adaptive Sharpening
     cas_enabled: bool = False
