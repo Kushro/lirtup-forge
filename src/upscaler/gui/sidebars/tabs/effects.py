@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer
@@ -19,8 +20,18 @@ from ...styles import (
     setting_label_style,
 )
 from ....magpiefx import MagpieFXError, find_effect, list_effects, parse_effect
+from ....magpiefx.effect import BUILTIN_EFFECTS_DIR
 from ....magpiefx.spec import parse_effect_chain
 from ....shaders import LUT_PRESETS
+
+def _bundled_effect_count() -> int:
+    """Number of MagpieFX effects shipped with the package."""
+    return sum(
+        f.endswith(".hlsl")
+        for _, _, files in os.walk(BUILTIN_EFFECTS_DIR)
+        for f in files
+    )
+
 
 # Reference GPU times (ms/frame) of the effects available in both engines:
 # headless, 1280x720 input, 2560x1440 target, AMD RX 9070 XT (RADV), dxc.
@@ -475,9 +486,10 @@ class EffectsTab(SettingsTab):
             pros = [
                 self.tr("Runs Magpie's .hlsl effects unmodified", "Magpie engine pro"),
                 self.tr(
-                    "More effects, plus your own in ~/.config/linux-rt-upscaler/effects",
+                    "{0} effects from Magpie, plus your own in "
+                    "~/.config/linux-rt-upscaler/effects",
                     "Magpie engine pro",
-                ),
+                ).format(_bundled_effect_count()),
                 self.tr("Controls generated from each effect", "Magpie engine pro"),
             ]
             cons = [

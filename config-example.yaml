@@ -254,8 +254,9 @@ effects_engine: native
 
 # --- MagpieFX effects ---
 # Chain of effects written in Magpie's MagpieFX format, run after debanding
-# and before the final scaler. Each entry is a bundled effect name
-# (LumaSharpen, Anime4K_Upscale_S, CRT_Easymode), an effect placed in
+# and before the final scaler. Each entry is one of the 86 bundled effect
+# names (e.g. LumaSharpen, Anime4K_Upscale_S, CRT_Easymode, ACNet, CRT_Geom;
+# see `upscale --list-magpie-effects`), an effect placed in
 # ~/.config/linux-rt-upscaler/effects, or a path to a .hlsl file. Parameters
 # use the names declared in the effect (see its //!PARAMETER blocks).
 # Effects are compiled at runtime with dxc (or glslangValidator) and cached

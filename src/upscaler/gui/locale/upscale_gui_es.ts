@@ -823,9 +823,9 @@ Predeterminado: 0.30.</translation>
             <translation>Ejecuta los efectos .hlsl de Magpie sin modificarlos</translation>
         </message>
         <message>
-            <source>More effects, plus your own in ~/.config/linux-rt-upscaler/effects</source>
+            <source>{0} effects from Magpie, plus your own in ~/.config/linux-rt-upscaler/effects</source>
             <comment>Magpie engine pro</comment>
-            <translation>Más efectos, y los tuyos en ~/.config/linux-rt-upscaler/effects</translation>
+            <translation>{0} efectos de Magpie, y los tuyos en ~/.config/linux-rt-upscaler/effects</translation>
         </message>
         <message>
             <source>Controls generated from each effect</source>

@@ -8,5 +8,6 @@ recursive-include src/upscaler/vulkan/lib *.cpp *.h
 prune docs
 prune scripts
 prune src/upscaler/srcnn/**/*.hlsl
-prune src/upscaler/shaders/**/*.hlslrecursive-include src/upscaler/magpiefx/effects *.hlsl *.hlsli *.md LICENSE-Magpie
+prune src/upscaler/shaders/**/*.hlsl
+recursive-include src/upscaler/magpiefx/effects *.hlsl *.hlsli *.md LICENSE-Magpie
 recursive-include src/upscaler/magpiefx/internal *.hlsl

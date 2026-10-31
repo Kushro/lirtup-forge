@@ -18,7 +18,7 @@ in the GUI's Effects tab):
 
 | | Native | MagpieFX |
 |---|---|---|
-| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | Bundled ones plus any MagpieFX `.hlsl` you add |
+| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | 86 bundled from Magpie, plus any MagpieFX `.hlsl` you add |
 | Loading | Precompiled, instant | Compiled on first load, then cached |
 | Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
 | Settings | `anime4k_enabled`, `luma_sharpen_*`, `crt_*` | `magpie_effects` chain |
@@ -49,7 +49,10 @@ pays the compile time.
 
 ## Choosing effects
 
-Bundled effects: `LumaSharpen`, `Anime4K_Upscale_S`, `CRT_Easymode`. Any
+The package bundles the 86 effects of Magpie's `src/Effects` that do not need
+`.dds` lookup textures: Anime4K, ACNet, ArtCNN, CuNNy2, FSRCNNX, NNEDI3,
+k7_modernAnime, the CRT and pixel-art families, FSR, CAS, FXAA, xBRZ, the
+classic scalers and more (`upscale --list-magpie-effects` prints them). Any
 other MagpieFX effect can be copied to `~/.config/linux-rt-upscaler/effects/`
 (with the `.hlsli` files it includes) or given as a path.
 
@@ -103,8 +106,10 @@ store to `OUTPUT`), at no measurable cost. Effects that pass `INPUT` or
 ## Limitations
 
 - `//!SOURCE` textures (lookup tables loaded from `.dds` files, used by
-  RAVU, SMAA and NIS) are not supported yet; those effects fail with a clear
-  error.
+  RAVU, SMAA and NIS) are not supported yet, so those 31 effects are not
+  bundled; copied by hand they fail with a clear error.
+- `Anime4K_Denoise_Bilateral_*` do not compile with dxc (it rejects their
+  array sizes); they need `glslangValidator` installed as the fallback.
 - FP16 (`//!CAPABILITY FP16`) is ignored: `MF` types are always 32-bit floats.
 - With the glslang backend, storage image formats are inferred from the
   HLSL texel type instead of being declared explicitly.

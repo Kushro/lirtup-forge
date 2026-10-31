@@ -61,6 +61,13 @@ where = ["src"]
 [tool.setuptools.package-data]
 "upscaler.capture" = ["lib/*.c", "lib/*.h"]
 "upscaler.gui.icons" = ["*.svg", "**/*.svg"]
+"upscaler.magpiefx" = [
+    "effects/**/*.hlsl",
+    "effects/**/*.hlsli",
+    "effects/*.md",
+    "effects/LICENSE-Magpie",
+    "internal/*.hlsl",
+]
 "upscaler.shaders" = ["**/*.spv"]
 "upscaler.srcnn" = ["**/*.json", "**/*.spv"]
 "upscaler.vulkan" = ["lib/*.cpp", "lib/*.h"]

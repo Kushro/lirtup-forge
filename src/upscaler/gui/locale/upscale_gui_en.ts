@@ -785,7 +785,7 @@ Default: 0.30.</source>
       <translation type="unfinished" />
     </message>
     <message>
-      <source>More effects, plus your own in ~/.config/linux-rt-upscaler/effects</source>
+      <source>{0} effects from Magpie, plus your own in ~/.config/linux-rt-upscaler/effects</source>
       <comment>Magpie engine pro</comment>
       <translation type="unfinished" />
     </message>
