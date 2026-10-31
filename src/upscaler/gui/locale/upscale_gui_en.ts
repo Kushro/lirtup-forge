@@ -9,12 +9,6 @@
       <translation type="unfinished" />
     </message>
     <message>
-      <location filename="../dialogs/about.py" line="107" />
-      <source>Real-Time Upscaler</source>
-      <comment>Name of the application</comment>
-      <translation type="unfinished" />
-    </message>
-    <message>
       <location filename="../dialogs/about.py" line="114" />
       <source>Version {0}</source>
       <comment>Version of the upscaler</comment>
@@ -22,8 +16,9 @@
     </message>
     <message>
       <location filename="../dialogs/about.py" line="122" />
-      <source>A real-time SRCNN upscaler for any X-Window on GNU/Linux.</source>
-      <comment>Description of the upscaler</comment>
+      <source>A real-time SRCNN upscaler for any X-Window on GNU/Linux.
+Fork of {0} by baronsmv.</source>
+      <comment>Description of the upscaler; {0} is the original project&apos;s name</comment>
       <translation type="unfinished" />
     </message>
     <message>
@@ -1262,12 +1257,6 @@ Turn off to manually select a window from the grid.</source>
   <context>
     <name>MainWindow</name>
     <message>
-      <location filename="../main.py" line="96" />
-      <source>Real-Time Upscaler</source>
-      <comment>Name of the application</comment>
-      <translation type="unfinished" />
-    </message>
-    <message>
       <location filename="../main.py" line="155" />
       <source>Enable/disable system tray</source>
       <comment>Tray toggle button</comment>
@@ -1275,8 +1264,8 @@ Turn off to manually select a window from the grid.</source>
     </message>
     <message>
       <location filename="../main.py" line="167" />
-      <source>About Real-Time Upscaler</source>
-      <comment>About dialog button</comment>
+      <source>About {0}</source>
+      <comment>About dialog button; {0} is the app name</comment>
       <translation type="unfinished" />
     </message>
     <message>
@@ -2611,13 +2600,6 @@ Lower values result in smoother previews but use more CPU.</source>
   </context>
   <context>
     <name>TrayController</name>
-    <message>
-      <location filename="../helpers/tray.py" line="409" />
-      <location filename="../helpers/tray.py" line="73" />
-      <source>Real-Time Upscaler</source>
-      <comment>Name of the application</comment>
-      <translation type="unfinished" />
-    </message>
     <message>
       <location filename="../helpers/tray.py" line="219" />
       <source>Unknown</source>

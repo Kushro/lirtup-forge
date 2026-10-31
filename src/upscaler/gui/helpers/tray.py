@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from ..icons import load_icon
+from ...identity import APP_NAME
 from ...window import get_window_icon, list_windows, WindowInfo
 
 if TYPE_CHECKING:
@@ -69,9 +70,7 @@ class TrayController(QObject):
 
         # Create the tray icon
         self.tray_icon = QSystemTrayIcon(load_icon("app/app", 64, 64), self)
-        self.tray_icon.setToolTip(
-            self.tr("Real-Time Upscaler", "Name of the application")
-        )
+        self.tray_icon.setToolTip(APP_NAME)
 
         # Build a persistent QMenu; its contents are refreshed as needed
         self._menu = QMenu()
@@ -406,7 +405,7 @@ class TrayController(QObject):
             )
 
         self.tray_icon.showMessage(
-            self.tr("Real-Time Upscaler", "Name of the application"),
+            APP_NAME,
             message,
             QSystemTrayIcon.MessageIcon.Information,
             5000,

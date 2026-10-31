@@ -2,7 +2,7 @@
 
 # Configuration
 APP_NAME="io.github.baronsmv.linux-rt-upscaler"
-DATA_URL="https://raw.githubusercontent.com/baronsmv/linux-rt-upscaler/refs/heads/main/data"
+DATA_URL="https://raw.githubusercontent.com/Kushro/lirtup-forge/refs/heads/main/data"
 DATA_DIR="$HOME/.local/share"
 
 DESKTOP_PATH="applications"
@@ -49,6 +49,6 @@ chmod 644 "$DESKTOP_FILE"
 
 echo
 echo "Desktop integration complete:"
-echo "Name of the app: 'Real-Time Upscaler'"
+echo "Name of the app: 'LirtUp Forge'"
 echo "Desktop file: '$DESKTOP_FILE'"
 echo "Icon file: '$ICON_FILE'"

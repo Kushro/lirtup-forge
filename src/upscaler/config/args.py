@@ -6,6 +6,7 @@ import sys
 from importlib.metadata import version, PackageNotFoundError
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..identity import APP_NAME, REPO_URL, UPSTREAM_NAME
 from .listing import print_devices, print_monitors, print_windows
 from .logging import setup_logging
 from .models import (
@@ -93,9 +94,10 @@ def get_version() -> str:
 def parse_args() -> Tuple[Dict, Optional[str], Optional[str]]:
     """Parse command line arguments and return (args, profile_name, config_path)."""
     parser = argparse.ArgumentParser(
-        description="Real-Time Upscaler for Linux",
+        description=f"{APP_NAME}: real-time upscaler for Linux "
+        f"(fork of {UPSTREAM_NAME}).",
         add_help=False,
-        epilog="See source code for details: https://github.com/baronsmv/linux-rt-upscaler.",
+        epilog=f"See source code for details: {REPO_URL}.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser._positionals.title = "POSITIONAL ARGUMENTS"

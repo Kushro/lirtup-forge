@@ -379,7 +379,7 @@ class AboutLayout:
     """
 
     width: int = 480
-    height: int = 400
+    height: int = 460
     padding_h: int = 32
     padding_top: int = 28
     padding_bottom: int = 24

@@ -2,13 +2,19 @@
   <img src="https://raw.githubusercontent.com/baronsmv/linux-rt-upscaler/main/data/icons/hicolor/scalable/apps/io.github.baronsmv.linux-rt-upscaler.svg" width="128" alt="icon">
 </p>
 
-<h1 align="center">Real-Time Upscaler for Linux</h1>
+<h1 align="center">LirtUp Forge</h1>
 
 <p align="center">
-  <a href="https://pypi.org/project/linux-rt-upscaler/"><img src="https://img.shields.io/pypi/v/linux-rt-upscaler.svg" alt="PyPI version"></a>
-  <a href="https://pypi.org/project/linux-rt-upscaler/"><img src="https://img.shields.io/pypi/pyversions/linux-rt-upscaler.svg" alt="Python versions"></a>
   <a href="https://www.gnu.org/licenses/gpl-3.0"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPLv3"></a>
 </p>
+
+<p align="center">
+  A fork of <a href="https://github.com/baronsmv/linux-rt-upscaler">Linux Real-Time Upscaler</a> by <a href="https://github.com/baronsmv">baronsmv</a>.
+</p>
+
+**LirtUp** = **Li**nux **R**eal-**T**ime **Up**scaler. This fork adds the
+[Magpie effects](#magpie-effects): you can run them on a few hand-ported
+shaders or on 86 of Magpie's effects loaded unmodified.
 
 A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It uses [CuNNy](https://github.com/funnyplanter/CuNNy) neural networks to perform 2x (or 4x) upscaling to full screen while preserving aspect ratio. Mouse clicks and motion are automatically forwarded to the original window.
 
@@ -40,17 +46,26 @@ A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It u
 
 ## Installation
 
-Install with `pipx`:
+LirtUp Forge is not published on PyPI (`pipx install linux-rt-upscaler`
+installs the original project). Install it from this repository with `pipx`:
 
 ```sh
-pipx install linux-rt-upscaler
+pipx install git+https://github.com/Kushro/lirtup-forge
 ```
 
-For detailed installation instructions, including how to install `pipx`, see the [Installation Guide](https://baronsmv.github.io/linux-rt-upscaler/user/installation/).
+This builds the native Vulkan and capture extensions, so you need a C++
+compiler and the Vulkan and XCB development headers. The MagpieFX engine also
+needs `dxc` (`directx-shader-compiler`) or `glslangValidator` at runtime.
+For the other dependencies and how to install `pipx`, see the original
+[Installation Guide](https://baronsmv.github.io/linux-rt-upscaler/user/installation/).
 
 After installation, the `upscale` and `upscale-gui` commands will be available globally. You can also create a [desktop entry](https://baronsmv.github.io/linux-rt-upscaler/user/installation/#desktop-integration-optional) of the GUI for easy access. 
 
 ## Guides and Docs
+
+The guides of the original project apply to LirtUp Forge, except for the
+Magpie effects, which are documented [here](#magpie-effects).
+
 
 - [Home](https://baronsmv.github.io/linux-rt-upscaler/)
 - [Installation](https://baronsmv.github.io/linux-rt-upscaler/user/installation/)
@@ -168,6 +183,9 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
 ## Acknowledgments
 
 This project stands on the shoulders of several open-source works, mantained by amazing people:
+
+- **[baronsmv](https://github.com/baronsmv)**, author of [Linux Real-Time Upscaler](https://github.com/baronsmv/linux-rt-upscaler), the project LirtUp Forge is forked from.
+- **[Blinue](https://github.com/Blinue)** and the contributors of [Magpie](https://github.com/Blinue/Magpie), whose MagpieFX format and effects are bundled here (GPLv3), and the authors of each effect, credited in its source.
 
 - **[L65536](https://github.com/L65536)**, for the original [RealTimeSuperResolutionScreenUpscalerforLinux](https://github.com/L65536/RealTimeSuperResolutionScreenUpscalerforLinux), which demonstrated the feasibility of real-time SRCNN upscaling on Linux and served as a proof-of-concept for this project.
 - **[funnyplanter](https://github.com/funnyplanter)**, for the incredible [CuNNy](https://github.com/funnyplanter/CuNNy) neural network upscaling models.

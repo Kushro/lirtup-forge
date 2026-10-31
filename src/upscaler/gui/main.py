@@ -27,6 +27,7 @@ from .config import (
 )
 from .dialogs import AboutDialog, confirm_pending_changes
 from .grid import FilterBar, WindowGridScene, WindowGridView
+from ..identity import APP_NAME
 from .helpers import DaemonController, ProfileActions, TrayController, WindowGridManager
 from .icons import load_icon
 from .sidebars import ProfilesSidebar, SettingsSidebar
@@ -93,7 +94,7 @@ class MainWindow(QMainWindow):
         os.makedirs(self._icons_dir, exist_ok=True)
 
         # Window properties
-        self.setWindowTitle(self.tr("Real-Time Upscaler", "Name of the application"))
+        self.setWindowTitle(APP_NAME)
         self.setMinimumSize(1200, 600)
 
         # Setup UI
@@ -164,7 +165,9 @@ class MainWindow(QMainWindow):
         # About button
         self.about_btn = self._make_circular_button(
             "actions/about",
-            self.tr("About Real-Time Upscaler", "About dialog button"),
+            self.tr("About {0}", "About dialog button; {0} is the app name").format(
+                APP_NAME
+            ),
         )
         self.about_btn.clicked.connect(self._show_about_dialog)
         filter_row.addWidget(self.about_btn)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Callable, Dict, List, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -22,22 +22,27 @@ from ..styles import (
     about_dialog_version_style,
 )
 from ...config import get_version
+from ...identity import APP_NAME, DOCS_URL, REPO_URL, UPSTREAM_NAME, UPSTREAM_URL
 
 if TYPE_CHECKING:
     from .. import GUIConfig
 
 
 LINKS = {
-    "GitHub": "https://github.com/baronsmv/linux-rt-upscaler",
-    "Docs": "https://baronsmv.github.io/linux-rt-upscaler/",
+    "GitHub": REPO_URL,
+    "Upstream": UPSTREAM_URL,
+    "Docs": DOCS_URL,
 }
 
 
-def _separate_labels(label_list: List[QLabel], sep: QLabel) -> List[QLabel]:
+def _separate_labels(
+    label_list: List[QLabel], make_sep: Callable[[], QLabel]
+) -> List[QLabel]:
+    # A widget can sit in a layout only once, so each gap gets its own separator
     result = []
     for i, item in enumerate(label_list):
         if i:
-            result.append(sep)
+            result.append(make_sep())
         result.append(item)
     return result
 
@@ -57,13 +62,15 @@ def _links_layout(links: Dict[str, str], gui_config: GUIConfig) -> QHBoxLayout:
         label_list.append(link)
 
     # Links separator
-    sep = QLabel("|")
-    sep.setAlignment(Qt.AlignCenter)
-    sep.setStyleSheet(about_dialog_link_style(gui_config))
+    def make_sep() -> QLabel:
+        sep = QLabel("|")
+        sep.setAlignment(Qt.AlignCenter)
+        sep.setStyleSheet(about_dialog_link_style(gui_config))
+        return sep
 
     # Links layout
     links_layout = QHBoxLayout()
-    for label in _separate_labels(label_list, sep):
+    for label in _separate_labels(label_list, make_sep):
         links_layout.addWidget(label)
     links_layout.setSpacing(gui_config.about.link_spacing)
     links_layout.setAlignment(Qt.AlignCenter)
@@ -104,7 +111,7 @@ class AboutDialog(QDialog):
         layout.addLayout(icon_container)
 
         # App name
-        name = QLabel(self.tr("Real-Time Upscaler", "Name of the application"))
+        name = QLabel(APP_NAME)
         name.setAlignment(Qt.AlignCenter)
         name.setStyleSheet(about_dialog_name_style(gui_config))
         layout.addWidget(name)
@@ -120,9 +127,10 @@ class AboutDialog(QDialog):
         # Description
         desc = QLabel(
             self.tr(
-                "A real-time SRCNN upscaler for any X-Window on GNU/Linux.",
-                "Description of the upscaler",
-            )
+                "A real-time SRCNN upscaler for any X-Window on GNU/Linux.\n"
+                "Fork of {0} by baronsmv.",
+                "Description of the upscaler; {0} is the original project's name",
+            ).format(UPSTREAM_NAME)
         )
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignCenter)

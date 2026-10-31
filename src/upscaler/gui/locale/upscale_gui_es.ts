@@ -9,12 +9,6 @@
         <translation>Acerca de</translation>
     </message>
     <message>
-        <location filename="../dialogs/about.py" line="107"/>
-        <source>Real-Time Upscaler</source>
-        <comment>Name of the application</comment>
-        <translation>Escalador en Tiempo Real</translation>
-    </message>
-    <message>
         <location filename="../dialogs/about.py" line="114"/>
         <source>Version {0}</source>
         <comment>Version of the upscaler</comment>
@@ -22,9 +16,11 @@
     </message>
     <message>
         <location filename="../dialogs/about.py" line="122"/>
-        <source>A real-time SRCNN upscaler for any X-Window on GNU/Linux.</source>
-        <comment>Description of the upscaler</comment>
-        <translation>Un escalador SRCNN en tiempo real para cualquier ventana X en GNU/Linux.</translation>
+        <source>A real-time SRCNN upscaler for any X-Window on GNU/Linux.
+Fork of {0} by baronsmv.</source>
+        <comment>Description of the upscaler; {0} is the original project&apos;s name</comment>
+        <translation>Un escalador SRCNN en tiempo real para cualquier ventana X en GNU/Linux.
+Fork de {0} por baronsmv.</translation>
     </message>
     <message>
         <location filename="../dialogs/about.py" line="137"/>
@@ -1315,12 +1311,6 @@ Desactive esta opción para seleccionar manualmente una ventana de la cuadrícul
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../main.py" line="96"/>
-        <source>Real-Time Upscaler</source>
-        <comment>Name of the application</comment>
-        <translation>Escalador en Tiempo Real</translation>
-    </message>
-    <message>
         <location filename="../main.py" line="155"/>
         <source>Enable/disable system tray</source>
         <comment>Tray toggle button</comment>
@@ -1328,9 +1318,9 @@ Desactive esta opción para seleccionar manualmente una ventana de la cuadrícul
     </message>
     <message>
         <location filename="../main.py" line="167"/>
-        <source>About Real-Time Upscaler</source>
-        <comment>About dialog button</comment>
-        <translation>Acerca de Escalador en Tiempo Real.</translation>
+        <source>About {0}</source>
+        <comment>About dialog button; {0} is the app name</comment>
+        <translation>Acerca de {0}</translation>
     </message>
     <message>
         <location filename="../main.py" line="417"/>
@@ -2703,13 +2693,6 @@ Lower values result in smoother previews but use more CPU.</source>
 </context>
 <context>
     <name>TrayController</name>
-    <message>
-        <location filename="../helpers/tray.py" line="409"/>
-        <location filename="../helpers/tray.py" line="73"/>
-        <source>Real-Time Upscaler</source>
-        <comment>Name of the application</comment>
-        <translation>Escalador en Tiempo Real</translation>
-    </message>
     <message>
         <location filename="../helpers/tray.py" line="219"/>
         <source>Unknown</source>

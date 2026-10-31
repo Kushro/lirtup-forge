@@ -12,6 +12,7 @@ import time
 from PySide6.QtWidgets import QApplication
 
 from .config import setup_config
+from .identity import APP_NAME
 from .pipeline import create_pipeline_session
 from .utils import ConfigError, WindowNotFound
 from .window import WindowInfo
@@ -43,7 +44,7 @@ def main() -> None:
     # Create the Qt application
     app = QApplication([])
     app.setApplicationName("upscaler-overlay")
-    app.setApplicationDisplayName("Upscaler Overlay")
+    app.setApplicationDisplayName(f"{APP_NAME} Overlay")
     logger.debug("Qt application initialized")
 
     # Launch pipeline session
