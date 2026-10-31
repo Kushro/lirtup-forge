@@ -39,6 +39,9 @@ OUTPUT_GEOMETRIES = ("fit", "stretch", "cover")
 ZOOM_LEVELS = tuple(f"{level}%" for level in range(50, 801, 25))
 
 
+EFFECTS_ENGINES = ("native", "magpiefx")
+
+
 class OverlayMode(str, Enum):
     """Overlay window behavior modes."""
 
@@ -92,6 +95,13 @@ class Config:
         kernel_radius: Override automatic Lanczos radius.
         deband_enabled: If True, apply debanding before scaling.
         deband_strength: Debanding intensity.
+        effects_engine: Engine for the Magpie effects: "native" (the
+            hand-ported anime4k/luma_sharpen/crt passes) or "magpiefx" (the
+            magpie_effects chain). Only the selected engine runs.
+        magpie_effects: Chain of MagpieFX effects run on the frame before
+            scaling. Items are "Name", "Name:param=value,..." or
+            {"name": ..., "params": {...}}; names may also be .hlsl paths.
+        magpie_profile: If True, log the GPU time of the MagpieFX chain.
         cas_enabled: If True, apply Contrast Adaptive Sharpening.
         cas_strength: CAS intensity.
         bloom_enabled: If True, apply bloom.
@@ -108,6 +118,14 @@ class Config:
         grain_enabled: If True, apply film grain.
         grain_strength: Film grain intensity.
         grain_size: Apparent particle size.
+        anime4k_enabled: If True, apply Anime4K_Upscale_S (2x) before scaling.
+        luma_sharpen_enabled: If True, apply LumaSharpen before scaling.
+        luma_sharpen_strength: LumaSharpen strength.
+        luma_sharpen_clamp: LumaSharpen maximum sharpening per pixel.
+        luma_sharpen_pattern: LumaSharpen sample pattern (0-3).
+        luma_sharpen_offset_bias: LumaSharpen sample pattern radius.
+        crt_enabled: If True, render the content with CRT-Easymode.
+        crt_*: CRT-Easymode parameters (see Magpie's CRT_Easymode).
         gpu: GPU selection identifier.
         monitor: Monitor to cover ('primary', 'all', name, or index).
         scale_factor: Manual scale factor override.
@@ -187,6 +205,13 @@ class Config:
     deband_enabled: bool = False
     deband_strength: float = 0.3
 
+    # Magpie effects engine ("native" or "magpiefx")
+    effects_engine: str = "native"
+
+    # MagpieFX effects
+    magpie_effects: List[Any] = field(default_factory=list)
+    magpie_profile: bool = False
+
     # Contrast Adaptive Sharpening
     cas_enabled: bool = False
     cas_strength: float = 0.4
@@ -213,6 +238,38 @@ class Config:
     grain_enabled: bool = False
     grain_strength: float = 0.15
     grain_size: float = 1.0
+
+    # Magpie effects (ported by hand, applied at source resolution before
+    # scaling, in this order: Anime4K -> LumaSharpen -> CRT-Easymode)
+    # Anime4K_Upscale_S (2x CNN, no parameters)
+    anime4k_enabled: bool = False
+
+    # LumaSharpen
+    luma_sharpen_enabled: bool = False
+    luma_sharpen_strength: float = 0.65
+    luma_sharpen_clamp: float = 0.035
+    luma_sharpen_pattern: int = 1
+    luma_sharpen_offset_bias: float = 1.0
+
+    # CRT-Easymode (replaces the final scaler)
+    crt_enabled: bool = False
+    crt_sharpness_h: float = 0.5
+    crt_sharpness_v: float = 1.0
+    crt_mask_strength: float = 0.3
+    crt_mask_dot_width: int = 1
+    crt_mask_dot_height: int = 1
+    crt_mask_stagger: int = 0
+    crt_mask_size: int = 1
+    crt_scanline_strength: float = 1.0
+    crt_scanline_beam_width_min: float = 1.5
+    crt_scanline_beam_width_max: float = 1.5
+    crt_scanline_bright_min: float = 0.35
+    crt_scanline_bright_max: float = 0.65
+    crt_scanline_cutoff: int = 400
+    crt_gamma_input: float = 2.0
+    crt_gamma_output: float = 1.8
+    crt_bright_boost: float = 1.2
+    crt_dilation: int = 1
 
     # GPU
     gpu: Optional[str] = None

@@ -9,12 +9,6 @@
         <translation>Acerca de</translation>
     </message>
     <message>
-        <location filename="../dialogs/about.py" line="107"/>
-        <source>Real-Time Upscaler</source>
-        <comment>Name of the application</comment>
-        <translation>Escalador en Tiempo Real</translation>
-    </message>
-    <message>
         <location filename="../dialogs/about.py" line="114"/>
         <source>Version {0}</source>
         <comment>Version of the upscaler</comment>
@@ -22,9 +16,11 @@
     </message>
     <message>
         <location filename="../dialogs/about.py" line="122"/>
-        <source>A real-time SRCNN upscaler for any X-Window on GNU/Linux.</source>
-        <comment>Description of the upscaler</comment>
-        <translation>Un escalador SRCNN en tiempo real para cualquier ventana X en GNU/Linux.</translation>
+        <source>A real-time SRCNN upscaler for any X-Window on GNU/Linux.
+Fork of {0} by baronsmv.</source>
+        <comment>Description of the upscaler; {0} is the original project&apos;s name</comment>
+        <translation>Un escalador SRCNN en tiempo real para cualquier ventana X en GNU/Linux.
+Fork de {0} por baronsmv.</translation>
     </message>
     <message>
         <location filename="../dialogs/about.py" line="137"/>
@@ -695,6 +691,173 @@ Valores más altos producen un grano más grueso y visible.</translation>
         <comment>Description of a setting (tooltip)</comment>
         <translation>Mezcla entre la imagen original y la gradación de color.</translation>
     </message>
+        <message>
+            <source>Reference GPU time in ms/frame (720p to 1440p, RX 9070 XT).</source>
+            <comment>Benchmark table caption</comment>
+            <translation>Tiempo de GPU de referencia en ms por fotograma (720p a 1440p, RX 9070 XT).</translation>
+        </message>
+        <message>
+            <source>Magpie effects</source>
+            <comment>Settings section</comment>
+            <translation>Efectos de Magpie</translation>
+        </message>
+        <message>
+            <source>Native</source>
+            <comment>Magpie effects engine</comment>
+            <translation>Nativo</translation>
+        </message>
+        <message>
+            <source>MagpieFX</source>
+            <comment>Magpie effects engine</comment>
+            <translation>MagpieFX</translation>
+        </message>
+        <message>
+            <source>Engine</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Motor</translation>
+        </message>
+        <message>
+            <source>Enable Anime4K</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Habilitar Anime4K</translation>
+        </message>
+        <message>
+            <source>Enable LumaSharpen</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Habilitar LumaSharpen</translation>
+        </message>
+        <message>
+            <source>Enable CRT</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Habilitar CRT</translation>
+        </message>
+        <message>
+            <source>Mask strength</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Magnitud de máscara</translation>
+        </message>
+        <message>
+            <source>Add effect…</source>
+            <comment>MagpieFX effect picker</comment>
+            <translation>Agregar efecto…</translation>
+        </message>
+        <message>
+            <source>Remove</source>
+            <comment>MagpieFX effect button</comment>
+            <translation>Quitar</translation>
+        </message>
+        <message>
+            <source>Native: effects ported by hand, precompiled.
+MagpieFX: Magpie&apos;s .hlsl effects compiled at runtime.
+Only the selected engine runs.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Nativo: efectos portados a mano, precompilados.
+MagpieFX: efectos .hlsl de Magpie compilados al cargarlos.
+Solo se ejecuta el motor seleccionado.</translation>
+        </message>
+        <message>
+            <source>Anime4K_Upscale_S: small 2x CNN upscaler for anime and line art,
+applied after the AI upscaler.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Anime4K_Upscale_S: pequeña red neuronal que escala 2x, para anime y arte lineal,
+aplicada después del escalador de IA.</translation>
+        </message>
+        <message>
+            <source>Unsharp mask on luma, with a clamp that limits halos.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Máscara de enfoque sobre la luminancia, con un límite que evita halos.</translation>
+        </message>
+        <message>
+            <source>LumaSharpen strength.
+Default: 0.65.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Magnitud de LumaSharpen.
+Predeterminado: 0.65.</translation>
+        </message>
+        <message>
+            <source>CRT-Easymode: scanlines and RGB mask. Replaces the final scaler.
+Scanlines only appear on low resolution sources.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>CRT-Easymode: líneas de barrido y máscara RGB. Reemplaza al escalador final.
+Las líneas de barrido solo aparecen con fuentes de baja resolución.</translation>
+        </message>
+        <message>
+            <source>Strength of the RGB mask.
+Default: 0.30.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Magnitud de la máscara RGB.
+Predeterminado: 0.30.</translation>
+        </message>
+        <message>
+            <source>Precompiled: loads instantly</source>
+            <comment>Magpie engine pro</comment>
+            <translation>Precompilado: carga al instante</translation>
+        </message>
+        <message>
+            <source>Bounds-checked writes on every GPU</source>
+            <comment>Magpie engine pro</comment>
+            <translation>Escrituras con control de límites en cualquier GPU</translation>
+        </message>
+        <message>
+            <source>Tuned controls in this tab</source>
+            <comment>Magpie engine pro</comment>
+            <translation>Controles ajustados en esta pestaña</translation>
+        </message>
+        <message>
+            <source>Only 3 effects for now</source>
+            <comment>Magpie engine con</comment>
+            <translation>Solo 3 efectos por ahora</translation>
+        </message>
+        <message>
+            <source>Each new effect is ported by hand</source>
+            <comment>Magpie engine con</comment>
+            <translation>Cada efecto nuevo se porta a mano</translation>
+        </message>
+        <message>
+            <source>Runs Magpie&apos;s .hlsl effects unmodified</source>
+            <comment>Magpie engine pro</comment>
+            <translation>Ejecuta los efectos .hlsl de Magpie sin modificarlos</translation>
+        </message>
+        <message>
+            <source>{0} effects from Magpie, plus your own in ~/.config/linux-rt-upscaler/effects</source>
+            <comment>Magpie engine pro</comment>
+            <translation>{0} efectos de Magpie, y los tuyos en ~/.config/linux-rt-upscaler/effects</translation>
+        </message>
+        <message>
+            <source>Controls generated from each effect</source>
+            <comment>Magpie engine pro</comment>
+            <translation>Controles generados a partir de cada efecto</translation>
+        </message>
+        <message>
+            <source>Compiles on first load (needs dxc or glslangValidator)</source>
+            <comment>Magpie engine con</comment>
+            <translation>Compila la primera vez que se carga (requiere dxc o glslangValidator)</translation>
+        </message>
+        <message>
+            <source>Effects with .dds lookup textures are not supported yet</source>
+            <comment>Magpie engine con</comment>
+            <translation>Los efectos con texturas .dds aún no son compatibles</translation>
+        </message>
+        <message>
+            <source>Effect</source>
+            <comment>Benchmark table</comment>
+            <translation>Efecto</translation>
+        </message>
+        <message>
+            <source>Effects</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Efectos</translation>
+        </message>
+        <message>
+            <source>Effects run in the order they are added, before scaling.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Los efectos se aplican en el orden en que se agregan, antes del escalado.</translation>
+        </message>
+        <message>
+            <source>default</source>
+            <comment>MagpieFX parameter tooltip</comment>
+            <translation>predeterminado</translation>
+        </message>
 </context>
 <context>
     <name>ExtrasTab</name>
@@ -1148,12 +1311,6 @@ Desactive esta opción para seleccionar manualmente una ventana de la cuadrícul
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../main.py" line="96"/>
-        <source>Real-Time Upscaler</source>
-        <comment>Name of the application</comment>
-        <translation>Escalador en Tiempo Real</translation>
-    </message>
-    <message>
         <location filename="../main.py" line="155"/>
         <source>Enable/disable system tray</source>
         <comment>Tray toggle button</comment>
@@ -1161,9 +1318,9 @@ Desactive esta opción para seleccionar manualmente una ventana de la cuadrícul
     </message>
     <message>
         <location filename="../main.py" line="167"/>
-        <source>About Real-Time Upscaler</source>
-        <comment>About dialog button</comment>
-        <translation>Acerca de Escalador en Tiempo Real.</translation>
+        <source>About {0}</source>
+        <comment>About dialog button; {0} is the app name</comment>
+        <translation>Acerca de {0}</translation>
     </message>
     <message>
         <location filename="../main.py" line="417"/>
@@ -2536,13 +2693,6 @@ Lower values result in smoother previews but use more CPU.</source>
 </context>
 <context>
     <name>TrayController</name>
-    <message>
-        <location filename="../helpers/tray.py" line="409"/>
-        <location filename="../helpers/tray.py" line="73"/>
-        <source>Real-Time Upscaler</source>
-        <comment>Name of the application</comment>
-        <translation>Escalador en Tiempo Real</translation>
-    </message>
     <message>
         <location filename="../helpers/tray.py" line="219"/>
         <source>Unknown</source>

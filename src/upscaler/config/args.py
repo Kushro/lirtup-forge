@@ -6,6 +6,7 @@ import sys
 from importlib.metadata import version, PackageNotFoundError
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..identity import APP_NAME, REPO_URL, UPSTREAM_NAME
 from .listing import print_devices, print_monitors, print_windows
 from .logging import setup_logging
 from .models import (
@@ -13,6 +14,7 @@ from .models import (
     OverlayMode,
     DEFAULT_CONFIG,
     DOWNSAMPLERS,
+    EFFECTS_ENGINES,
     UPSAMPLERS,
     UPSCALING_MODELS,
 )
@@ -92,9 +94,10 @@ def get_version() -> str:
 def parse_args() -> Tuple[Dict, Optional[str], Optional[str]]:
     """Parse command line arguments and return (args, profile_name, config_path)."""
     parser = argparse.ArgumentParser(
-        description="Real-Time Upscaler for Linux",
+        description=f"{APP_NAME}: real-time upscaler for Linux "
+        f"(fork of {UPSTREAM_NAME}).",
         add_help=False,
-        epilog="See source code for details: https://github.com/baronsmv/linux-rt-upscaler.",
+        epilog=f"See source code for details: {REPO_URL}.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser._positionals.title = "POSITIONAL ARGUMENTS"
@@ -620,6 +623,185 @@ Higher values risk softening fine details.
 Default: %(default)s.
 """,
     )
+
+    # --- MagpieFX effects ---
+    pre_processing_group.add_argument(
+        "--list-magpie-effects",
+        action="store_true",
+        help="List the bundled and user MagpieFX effects and exit.",
+    )
+    pre_processing_group.add_argument(
+        "--magpie-effect",
+        action="append",
+        default=None,
+        dest="magpie_effects",
+        metavar="NAME[:PARAM=VALUE,...]",
+        help="""Run a MagpieFX effect (Magpie's .hlsl format) on the
+frame before scaling. Repeat to chain several effects.
+
+NAME is a bundled effect (e.g. LumaSharpen, Anime4K_Upscale_S,
+CRT_Easymode), an effect in ~/.config/linux-rt-upscaler/effects,
+or a path to a .hlsl file. Parameters use the names declared
+in the effect, e.g. LumaSharpen:sharpStrength=1.2
+
+Effects are compiled at runtime with dxc (or glslangValidator).
+
+""",
+    )
+    pre_processing_group.add_argument(
+        "--magpie-profile",
+        action="store_true",
+        default=DEFAULT_CONFIG.magpie_profile,
+        dest="magpie_profile",
+        help="""Log the GPU time (ms/frame) of the MagpieFX chain every
+few seconds, measured with Vulkan timestamps.
+
+""",
+    )
+
+    # ----------------------------------------------------------------------
+    # Magpie effects (applied at source resolution, before scaling)
+    # ----------------------------------------------------------------------
+    magpie_group = parser.add_argument_group(
+        "MAGPIE EFFECTS",
+        "Effects ported from Magpie. Applied in this order before the final "
+        "scaler: Anime4K -> LumaSharpen -> CRT-Easymode.",
+    )
+
+    magpie_group.add_argument(
+        "--effects-engine",
+        choices=EFFECTS_ENGINES,
+        default=DEFAULT_CONFIG.effects_engine,
+        help="""Engine for the Magpie effects. Only the selected one runs.
+
+'native' runs the hand-ported effects (--enable-anime4k,
+--enable-luma-sharpen, --enable-crt): precompiled, with
+bounds-checked writes, but only a few effects.
+
+'magpiefx' runs the --magpie-effect chain: Magpie's .hlsl
+files compiled at runtime, so most of Magpie's catalog is
+available, at the cost of a compile on first load.
+
+Default: %(default)s.
+
+""",
+    )
+
+    # --- Anime4K_Upscale_S ---
+    magpie_group.add_argument(
+        "--enable-anime4k",
+        action="store_true",
+        default=DEFAULT_CONFIG.anime4k_enabled,
+        dest="anime4k_enabled",
+        help="""Apply Anime4K_Upscale_S, a small 2x CNN upscaler for
+anime/line art, to the (already upscaled) source.
+
+""",
+    )
+
+    # --- LumaSharpen ---
+    magpie_group.add_argument(
+        "--enable-luma-sharpen",
+        action="store_true",
+        default=DEFAULT_CONFIG.luma_sharpen_enabled,
+        dest="luma_sharpen_enabled",
+        help="""Apply LumaSharpen, an unsharp mask on luma with a
+clamp that limits halos.
+
+""",
+    )
+    magpie_group.add_argument(
+        "--luma-sharpen-strength",
+        type=float,
+        default=DEFAULT_CONFIG.luma_sharpen_strength,
+        help="""LumaSharpen strength (0.0 - 3.0).
+
+Default: %(default)s.
+
+""",
+    )
+    magpie_group.add_argument(
+        "--luma-sharpen-clamp",
+        type=float,
+        default=DEFAULT_CONFIG.luma_sharpen_clamp,
+        help="""Maximum sharpening a pixel receives (0.0 - 1.0).
+
+Default: %(default)s.
+
+""",
+    )
+    magpie_group.add_argument(
+        "--luma-sharpen-pattern",
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=DEFAULT_CONFIG.luma_sharpen_pattern,
+        help="""Sample pattern: 0 = fast, 1 = normal, 2 = wider,
+3 = pyramid.
+
+Default: %(default)s.
+
+""",
+    )
+    magpie_group.add_argument(
+        "--luma-sharpen-offset-bias",
+        type=float,
+        default=DEFAULT_CONFIG.luma_sharpen_offset_bias,
+        help="""Radius of the sample pattern (0.0 - 6.0).
+
+Default: %(default)s.
+
+""",
+    )
+
+    # --- CRT-Easymode ---
+    magpie_group.add_argument(
+        "--enable-crt",
+        action="store_true",
+        default=DEFAULT_CONFIG.crt_enabled,
+        dest="crt_enabled",
+        help="""Render the content with CRT-Easymode (scanlines and
+RGB mask). Replaces the final scaler.
+
+""",
+    )
+    # (option suffix, type, range, description) - ranges from Magpie
+    crt_params = (
+        ("sharpness-h", float, "0.0 - 1.0", "Horizontal sharpness"),
+        ("sharpness-v", float, "0.0 - 1.0", "Vertical sharpness"),
+        ("mask-strength", float, "0.0 - 1.0", "RGB mask strength"),
+        ("mask-dot-width", int, "1 - 100", "Mask dot width"),
+        ("mask-dot-height", int, "1 - 100", "Mask dot height"),
+        ("mask-stagger", int, "0 - 100", "Mask stagger"),
+        ("mask-size", int, "1 - 100", "Mask size"),
+        ("scanline-strength", float, "0.0 - 1.0", "Scanline strength"),
+        ("scanline-beam-width-min", float, "0.5 - 5.0", "Min scanline beam width"),
+        ("scanline-beam-width-max", float, "0.5 - 5.0", "Max scanline beam width"),
+        ("scanline-bright-min", float, "0.0 - 1.0", "Min scanline brightness"),
+        ("scanline-bright-max", float, "0.0 - 1.0", "Max scanline brightness"),
+        (
+            "scanline-cutoff",
+            int,
+            "1 - 1000",
+            "No scanlines when the source height is at least this",
+        ),
+        ("gamma-input", float, "0.1 - 5.0", "Input gamma"),
+        ("gamma-output", float, "0.1 - 5.0", "Output gamma"),
+        ("bright-boost", float, "1.0 - 2.0", "Brightness boost"),
+        ("dilation", int, "0 - 1", "Dilation"),
+    )
+    for suffix, type_, range_, desc in crt_params:
+        dest = "crt_" + suffix.replace("-", "_")
+        magpie_group.add_argument(
+            f"--crt-{suffix}",
+            type=type_,
+            dest=dest,
+            default=getattr(DEFAULT_CONFIG, dest),
+            help=f"""{desc} ({range_}).
+
+Default: %(default)s.
+
+""",
+        )
 
     # ----------------------------------------------------------------------
     # Post-processing options
@@ -1191,6 +1373,11 @@ Minimum is 0.0. Default: %(default)s.""",
         sys.exit(0)
     if args.list_monitors:
         print_monitors()
+        sys.exit(0)
+    if args.list_magpie_effects:
+        from ..magpiefx import list_effects
+
+        print("\n".join(list_effects()))
         sys.exit(0)
 
     # Scan sys.argv for options that were actually typed by the user

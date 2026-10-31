@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "linux-rt-upscaler"
 version = "1.1.4"
-description = "A real-time SRCNN upscaler for any X-Window."
+description = "LirtUp Forge: a real-time SRCNN upscaler for any X-Window (fork of linux-rt-upscaler)."
 readme = "README.md"
 authors = [
     { name = "Mauricio Valentín Barón Salinas", email = "baronsmv@gmail.com" }
@@ -44,9 +44,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/baronsmv/linux-rt-upscaler"
-Repository = "https://github.com/baronsmv/linux-rt-upscaler.git"
-BugTracker = "https://github.com/baronsmv/linux-rt-upscaler/issues"
+Homepage = "https://github.com/Kushro/lirtup-forge"
+Repository = "https://github.com/Kushro/lirtup-forge.git"
+BugTracker = "https://github.com/Kushro/lirtup-forge/issues"
+Upstream = "https://github.com/baronsmv/linux-rt-upscaler"
 
 [project.scripts]
 upscale = "upscaler.cli:main"
@@ -61,6 +62,13 @@ where = ["src"]
 [tool.setuptools.package-data]
 "upscaler.capture" = ["lib/*.c", "lib/*.h"]
 "upscaler.gui.icons" = ["*.svg", "**/*.svg"]
+"upscaler.magpiefx" = [
+    "effects/**/*.hlsl",
+    "effects/**/*.hlsli",
+    "effects/*.md",
+    "effects/LICENSE-Magpie",
+    "internal/*.hlsl",
+]
 "upscaler.shaders" = ["**/*.spv"]
 "upscaler.srcnn" = ["**/*.json", "**/*.spv"]
 "upscaler.vulkan" = ["lib/*.cpp", "lib/*.h"]

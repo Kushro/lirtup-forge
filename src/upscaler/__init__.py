@@ -1,4 +1,4 @@
-"""Real-Time Upscaler for Linux"""
+"""LirtUp Forge: real-time upscaler for Linux (fork of Linux Real-Time Upscaler)"""
 
 import sys
 

@@ -229,6 +229,16 @@ def setting_label_style(cfg: GUIConfig, color: str) -> str:
     """
 
 
+def info_text_style(cfg: GUIConfig) -> str:
+    """Muted, word-wrapped explanatory text inside a settings tab."""
+    return f"""
+    QLabel {{
+        color: {cfg.palette.text_subtle};
+        font-size: {cfg.sidebar.tab_font_size}px;
+    }}
+    """
+
+
 # ---------------------------------------------------------------------------
 #  Control: Text field
 # ---------------------------------------------------------------------------

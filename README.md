@@ -2,13 +2,19 @@
   <img src="https://raw.githubusercontent.com/baronsmv/linux-rt-upscaler/main/data/icons/hicolor/scalable/apps/io.github.baronsmv.linux-rt-upscaler.svg" width="128" alt="icon">
 </p>
 
-<h1 align="center">Real-Time Upscaler for Linux</h1>
+<h1 align="center">LirtUp Forge</h1>
 
 <p align="center">
-  <a href="https://pypi.org/project/linux-rt-upscaler/"><img src="https://img.shields.io/pypi/v/linux-rt-upscaler.svg" alt="PyPI version"></a>
-  <a href="https://pypi.org/project/linux-rt-upscaler/"><img src="https://img.shields.io/pypi/pyversions/linux-rt-upscaler.svg" alt="Python versions"></a>
   <a href="https://www.gnu.org/licenses/gpl-3.0"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPLv3"></a>
 </p>
+
+<p align="center">
+  A fork of <a href="https://github.com/baronsmv/linux-rt-upscaler">Linux Real-Time Upscaler</a> by <a href="https://github.com/baronsmv">baronsmv</a>.
+</p>
+
+**LirtUp** = **Li**nux **R**eal-**T**ime **Up**scaler. This fork adds the
+[Magpie effects](#magpie-effects): you can run them on a few hand-ported
+shaders or on 86 of Magpie's effects loaded unmodified.
 
 A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It uses [CuNNy](https://github.com/funnyplanter/CuNNy) neural networks to perform 2x (or 4x) upscaling to full screen while preserving aspect ratio. Mouse clicks and motion are automatically forwarded to the original window.
 
@@ -28,6 +34,7 @@ A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It u
 - **Tile-Based processing** that upscales only the frame regions that change, reducing GPU load for mostly static content.
 - **Customizable output geometry**: scaling mode (fit, stretch, cover), offset, crop and zoom.
 - **Input forwarding** as if interacting directly with the original window.
+- **Magpie effects** with a choice of engine: a few effects ported by hand, or 86 effects from [Magpie](https://github.com/Blinue/Magpie) run unmodified by a MagpieFX loader (see below).
 
 ## Requirements
 
@@ -39,17 +46,26 @@ A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It u
 
 ## Installation
 
-Install with `pipx`:
+LirtUp Forge is not published on PyPI (`pipx install linux-rt-upscaler`
+installs the original project). Install it from this repository with `pipx`:
 
 ```sh
-pipx install linux-rt-upscaler
+pipx install git+https://github.com/Kushro/lirtup-forge
 ```
 
-For detailed installation instructions, including how to install `pipx`, see the [Installation Guide](https://baronsmv.github.io/linux-rt-upscaler/user/installation/).
+This builds the native Vulkan and capture extensions, so you need a C++
+compiler and the Vulkan and XCB development headers. The MagpieFX engine also
+needs `dxc` (`directx-shader-compiler`) or `glslangValidator` at runtime.
+For the other dependencies and how to install `pipx`, see the original
+[Installation Guide](https://baronsmv.github.io/linux-rt-upscaler/user/installation/).
 
 After installation, the `upscale` and `upscale-gui` commands will be available globally. You can also create a [desktop entry](https://baronsmv.github.io/linux-rt-upscaler/user/installation/#desktop-integration-optional) of the GUI for easy access. 
 
 ## Guides and Docs
+
+The guides of the original project apply to LirtUp Forge, except for the
+Magpie effects, which are documented [here](#magpie-effects).
+
 
 - [Home](https://baronsmv.github.io/linux-rt-upscaler/)
 - [Installation](https://baronsmv.github.io/linux-rt-upscaler/user/installation/)
@@ -59,6 +75,106 @@ After installation, the `upscale` and `upscale-gui` commands will be available g
 - [Configuration](https://baronsmv.github.io/linux-rt-upscaler/user/configuration/)
 - [API Reference](https://baronsmv.github.io/linux-rt-upscaler/api/overview/)
 
+## Magpie effects
+
+The effects of [Magpie](https://github.com/Blinue/Magpie) (Windows) run here
+through two engines. You pick one in the GUI (*Effects* tab > *Engine*), with
+`effects_engine` in the config or with `--effects-engine` on the CLI. Only the
+selected engine runs.
+
+| | Native | MagpieFX |
+|---|---|---|
+| How | Each effect ported by hand to a fixed shader class | Magpie's `.hlsl` files run unmodified by a generic loader |
+| Effects | 3 | 86 bundled, plus any you add to `~/.config/linux-rt-upscaler/effects` |
+| Loading | Precompiled, instant | Compiled on first load (dxc, or glslangValidator as fallback), then cached |
+| Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
+| Settings | Tuned controls | Controls generated from each effect's parameters |
+
+Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, RADV,
+dxc), measured without a window:
+
+| Effect | Native | MagpieFX |
+|---|---|---|
+| LumaSharpen | 0.016 | 0.016 |
+| Anime4K_Upscale_S | 0.145 | 0.142 |
+| CRT_Easymode | 0.122 | 0.118 |
+
+Details: [MagpieFX guide](docs/user/magpiefx.md) and
+[compatibility report](docs/developer/magpiefx-report.md).
+
+### Status
+
+**Ported by hand (Native engine)**
+
+- `LumaSharpen`, `Anime4K_Upscale_S` (4 passes) and `CRT_Easymode`, each with
+  its config, CLI options and GUI controls.
+- Adaptations: frames arrive as BGRA, so the shaders swap red and blue when
+  they read and write (the Magpie code itself is unchanged). Anime4K's 2x2
+  writes are bounds-checked.
+
+**Adapted (MagpieFX engine)**
+
+- A loader for the MagpieFX format (version 4). It reads the `//!`
+  directives, generates one compute shader per pass (CS and PS styles,
+  multiple outputs, `MulAdd`, `Rmp8x8`, the `MP_*` macros) and compiles them
+  to SPIR-V at runtime with a cache. It also runs the passes with their
+  intermediate textures.
+- The red/blue swap is built into the generated shaders, at no measurable
+  cost. Only the 3 FXAA effects still need a separate swap pass.
+- 86 effects from Magpie's `src/Effects` (commit `241e0a44`) are bundled
+  unmodified under GPLv3.
+- Changing a parameter in the GUI updates the running effect without
+  recompiling it.
+
+**Shared changes**
+
+- An `effects_engine` setting, plus a GUI section with the engine selector,
+  its pros and cons and the reference timings above.
+- Fix for GPU timestamps in `Compute.dispatch_sequence`. The readback could
+  block forever, and the conversion to milliseconds was only accurate to
+  about 1 ms.
+- Spanish translations for the new GUI strings.
+
+**Verified**
+
+- All 86 bundled effects compile and run once on a 1280x720 frame: 83 with
+  dxc, and the three `Anime4K_Denoise_Bilateral_*` with glslang (dxc rejects
+  their array sizes).
+- Both engines give correct colors, checked in the running app with a
+  red/green/blue test image. Their output matches the reference
+  bit for bit.
+- Both engines were measured in the running app on their own branches, before
+  they were merged. Merging them changed none of the numbers above (measured
+  without a window).
+- Picking an engine turns the other one off. A parameter change applies in
+  about 0.02 ms without recompiling.
+- The built wheel contains the 86 effects, their license and the Native
+  shaders.
+
+**Not included**
+
+- The 31 Magpie effects that need `.dds` lookup textures: the 26 `RAVU`
+  effects, the 4 `SMAA` effects and `NIS`.
+
+**Not tested yet**
+
+- The GUI and the engine selector in the running app on the merged branch
+  (only checked without a window).
+- GPUs other than AMD RADV (NVIDIA, Intel), and sources at odd sizes on
+  drivers that do not discard out-of-range writes.
+- How the MagpieFX engine behaves on a system without `glslangValidator` (the
+  three Denoise effects should fail with a clear error).
+
+**Pending**
+
+- Reading `.dds` textures, to support RAVU, SMAA and NIS.
+- Enabling `robustImageAccess` so out-of-range writes are well defined on
+  every driver.
+- A "Measure on my GPU" button in the GUI, to replace the fixed reference
+  numbers.
+- FP16 (`//!CAPABILITY FP16`), which is currently ignored.
+- More native ports, where the effort pays off.
+
 ## Future plans
 
 - [ ] Broader model support. The upscaler currently uses [CuNNy](https://github.com/funnyplanter/CuNNy) models. Alternative SRCNN architectures are welcome if one offers a clear quality/performance advantage.
@@ -67,6 +183,9 @@ After installation, the `upscale` and `upscale-gui` commands will be available g
 ## Acknowledgments
 
 This project stands on the shoulders of several open-source works, mantained by amazing people:
+
+- **[baronsmv](https://github.com/baronsmv)**, author of [Linux Real-Time Upscaler](https://github.com/baronsmv/linux-rt-upscaler), the project LirtUp Forge is forked from.
+- **[Blinue](https://github.com/Blinue)** and the contributors of [Magpie](https://github.com/Blinue/Magpie), whose MagpieFX format and effects are bundled here (GPLv3), and the authors of each effect, credited in its source.
 
 - **[L65536](https://github.com/L65536)**, for the original [RealTimeSuperResolutionScreenUpscalerforLinux](https://github.com/L65536/RealTimeSuperResolutionScreenUpscalerforLinux), which demonstrated the feasibility of real-time SRCNN upscaling on Linux and served as a proof-of-concept for this project.
 - **[funnyplanter](https://github.com/funnyplanter)**, for the incredible [CuNNy](https://github.com/funnyplanter/CuNNy) neural network upscaling models.

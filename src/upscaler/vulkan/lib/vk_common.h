@@ -60,6 +60,7 @@ typedef struct vk_Sampler vk_Sampler;
 #define R32G32_SINT 18
 #define R10G10B10A2_UNORM 24
 #define R10G10B10A2_UINT 25
+#define R11G11B10_FLOAT 26
 #define R8G8B8A8_UNORM 28
 #define R8G8B8A8_UNORM_SRGB 29
 #define R8G8B8A8_UINT 30

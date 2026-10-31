@@ -243,6 +243,107 @@ deband_enabled: false
 # Default: 0.3
 deband_strength: 0.3
 
+# --- Magpie effects engine ---
+# Which implementation of the Magpie effects runs (only one at a time):
+#   "native"   - effects ported by hand (anime4k_enabled, luma_sharpen_enabled,
+#                crt_enabled below): precompiled, bounds-checked, few effects.
+#   "magpiefx" - the magpie_effects chain below: Magpie's .hlsl files compiled
+#                at runtime, so most of Magpie's catalog can be used.
+# Default: "native"
+effects_engine: native
+
+# --- MagpieFX effects ---
+# Chain of effects written in Magpie's MagpieFX format, run after debanding
+# and before the final scaler. Each entry is one of the 86 bundled effect
+# names (e.g. LumaSharpen, Anime4K_Upscale_S, CRT_Easymode, ACNet, CRT_Geom;
+# see `upscale --list-magpie-effects`), an effect placed in
+# ~/.config/linux-rt-upscaler/effects, or a path to a .hlsl file. Parameters
+# use the names declared in the effect (see its //!PARAMETER blocks).
+# Effects are compiled at runtime with dxc (or glslangValidator) and cached
+# in ~/.cache/linux-rt-upscaler/magpiefx.
+# Default: []
+magpie_effects: []
+# magpie_effects:
+#   - LumaSharpen
+#   - name: CRT_Easymode
+#     params:
+#       maskStrength: 0.5
+#       scanlineStrength: 1
+
+# Log the GPU time of the MagpieFX chain (median ms/frame every 5 s).
+# Default: false
+magpie_profile: false
+
+# ------------------------------------------------------------------------------
+# Magpie Effects (ported from Magpie, applied at source resolution before
+# scaling, in this order: Anime4K -> LumaSharpen -> CRT-Easymode)
+# ------------------------------------------------------------------------------
+
+# --- Anime4K_Upscale_S ---
+
+# Small 2x CNN upscaler for anime and line art (no parameters).
+# Doubles the source resolution before the final scaler.
+# Default: false
+anime4k_enabled: false
+
+# --- LumaSharpen ---
+
+# Unsharp mask on luma with a clamp that limits halos.
+# Default: false
+luma_sharpen_enabled: false
+
+# Sharpening strength. Range: 0.0 - 3.0. Default: 0.65
+luma_sharpen_strength: 0.65
+
+# Maximum sharpening a pixel receives. Range: 0.0 - 1.0. Default: 0.035
+luma_sharpen_clamp: 0.035
+
+# Sample pattern: 0 = fast, 1 = normal, 2 = wider, 3 = pyramid. Default: 1
+luma_sharpen_pattern: 1
+
+# Radius of the sample pattern. Range: 0.0 - 6.0. Default: 1.0
+luma_sharpen_offset_bias: 1.0
+
+# --- CRT-Easymode ---
+
+# Flat CRT look (scanlines and RGB mask). Replaces the final scaler.
+# Scanlines are only drawn when the source height is below
+# `crt_scanline_cutoff`.
+# Default: false
+crt_enabled: false
+
+# Range: 0.0 - 1.0
+crt_sharpness_h: 0.5
+crt_sharpness_v: 1.0
+crt_mask_strength: 0.3
+
+# Aperture grille: width 1, height 1, stagger 0 (default).
+# Lottes' shadow mask: width 2, height 1, stagger 3.
+# Range: 1 - 100 (stagger: 0 - 100)
+crt_mask_dot_width: 1
+crt_mask_dot_height: 1
+crt_mask_stagger: 0
+crt_mask_size: 1
+
+# Range: 0.0 - 1.0
+crt_scanline_strength: 1.0
+# Range: 0.5 - 5.0
+crt_scanline_beam_width_min: 1.5
+crt_scanline_beam_width_max: 1.5
+# Range: 0.0 - 1.0
+crt_scanline_bright_min: 0.35
+crt_scanline_bright_max: 0.65
+# Range: 1 - 1000
+crt_scanline_cutoff: 400
+
+# Range: 0.1 - 5.0
+crt_gamma_input: 2.0
+crt_gamma_output: 1.8
+# Range: 1.0 - 2.0
+crt_bright_boost: 1.2
+# Range: 0 - 1
+crt_dilation: 1
+
 # ------------------------------------------------------------------------------
 # Post-Processing Options (applied after Lanczos scaling)
 # ------------------------------------------------------------------------------

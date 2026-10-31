@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from PySide6.QtGui import QColor
 
+from .models import EFFECTS_ENGINES
 from ..utils import ConfigError, list_monitors
 from ..vulkan import get_discovered_devices
 
@@ -203,6 +204,25 @@ def validate_monitor(identifier: str, _: str) -> None:
     )
 
 
+def validate_effects_engine(value: Any, arg_name: str) -> None:
+    """Check that the Magpie effects engine is a known one."""
+    if value not in EFFECTS_ENGINES:
+        raise ConfigError(
+            f"Invalid '{arg_name}': {value!r} (expected one of: "
+            f"{', '.join(EFFECTS_ENGINES)})"
+        )
+
+
+def validate_magpie_effects(value: Any, arg_name: str) -> None:
+    """Check the shape of a MagpieFX effect chain (not that effects exist)."""
+    from ..magpiefx.spec import parse_effect_chain
+
+    try:
+        parse_effect_chain(value)
+    except ValueError as e:
+        raise ConfigError(f"Invalid '{arg_name}': {e}") from None
+
+
 _VALIDATORS: Dict[str, Tuple] = {
     # Timing
     "daemon_poll_interval": (validate_number, 0.1),
@@ -219,6 +239,8 @@ _VALIDATORS: Dict[str, Tuple] = {
     "kernel_radius": (validate_number, 2, 10),
     # Pre-processing
     "deband_strength": (validate_number, 0.0, 1.0),
+    "effects_engine": (validate_effects_engine,),
+    "magpie_effects": (validate_magpie_effects,),
     # Post-processing
     "cas_strength": (validate_number, 0.0, 1.0),
     "bloom_strength": (validate_number, 0.0, 1.0),
@@ -230,6 +252,28 @@ _VALIDATORS: Dict[str, Tuple] = {
     "grain_strength": (validate_number, 0.0, 1.0),
     "grain_size": (validate_number, 1.0, 10.0),
     "lut_intensity": (validate_number, 0.0, 1.0),
+    # Magpie effects (ranges from Magpie's //!PARAMETER blocks)
+    "luma_sharpen_strength": (validate_number, 0.0, 3.0),
+    "luma_sharpen_clamp": (validate_number, 0.0, 1.0),
+    "luma_sharpen_pattern": (validate_number, 0, 3),
+    "luma_sharpen_offset_bias": (validate_number, 0.0, 6.0),
+    "crt_sharpness_h": (validate_number, 0.0, 1.0),
+    "crt_sharpness_v": (validate_number, 0.0, 1.0),
+    "crt_mask_strength": (validate_number, 0.0, 1.0),
+    "crt_mask_dot_width": (validate_number, 1, 100),
+    "crt_mask_dot_height": (validate_number, 1, 100),
+    "crt_mask_stagger": (validate_number, 0, 100),
+    "crt_mask_size": (validate_number, 1, 100),
+    "crt_scanline_strength": (validate_number, 0.0, 1.0),
+    "crt_scanline_beam_width_min": (validate_number, 0.5, 5.0),
+    "crt_scanline_beam_width_max": (validate_number, 0.5, 5.0),
+    "crt_scanline_bright_min": (validate_number, 0.0, 1.0),
+    "crt_scanline_bright_max": (validate_number, 0.0, 1.0),
+    "crt_scanline_cutoff": (validate_number, 1, 1000),
+    "crt_gamma_input": (validate_number, 0.1, 5.0),
+    "crt_gamma_output": (validate_number, 0.1, 5.0),
+    "crt_bright_boost": (validate_number, 1.0, 2.0),
+    "crt_dilation": (validate_number, 0, 1),
     # GPU
     "gpu": (validate_gpu,),
     # Display
