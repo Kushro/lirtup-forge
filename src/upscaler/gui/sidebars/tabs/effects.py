@@ -61,6 +61,75 @@ class EffectsTab(SettingsTab):
         )
         self._deband_str.setEnabled(self._config.deband_enabled)
 
+        # ---- Magpie effects ----
+        self._add_section(self.tr("Magpie effects", "Settings section"))
+        self._add_cb(
+            self.tr("Enable Anime4K", "Label of setting (must be short)"),
+            self._config.anime4k_enabled,
+            self._on_anime4k_enabled,
+            baseline=self.baseline_config.anime4k_enabled,
+            field="anime4k_enabled",
+            help=self.tr(
+                "Anime4K_Upscale_S: small 2x CNN upscaler for anime and line art,\n"
+                "applied after the AI upscaler.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._add_cb(
+            self.tr("Enable LumaSharpen", "Label of setting (must be short)"),
+            self._config.luma_sharpen_enabled,
+            self._on_luma_sharpen_enabled,
+            baseline=self.baseline_config.luma_sharpen_enabled,
+            field="luma_sharpen_enabled",
+            help=self.tr(
+                "Unsharp mask on luma, with a clamp that limits halos.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._luma_sharpen_str = self._add_slider(
+            self.tr("Strength", "Label of setting (must be short)"),
+            0,
+            300,
+            int(self._config.luma_sharpen_strength * 100),
+            scale_factor=100,
+            float_slot=self._on_luma_sharpen_strength,
+            baseline=self.baseline_config.luma_sharpen_strength,
+            field="luma_sharpen_strength",
+            help=self.tr(
+                "LumaSharpen strength.\nDefault: 0.65.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._luma_sharpen_str.setEnabled(self._config.luma_sharpen_enabled)
+
+        self._add_cb(
+            self.tr("Enable CRT", "Label of setting (must be short)"),
+            self._config.crt_enabled,
+            self._on_crt_enabled,
+            baseline=self.baseline_config.crt_enabled,
+            field="crt_enabled",
+            help=self.tr(
+                "CRT-Easymode: scanlines and RGB mask. Replaces the final scaler.\n"
+                "Scanlines only appear on low resolution sources.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._crt_mask_str = self._add_slider(
+            self.tr("Mask strength", "Label of setting (must be short)"),
+            0,
+            100,
+            int(self._config.crt_mask_strength * 100),
+            scale_factor=100,
+            float_slot=self._on_crt_mask_strength,
+            baseline=self.baseline_config.crt_mask_strength,
+            field="crt_mask_strength",
+            help=self.tr(
+                "Strength of the RGB mask.\nDefault: 0.30.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._crt_mask_str.setEnabled(self._config.crt_enabled)
+
         # ---- CAS ----
         self._add_section(self.tr("CAS sharpening", "Settings section"))
         self._add_cb(
@@ -310,6 +379,22 @@ class EffectsTab(SettingsTab):
         self._deband_str.setEnabled(enabled)
         self.config_changed.emit()
 
+    def _on_anime4k_enabled(self, state: int):
+        self._config.anime4k_enabled = bool(state)
+        self.config_changed.emit()
+
+    def _on_luma_sharpen_enabled(self, state: int):
+        enabled = bool(state)
+        self._config.luma_sharpen_enabled = enabled
+        self._luma_sharpen_str.setEnabled(enabled)
+        self.config_changed.emit()
+
+    def _on_crt_enabled(self, state: int):
+        enabled = bool(state)
+        self._config.crt_enabled = enabled
+        self._crt_mask_str.setEnabled(enabled)
+        self.config_changed.emit()
+
     def _on_cas_enabled(self, state: int):
         enabled = bool(state)
         self._config.cas_enabled = enabled
@@ -348,6 +433,14 @@ class EffectsTab(SettingsTab):
 
     def _on_deband_strength(self, value: float):
         self._config.deband_strength = value
+        self.config_changed.emit()
+
+    def _on_luma_sharpen_strength(self, value: float):
+        self._config.luma_sharpen_strength = value
+        self.config_changed.emit()
+
+    def _on_crt_mask_strength(self, value: float):
+        self._config.crt_mask_strength = value
         self.config_changed.emit()
 
     def _on_cas_strength(self, value: float):
