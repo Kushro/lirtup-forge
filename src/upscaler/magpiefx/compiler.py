@@ -218,6 +218,9 @@ def _compile_with(
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0 or not os.path.isfile(out):
             diag = (proc.stderr or proc.stdout or "").strip()
+            if proc.returncode < 0 or proc.returncode >= 128:
+                sig = -proc.returncode if proc.returncode < 0 else proc.returncode - 128
+                diag = f"{backend} crashed (signal {sig})\n{diag}"
             raise MagpieFXError(f"{backend} failed to compile {name}:\n{diag}")
         with open(out, "rb") as f:
             spirv = f.read()

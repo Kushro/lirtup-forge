@@ -71,5 +71,6 @@ nav:
           - Exceptions: api/modules/exceptions.md
   - Developer:
       - Overview: developer/overview.md
+      - MagpieFX Report: developer/magpiefx-report.md
       - Architecture:
           - Architecture Limitations: developer/architecture/limitations.md
