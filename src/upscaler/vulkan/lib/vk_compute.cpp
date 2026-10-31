@@ -509,7 +509,10 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
   std::vector<uint32_t> ts_before, ts_after;
   uint32_t ts_copy_before = 0, ts_copy_after = 0;
   if (use_timestamps) {
-    total_ts = 2 + 2 * static_cast<uint32_t>(num_items) + (present_img ? 2 : 0);
+    // [0] start, [1]/[2] around the optional copy, then a pair per pass.
+    // Every query is written (the copy pair even without a copy), otherwise
+    // vkGetQueryPoolResults with WAIT_BIT would block forever.
+    total_ts = 3 + 2 * static_cast<uint32_t>(num_items);
     if (total_ts <= dev->timestamp_count) {
       ts_copy_before = 1;
       ts_copy_after = 2;
@@ -532,11 +535,11 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
     }
 
     // Optional pre-copy from buffer to texture
+    if (use_timestamps) {
+      vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          dev->timestamp_pool, ts_copy_before);
+    }
     if (src_buf && dst_img) {
-      if (use_timestamps) {
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            dev->timestamp_pool, ts_copy_before);
-      }
       vk_cmd_transition_for_copy_dst(cmd, dst_img->image, copy_slice, 1);
       VkBufferImageCopy region = {};
       region.bufferOffset = 0;
@@ -548,10 +551,10 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
       vkCmdCopyBufferToImage(cmd, src_buf->buffer, dst_img->image,
                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
       vk_cmd_transition_for_compute(cmd, dst_img->image, copy_slice, 1);
-      if (use_timestamps) {
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            dev->timestamp_pool, ts_copy_after);
-      }
+    }
+    if (use_timestamps) {
+      vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          dev->timestamp_pool, ts_copy_after);
     }
 
     // Dispatch each pass
@@ -611,13 +614,20 @@ PyObject *vk_Compute_dispatch_sequence(vk_Compute * /*self*/, PyObject *args,
     uint64_t *ts_data = (uint64_t *)PyMem_Malloc(total_ts * sizeof(uint64_t));
     if (!ts_data)
       return PyErr_NoMemory();
-    vkGetQueryPoolResults(dev->device, dev->timestamp_pool, 0, total_ts,
-                          total_ts * sizeof(uint64_t), ts_data,
-                          sizeof(uint64_t),
-                          VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    VkResult qres = vkGetQueryPoolResults(
+        dev->device, dev->timestamp_pool, 0, total_ts,
+        total_ts * sizeof(uint64_t), ts_data, sizeof(uint64_t),
+        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    if (qres != VK_SUCCESS) {
+      PyMem_Free(ts_data);
+      PyErr_Format(vk_ComputeError, "vkGetQueryPoolResults failed (%d)",
+                   (int)qres);
+      return nullptr;
+    }
     PyObject *ts_list = PyList_New(total_ts);
     for (uint32_t i = 0; i < total_ts; ++i) {
-      double ns = ts_data[i] * dev->timestamp_period;
+      // In double: uint64 * float would round to float precision (~ms)
+      double ns = static_cast<double>(ts_data[i]) * dev->timestamp_period;
       PyList_SetItem(ts_list, i, PyFloat_FromDouble(ns));
     }
     PyMem_Free(ts_data);
