@@ -364,6 +364,11 @@ class Device:
         """True if memory and semaphores can be shared with another device by fd."""
         return bool(self._handle.supports_external_fd)
 
+    @property
+    def robust_image_access(self) -> bool:
+        """True if out-of-bounds image accesses are safe (robustImageAccess)."""
+        return bool(self._handle.robust_image_access)
+
     def create_external_semaphore(self) -> int:
         """Create an exportable binary semaphore and return its handle."""
         return self._handle.create_external_semaphore()

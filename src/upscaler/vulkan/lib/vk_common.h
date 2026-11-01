@@ -119,6 +119,7 @@ struct vk_Device {
   bool supports_timestamps;
   bool supports_fp16;        // shaderFloat16 (used by the lsfg shaders)
   bool supports_external_fd; // VK_KHR_external_{memory,semaphore}_fd
+  bool robust_image_access;  // robustImageAccess enabled (VK_EXT_image_robustness)
   float timestamp_period;
   VkQueryPool timestamp_pool;
   uint32_t timestamp_count;

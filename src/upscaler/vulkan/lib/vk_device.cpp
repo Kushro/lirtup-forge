@@ -281,6 +281,24 @@ vk_Device *vk_Device_get_initialized(vk_Device *self) {
   }
   self->supports_fp16 = features12.shaderFloat16;
 
+  // Optional: reads and writes outside an image return zero or are dropped
+  // instead of faulting the GPU (a shader bug or a resize race then shows
+  // as black pixels, not a device lost). Core in Vulkan 1.3; with our 1.2
+  // instance it comes from VK_EXT_image_robustness.
+  VkPhysicalDeviceImageRobustnessFeaturesEXT robustness = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ROBUSTNESS_FEATURES_EXT};
+  self->robust_image_access = false;
+  if (has_extension(VK_EXT_IMAGE_ROBUSTNESS_EXTENSION_NAME)) {
+    VkPhysicalDeviceFeatures2 query = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &robustness};
+    vkGetPhysicalDeviceFeatures2(phys, &query);
+    robustness.pNext = nullptr;
+    if (robustness.robustImageAccess) {
+      extensions.push_back(VK_EXT_IMAGE_ROBUSTNESS_EXTENSION_NAME);
+      self->robust_image_access = true;
+    }
+  }
+
   // Enable features that are actually available
   VkPhysicalDeviceFeatures enabled_features = {};
   enabled_features.shaderStorageImageReadWithoutFormat =
@@ -293,6 +311,7 @@ vk_Device *vk_Device_get_initialized(vk_Device *self) {
       self->features.sparseResidencyImage2D;
 
   VkDeviceCreateInfo dinfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  features12.pNext = self->robust_image_access ? &robustness : nullptr;
   dinfo.pNext = &features12;
   dinfo.queueCreateInfoCount = 1;
   dinfo.pQueueCreateInfos = &qinfo;
@@ -1106,6 +1125,9 @@ static PyMemberDef vk_Device_members[] = {
      0,
      "True if memory and semaphores can be shared by fd (valid after "
      "initialization)."},
+    {"robust_image_access", T_BOOL, offsetof(vk_Device, robust_image_access),
+     0,
+     "True if robustImageAccess is enabled (valid after initialization)."},
     {nullptr}};
 
 PyTypeObject vk_Device_Type = {
