@@ -9,9 +9,15 @@ every front count without a list to keep), and writes:
   variable font cut to those icons, with their ligatures, FILL 0..1 and
   wght 400..500 (GRAD 0, opsz 24 pinned). The webview looks icons up by
   name (ligatures).
-- crates/lirtup-ui/design/icons.json: name -> code point, for the table of
-  tokens.rs (the overlay's bar finds glyphs by code point: ab_glyph applies
-  no ligatures).
+- crates/lirtup-ui/assets/fonts/MaterialSymbolsRounded-Fill0.ttf and
+  -Fill1.ttf: two static instances (FILL 0 at wght 400, FILL 1 at wght 500,
+  as `.ms` and `.ms.fill` of the design), cut to the icons that the bar over
+  the game names (string literals of crates/lirtup-pipeline/src/toolbar.rs
+  and osd.rs). The bar draws them with ab_glyph, which reads no woff2;
+  fixed instances spare it setting the four axes at run time.
+- crates/lirtup-ui/design/icons.json: name -> code point of both sets, for
+  the table of tokens.rs (the bar finds glyphs by code point: ab_glyph
+  applies no ligatures).
 
 Needs fontTools and brotli. The source font (Apache 2.0) is downloaded once
 to ~/.cache/lirtup-forge/fonts-src, outside the repository:
@@ -38,6 +44,9 @@ FONT = CACHE / "MaterialSymbolsRounded.ttf"
 CODEPOINTS = CACHE / "MaterialSymbolsRounded.codepoints"
 OUT_FONT = UI / "assets/fonts/MaterialSymbolsRounded-subset.woff2"
 OUT_JSON = UI / "design/icons.json"
+BAR_SOURCES = [ROOT / "crates/lirtup-pipeline/src/toolbar.rs", ROOT / "crates/lirtup-pipeline/src/osd.rs"]
+# (FILL, wght) of each static instance of the bar.
+BAR_INSTANCES = {"Fill0": (0, 400), "Fill1": (1, 500)}
 
 
 def fetch():
@@ -48,17 +57,37 @@ def fetch():
             urllib.request.urlretrieve(url, path)
 
 
-def used_icons(codepoints):
+def used_icons(codepoints, sources):
     names = set()
-    for rs in (UI / "src").rglob("*.rs"):
+    for rs in sources:
         names.update(re.findall(r'"([a-z0-9_]+)"', rs.read_text()))
     return sorted(n for n in names if n in codepoints)
+
+
+def bar_instances(codepoints, icons):
+    """The two static .ttf of the bar: only the glyphs of `icons`, by code
+    point (no ligatures, no letters)."""
+    for suffix, (fill, wght) in BAR_INSTANCES.items():
+        font = TTFont(FONT)
+        options = subset.Options()
+        options.layout_features = []
+        options.name_IDs = ["*"]
+        options.notdef_outline = True
+        options.hinting = False
+        sub = subset.Subsetter(options)
+        sub.populate(unicodes=[int(codepoints[n], 16) for n in icons])
+        sub.subset(font)
+        font = instancer.instantiateVariableFont(font, {"GRAD": 0, "opsz": 24, "FILL": fill, "wght": wght})
+        out = UI / f"assets/fonts/MaterialSymbolsRounded-{suffix}.ttf"
+        font.save(out)
+        print(f"{len(icons)} íconos de la barra -> {out.relative_to(ROOT)} ({out.stat().st_size // 1024} KiB)")
 
 
 def main():
     fetch()
     codepoints = dict(line.split() for line in CODEPOINTS.read_text().splitlines() if line.strip())
-    icons = used_icons(codepoints)
+    icons = used_icons(codepoints, (UI / "src").rglob("*.rs"))
+    bar = used_icons(codepoints, BAR_SOURCES)
 
     font = TTFont(FONT)
     cmap = font.getBestCmap()
@@ -83,7 +112,9 @@ def main():
     font.flavor = "woff2"
     font.save(OUT_FONT)
 
-    OUT_JSON.write_text(json.dumps({n: codepoints[n] for n in icons}, indent=2) + "\n")
+    bar_instances(codepoints, bar)
+    table = sorted(set(icons) | set(bar))
+    OUT_JSON.write_text(json.dumps({n: codepoints[n] for n in table}, indent=2) + "\n")
     print(f"{len(icons)} íconos -> {OUT_FONT.relative_to(ROOT)} ({OUT_FONT.stat().st_size // 1024} KiB)")
 
 

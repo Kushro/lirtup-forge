@@ -1,7 +1,9 @@
 //! OSD and stats panel drawing: text rasterized on the CPU with `ab_glyph`
 //! into an RGBA image, uploaded, and blended over the output by
 //! `misc/overlay_blender` (same shader as 1.x). Timing (what to show and for
-//! how long) is `lirtup-pipeline::osd`.
+//! how long) is `lirtup-pipeline::osd`. Since round 4 the OSD, the panel and
+//! the bar over the game compose their images with [`crate::ui_draw`];
+//! [`OverlayBlend`] is the pass of all three.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -154,14 +156,26 @@ pub struct OverlayBlend {
     cb: Buffer,
     pipeline: lirtup_gpu::ComputePipeline,
     max_size: (u32, u32),
+    /// Name of the pass and of its timestamp.
+    label: &'static str,
     /// `(x, y, w, h)` of the visible image.
     shown: Option<(i32, i32, u32, u32)>,
     pending_upload: AtomicBool,
 }
 
 impl OverlayBlend {
-    /// Blend onto `target` (read-write).
+    /// Blend onto `target` (read-write), as the pass `osd`.
     pub fn new(device: &Arc<Device>, target: &Texture, max_size: (u32, u32)) -> Result<OverlayBlend> {
+        OverlayBlend::with_label(device, target, max_size, "osd")
+    }
+
+    /// The same, named `label` in the GPU times (`toolbar` for the bar).
+    pub fn with_label(
+        device: &Arc<Device>,
+        target: &Texture,
+        max_size: (u32, u32),
+        label: &'static str,
+    ) -> Result<OverlayBlend> {
         let max_size = (max_size.0.max(1), max_size.1.max(1));
         let image = util::texture(device, max_size.0, max_size.1, Format::R8G8B8A8Unorm, "osd image")?;
         let staging = device.create_buffer(&BufferDesc {
@@ -200,6 +214,7 @@ impl OverlayBlend {
             cb,
             pipeline,
             max_size,
+            label,
             shown: None,
             pending_upload: AtomicBool::new(false),
         })
@@ -240,7 +255,7 @@ impl OverlayBlend {
 
 impl Pass for OverlayBlend {
     fn label(&self) -> &str {
-        "osd"
+        self.label
     }
 
     fn output(&self) -> &Texture {
@@ -267,7 +282,7 @@ impl Pass for OverlayBlend {
             pipeline: &self.pipeline,
             groups: util::groups((w, h), (16, 16)),
             push: &[],
-            timestamp: Some("osd"),
+            timestamp: Some(self.label),
         });
         Ok(())
     }

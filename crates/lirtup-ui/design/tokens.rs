@@ -140,7 +140,7 @@ pub const MOTION_FAST_EFFECTS: Motion = Motion { bezier: [0.31, 0.94, 0.34, 1.0]
 
 /// Material Symbols Rounded code points of the icons the GUI uses
 /// (`design/icons.json`): `ab_glyph` applies no ligatures.
-pub const ICONS: [(&str, u32); 171] = [
+pub const ICONS: [(&str, u32); 172] = [
     ("abc", 0xEB94),
     ("add", 0xE145),
     ("ads_click", 0xE762),
@@ -179,6 +179,7 @@ pub const ICONS: [(&str, u32); 171] = [
     ("content_copy", 0xE14D),
     ("content_cut", 0xE14E),
     ("contrast", 0xEB37),
+    ("crop", 0xE3BE),
     ("crop_square", 0xE3C6),
     ("dark_mode", 0xE51C),
     ("deblur", 0xEB77),

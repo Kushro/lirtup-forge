@@ -37,6 +37,18 @@
 //! `CycleGeometry`, `RestoreView`, `ZoomIn`, `ZoomOut`, `Offset*`. It keeps
 //! `StartFullscreen`, `StartWindowed` and `ExitApp` for itself.
 //!
+//! # The bar over the game (round 4, front T)
+//!
+//! The session thread owns the [`crate::toolbar::Toolbar`] next to the OSD
+//! and the panel: it sends its zone to the overlay
+//! (`OverlayCommand::SetToolbarZone`), gives it the overlay's
+//! `OverlayNotice::Pointer`s, and runs its actions. `ToggleToolbar` shows
+//! or hides it. The multiplier and «pin» apply live and go to the GUI as
+//! `Event::SaveSetting`; in windowed mode the bar drags the window, and the
+//! position it is left at is saved too ([`WINDOWED_POSITION_KEY`]) and used
+//! by the next windowed session. A minimized target pauses the session with
+//! the overlay hidden (1.x).
+//!
 //! As in 1.x `controller.py`: zoom steps through `50 %` to `800 %` of the
 //! monitor in `fit` (25 % steps, starting at the configured geometry);
 //! `CycleGeometry` goes `fit` → `stretch` → `cover`; the offsets move by 25
@@ -69,6 +81,7 @@ use lirtup_effects::Pass;
 use lirtup_fg::layer::LayerSetup;
 use lirtup_gpu::{Device, Format, PresentMode, Timestamps};
 use lirtup_proto::{Event, SessionKind, SessionView, Size, Stage, StopReason, WindowRef};
+use lirtup_x11::overlay_input::ToolbarZone;
 use lirtup_x11::{
     Capture, CaptureOptions, CoordinateMapper, DamageRect, OverlayOptions, Rect, RgbaImage, WindowInfo, X11,
     X11Error,
@@ -80,6 +93,7 @@ use crate::osd::Osd;
 use crate::presenter::{Presenter, output_geometry};
 use crate::stats::{FrameGenLine, FrameKind, PanelContext, PresentRecord, Stats, StatsOptions, StatsPanel};
 use crate::surface::{OverlayCommand, OverlayNotice, OverlayThread, PresentSurface, SurfaceDesc};
+use crate::toolbar::{PINNED_KEY, Toolbar, ToolbarAction, ToolbarState};
 use crate::upscale::{Upscaler, next_model};
 use crate::{PipelineError, Result};
 
@@ -289,9 +303,55 @@ const OFFSET_STEP: i32 = 25;
 /// How often `Event::Stats` and the panel are refreshed.
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(500);
 
-/// `hide_cursor` (ms) as the overlay takes it.
-fn hide_cursor_after(config: &Config) -> Option<Duration> {
-    config.hide_cursor.map(|ms| Duration::from_millis(u64::from(ms)))
+/// The YAML key (top level) of the windowed overlay's position after the
+/// bar dragged it: `[x, y]`, root coordinates.
+pub const WINDOWED_POSITION_KEY: &str = "windowed_overlay_position";
+
+/// How often the session looks whether the target was minimized.
+const MINIMIZED_POLL: Duration = Duration::from_millis(500);
+
+/// The bar dragged the window; its position is saved this long after the
+/// last move (the window manager reports every step of the drag).
+const SAVE_POSITION_AFTER: Duration = Duration::from_millis(800);
+
+/// `hide_cursor` (ms) as the overlay takes it: a timer, or with `0` the
+/// cursor hidden for good (1.x; the bar still shows it over itself).
+fn cursor_commands(config: &Config) -> [OverlayCommand; 2] {
+    match config.hide_cursor {
+        Some(0) => [
+            OverlayCommand::HideCursorAfter(None),
+            OverlayCommand::SetCursorVisible(false),
+        ],
+        after => [
+            OverlayCommand::SetCursorVisible(true),
+            OverlayCommand::HideCursorAfter(after.map(|ms| Duration::from_millis(u64::from(ms)))),
+        ],
+    }
+}
+
+/// `overlay_opacity_min` for click-through `top-transparent` (1.x dims the
+/// overlay while the pointer is outside the target).
+fn dimmed_opacity(config: &Config, mode: OverlayMode) -> Option<f32> {
+    (mode == OverlayMode::TopTransparent).then_some(config.overlay_opacity_min)
+}
+
+/// The saved windowed position ([`WINDOWED_POSITION_KEY`]).
+fn saved_position(config: &Config) -> Option<(i32, i32)> {
+    let seq = config.extra.get(WINDOWED_POSITION_KEY)?.as_sequence()?;
+    let x = i32::try_from(seq.first()?.as_i64()?).ok()?;
+    let y = i32::try_from(seq.get(1)?.as_i64()?).ok()?;
+    Some((x, y))
+}
+
+/// The next multiplier of the bar's button: off → ×2 → ×3 → ×4 → Auto → off.
+fn next_multiplier(m: lirtup_config::FrameGenMultiplier) -> lirtup_config::FrameGenMultiplier {
+    use lirtup_config::FrameGenMultiplier::{Auto, Fixed};
+    match m {
+        Fixed(n @ 2..=3) => Fixed(n + 1),
+        Fixed(4..) => Auto,
+        Auto => Fixed(1),
+        Fixed(_) => Fixed(2),
+    }
 }
 
 /// The overlay mode of a session kind (module docs).
@@ -398,6 +458,9 @@ struct Parts {
     presenter: Presenter,
     osd: Osd,
     panel: StatsPanel,
+    toolbar: Toolbar,
+    /// The zone last sent to the overlay.
+    toolbar_zone: Option<ToolbarZone>,
 }
 
 /// The session thread's state.
@@ -434,6 +497,15 @@ struct Runner {
     view: Arc<ArcSwapOption<SessionView>>,
     /// [`SessionSetup::timestamps`].
     timestamps: bool,
+    /// The target is minimized: paused with the overlay hidden.
+    minimized: bool,
+    next_minimized_check: Instant,
+    /// The bar dragged the window: save where it is once it stops moving.
+    moved: Option<Instant>,
+    /// Where the bar left the windowed overlay ([`WINDOWED_POSITION_KEY`]).
+    windowed_position: Option<(i32, i32)>,
+    /// Screenshots saved (or not) on their thread: the OSD tells after.
+    screenshots: (Sender<bool>, Receiver<bool>),
 }
 
 impl Runner {
@@ -477,7 +549,13 @@ impl Runner {
             damage: Vec::new(),
             view,
             timestamps: setup.timestamps,
+            minimized: false,
+            next_minimized_check: now,
+            moved: None,
+            windowed_position: None,
+            screenshots: crossbeam_channel::unbounded(),
         };
+        runner.windowed_position = saved_position(&runner.config);
         runner.parts = Some(runner.build(setup.window)?);
         Ok(runner)
     }
@@ -500,12 +578,7 @@ impl Runner {
         let buffer = vec![0u8; capture.buffer_len()];
 
         let mode = self.overlay_mode();
-        let rect = overlay_rect(
-            &self.config,
-            mode,
-            (window.width(), window.height()),
-            self.monitor,
-        );
+        let rect = self.overlay_rect_for(mode, &window);
         let (hotkeys, _) = self.config.hotkey_bindings();
         let overlay = OverlayThread::spawn(
             OverlayOptions {
@@ -559,7 +632,16 @@ impl Runner {
         presenter.set_source(upscaler.output());
         let osd = Osd::new(&self.device, presenter.screen(), &self.config)?;
         let panel = StatsPanel::new(&self.device, presenter.screen(), self.config.show_stats)?;
-        overlay.send(OverlayCommand::HideCursorAfter(hide_cursor_after(&self.config)));
+        let mut toolbar = Toolbar::new(&self.device, presenter.screen())?;
+        let pinned = self.config.extra.get(PINNED_KEY).and_then(|v| v.as_bool()) == Some(true);
+        toolbar.set_pinned(pinned, Instant::now());
+        for command in cursor_commands(&self.config) {
+            overlay.send(command);
+        }
+        overlay.send(OverlayCommand::SetDimmedOpacity(dimmed_opacity(
+            &self.config,
+            mode,
+        )));
         self.stale = true;
         self.mapper = None;
         let mut parts = Parts {
@@ -572,6 +654,8 @@ impl Runner {
             presenter,
             osd,
             panel,
+            toolbar,
+            toolbar_zone: None,
         };
         self.apply_view(&mut parts);
         Ok(parts)
@@ -585,11 +669,12 @@ impl Runner {
             overlay,
             osd,
             panel,
+            toolbar,
             upscaler,
             ..
         } = parts;
         presenter.close();
-        drop((osd, panel, upscaler));
+        drop((osd, panel, toolbar, upscaler));
         overlay.close(Duration::from_secs(2));
     }
 
@@ -625,8 +710,12 @@ impl Runner {
                 return Ok(reason);
             }
             self.check_focus()?;
+            if let Some(reason) = self.check_minimized()? {
+                return Ok(reason);
+            }
+            self.screenshot_results();
 
-            if self.user_paused || self.focus_paused {
+            if self.user_paused || self.focus_paused || self.minimized {
                 self.wait_paused(rx);
                 continue;
             }
@@ -702,17 +791,44 @@ impl Runner {
                 }
             };
             match notice {
-                OverlayNotice::Configured(rect) => self.resize(rect.width, rect.height)?,
+                OverlayNotice::Configured(rect) => self.configured(rect)?,
                 OverlayNotice::Exposed => self.stale = true,
                 OverlayNotice::Hotkey(action) => self.handle_hotkey(action)?,
                 OverlayNotice::Closed => return Ok(Some(StopReason::User)),
                 OverlayNotice::Failed => {
                     return Err(PipelineError::other(Stage::Overlay, "the overlay window failed"));
                 }
-                // The bar over the game (round 4, front T).
-                OverlayNotice::Pointer(event) => tracing::trace!("toolbar pointer {event:?}"),
+                OverlayNotice::Pointer(event) => {
+                    let action = self
+                        .parts
+                        .as_mut()
+                        .and_then(|p| p.toolbar.pointer(event, Instant::now()));
+                    if let Some(action) = action
+                        && let Some(reason) = self.toolbar_action(action)?
+                    {
+                        return Ok(Some(reason));
+                    }
+                }
             }
         }
+    }
+
+    /// The overlay has a new geometry: a new swapchain if its size changed
+    /// (a drag by the bar only moves it).
+    fn configured(&mut self, rect: Rect) -> Result<()> {
+        if self.moved.is_some() && self.overlay_mode() == OverlayMode::Windowed {
+            self.moved = Some(Instant::now());
+            self.windowed_position = Some((rect.x, rect.y));
+        }
+        let same = self.parts.as_ref().is_some_and(|p| {
+            let screen = p.presenter.screen();
+            (screen.width(), screen.height()) == (rect.width.max(1), rect.height.max(1))
+        });
+        if same {
+            self.stale = true;
+            return Ok(());
+        }
+        self.resize(rect.width, rect.height)
     }
 
     /// The overlay (swapchain) has a new size.
@@ -723,8 +839,65 @@ impl Runner {
         parts.presenter.resize(width, height)?;
         parts.osd.rebind(&self.device, parts.presenter.screen())?;
         parts.panel.rebind(&self.device, parts.presenter.screen())?;
+        parts.toolbar.rebind(&self.device, parts.presenter.screen())?;
+        parts.toolbar_zone = None;
         self.stale = true;
         Ok(())
+    }
+
+    /// The overlay's area for `window` (`overlay_rect`), at the position
+    /// the bar left it in windowed mode.
+    fn overlay_rect_for(&self, mode: OverlayMode, window: &WindowInfo) -> Rect {
+        let mut rect = overlay_rect(
+            &self.config,
+            mode,
+            (window.width(), window.height()),
+            self.monitor,
+        );
+        if mode == OverlayMode::Windowed
+            && let Some((x, y)) = self.windowed_position
+        {
+            rect.x = x;
+            rect.y = y;
+        }
+        rect
+    }
+
+    /// 1.x pauses and hides the overlay while the target is minimized
+    /// (iconic windows are unmapped: not viewable). Checked every
+    /// [`MINIMIZED_POLL`].
+    fn check_minimized(&mut self) -> Result<Option<StopReason>> {
+        let Some(xid) = self.parts.as_ref().map(|p| p.window.xid) else {
+            return Ok(None);
+        };
+        let now = Instant::now();
+        if now < self.next_minimized_check {
+            return Ok(None);
+        }
+        self.next_minimized_check = now + MINIMIZED_POLL;
+        let viewable = self.x11.is_viewable(xid)?;
+        if !viewable && self.x11.window_info(xid)?.is_none() {
+            return Ok(Some(StopReason::WindowClosed));
+        }
+        if self.minimized == viewable {
+            self.minimized = !viewable;
+            tracing::info!(
+                "target {}",
+                if viewable {
+                    "restored"
+                } else {
+                    "minimized: pausing"
+                }
+            );
+            if self.minimized {
+                if let Some(p) = self.parts.as_ref() {
+                    p.overlay.send(OverlayCommand::SetVisible(false));
+                }
+            } else {
+                self.show_overlay();
+            }
+        }
+        Ok(None)
     }
 
     /// `follow_focus` and `pause_on_focus_loss` (`_update_pause_state`).
@@ -781,7 +954,7 @@ impl Runner {
     }
 
     fn show_overlay(&mut self) {
-        if !self.user_paused && !self.focus_paused {
+        if !self.user_paused && !self.focus_paused && !self.minimized {
             if let Some(p) = self.parts.as_ref() {
                 p.overlay.send(OverlayCommand::SetVisible(true));
             }
@@ -811,12 +984,7 @@ impl Runner {
         if self.overlay_mode() == OverlayMode::Windowed
             && let Some(parts) = self.parts.as_ref()
         {
-            let rect = overlay_rect(
-                &self.config,
-                OverlayMode::Windowed,
-                (parts.window.width(), parts.window.height()),
-                self.monitor,
-            );
+            let rect = self.overlay_rect_for(OverlayMode::Windowed, &parts.window);
             parts.overlay.send(OverlayCommand::SetMode {
                 mode: OverlayMode::Windowed,
                 rect,
@@ -842,12 +1010,7 @@ impl Runner {
         if self.overlay_mode() == OverlayMode::Windowed
             && let Some(parts) = self.parts.as_ref()
         {
-            let rect = overlay_rect(
-                &self.config,
-                OverlayMode::Windowed,
-                (parts.window.width(), parts.window.height()),
-                self.monitor,
-            );
+            let rect = self.overlay_rect_for(OverlayMode::Windowed, &parts.window);
             parts.overlay.send(OverlayCommand::SetMode {
                 mode: OverlayMode::Windowed,
                 rect,
@@ -945,10 +1108,19 @@ impl Runner {
                 .overlay
                 .send(OverlayCommand::SetOpacity(self.config.overlay_opacity_max));
         }
-        if old.hide_cursor != self.config.hide_cursor {
+        if old.overlay_opacity_min != self.config.overlay_opacity_min {
+            let mode = overlay_mode(self.kind, self.config.overlay_mode);
             parts
                 .overlay
-                .send(OverlayCommand::HideCursorAfter(hide_cursor_after(&self.config)));
+                .send(OverlayCommand::SetDimmedOpacity(dimmed_opacity(
+                    &self.config,
+                    mode,
+                )));
+        }
+        if old.hide_cursor != self.config.hide_cursor {
+            for command in cursor_commands(&self.config) {
+                parts.overlay.send(command);
+            }
         }
         let mut parts = self.parts.take().expect("checked above");
         self.apply_view(&mut parts);
@@ -971,16 +1143,7 @@ impl Runner {
             HotkeyAction::Screenshot => self.screenshot(),
             // The bar over the game (round 4, front T: `crate::toolbar`).
             HotkeyAction::ToggleToolbar => self.toggle_toolbar(),
-            HotkeyAction::ToggleStats => {
-                if let Some(p) = self.parts.as_mut() {
-                    let visible = !p.panel.visible();
-                    p.panel.set_visible(visible);
-                    self.stale = true;
-                    if !visible && !self.timestamps {
-                        self.stats.clear_gpu_times();
-                    }
-                }
-            }
+            HotkeyAction::ToggleStats => self.toggle_stats(),
             HotkeyAction::CycleModel => {
                 self.config.scaling.model = next_model(self.config.scaling.model);
                 self.recreate_upscaler()?;
@@ -1065,15 +1228,203 @@ impl Runner {
         }
     }
 
-    /// Read the screen back and save it on another thread
-    /// (`_save_screenshot`).
-    /// `ToggleToolbar`: show or hide the bar over the game (round 4,
-    /// front T wires [`crate::toolbar::Toolbar`] here; until then the
-    /// hotkey only logs).
-    fn toggle_toolbar(&mut self) {
-        tracing::debug!("toggle_toolbar: the bar over the game is round 4");
+    fn toggle_stats(&mut self) {
+        if let Some(p) = self.parts.as_mut() {
+            let visible = !p.panel.visible();
+            p.panel.set_visible(visible);
+            self.stale = true;
+            if !visible && !self.timestamps {
+                self.stats.clear_gpu_times();
+            }
+        }
     }
 
+    /// `ToggleToolbar`: show or hide the bar over the game.
+    fn toggle_toolbar(&mut self) {
+        if let Some(p) = self.parts.as_mut() {
+            let shown = !p.toolbar.is_shown();
+            p.toolbar.set_shown(shown, Instant::now());
+        }
+    }
+
+    /// What a button of the bar does.
+    fn toolbar_action(&mut self, action: ToolbarAction) -> Result<Option<StopReason>> {
+        tracing::debug!("toolbar: {action:?}");
+        match action {
+            ToolbarAction::Pin => {
+                let pinned = self.parts.as_ref().is_some_and(|p| p.toolbar.pinned());
+                self.save_setting(PINNED_KEY, lirtup_config::Value::Bool(pinned));
+            }
+            ToolbarAction::Stats => self.toggle_stats(),
+            ToolbarAction::Crop => self.toolbar_crop()?,
+            ToolbarAction::Screenshot => self.screenshot(),
+            ToolbarAction::Multiplier => self.cycle_multiplier()?,
+            ToolbarAction::Hide => {}
+            ToolbarAction::ToWindow => self.toggle_windowed()?,
+            ToolbarAction::Stop => return Ok(Some(StopReason::User)),
+            ToolbarAction::Move { button, x, y } => {
+                if self.overlay_mode() == OverlayMode::Windowed
+                    && let Some(p) = self.parts.as_ref()
+                {
+                    let rect = p.overlay.rect();
+                    self.moved = Some(Instant::now());
+                    p.overlay.send(OverlayCommand::BeginMove {
+                        x: rect.x + x,
+                        y: rect.y + y,
+                        button,
+                    });
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// The crop button: back to the profile's crop when a menu bar was
+    /// cropped, else look for the menu bar again.
+    fn toolbar_crop(&mut self) -> Result<()> {
+        if self.menu_crop != Crop::default() {
+            self.menu_crop = Crop::default();
+            self.menubar = None;
+            self.rebuild_capture()?;
+            self.osd(&tr("Recorte del perfil", "Profile crop"));
+        } else {
+            self.menubar = Some(MenuBarDetector::new(Instant::now()));
+            self.osd(&tr("Buscando la barra de menú", "Looking for a menu bar"));
+        }
+        Ok(())
+    }
+
+    /// The multiplier button: the next value, applied live, saved by the
+    /// GUI (a global key: *Predeterminado*). Only the built-in engine
+    /// changes it live; the layer reads it when the program starts.
+    fn cycle_multiplier(&mut self) -> Result<()> {
+        if self.config.frame_gen_engine != lirtup_config::FrameGenEngine::Native {
+            self.osd(&tr(
+                "La capa lee el multiplicador al lanzar el juego",
+                "The layer reads the multiplier when the game starts",
+            ));
+            return Ok(());
+        }
+        let next = next_multiplier(self.config.frame_gen_multiplier);
+        self.config.frame_gen_multiplier = next;
+        if let Some(p) = self.parts.as_mut() {
+            p.presenter.update_config(&self.config)?;
+        }
+        let (text, value) = match next {
+            lirtup_config::FrameGenMultiplier::Auto => {
+                ("Auto".to_owned(), lirtup_config::Value::from("auto"))
+            }
+            lirtup_config::FrameGenMultiplier::Fixed(1) => (tr("No", "Off"), lirtup_config::Value::from(1)),
+            lirtup_config::FrameGenMultiplier::Fixed(n) => (format!("×{n}"), lirtup_config::Value::from(n)),
+        };
+        self.osd(&tr(
+            &format!("Generación: {text}"),
+            &format!("Frame generation: {text}"),
+        ));
+        self.save_setting("frame_gen_multiplier", value);
+        self.stale = true;
+        Ok(())
+    }
+
+    /// The to-window button: the same target, fullscreen ↔ windowed, with a
+    /// new overlay.
+    fn toggle_windowed(&mut self) -> Result<()> {
+        self.kind = match self.kind {
+            SessionKind::Windowed => SessionKind::Fullscreen,
+            SessionKind::Fullscreen => SessionKind::Windowed,
+        };
+        if let Some(parts) = self.parts.take() {
+            let window = parts.window.clone();
+            Runner::teardown(parts);
+            self.parts = Some(self.build(window)?);
+        }
+        if let Some(view) = self.session_view() {
+            let _ = self.events.send(Event::SessionStarted(view));
+        }
+        self.publish_view();
+        Ok(())
+    }
+
+    /// Ask the GUI to keep a value the bar changed (top level).
+    fn save_setting(&self, key: &str, value: lirtup_config::Value) {
+        let _ = self.events.send(Event::SaveSetting {
+            profile: None,
+            key: key.to_owned(),
+            value,
+        });
+    }
+
+    /// The bar, once per frame: its state, its zone in the overlay, and the
+    /// windowed position it left.
+    fn update_toolbar(&mut self, sample: Option<&lirtup_proto::StatsSample>, now: Instant) -> Result<bool> {
+        if let Some(at) = self.moved
+            && now >= at + SAVE_POSITION_AFTER
+        {
+            self.moved = None;
+            if let Some((x, y)) = self.windowed_position {
+                self.save_setting(
+                    WINDOWED_POSITION_KEY,
+                    lirtup_config::Value::Sequence(vec![x.into(), y.into()]),
+                );
+            }
+        }
+        let windowed = self.overlay_mode() == OverlayMode::Windowed;
+        let multiplier_label = self.multiplier_label();
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(false);
+        };
+        let fg = parts.presenter.framegen();
+        let state = ToolbarState {
+            fps: sample.map_or(0.0, |s| s.present_fps),
+            capture_fps: sample.map_or(0.0, |s| s.capture_fps),
+            multiplier: fg.and_then(|fg| fg.active_multiplier()).filter(|m| *m > 1),
+            auto: self.config.frame_gen_multiplier == lirtup_config::FrameGenMultiplier::Auto,
+            multiplier_label,
+            stats: parts.panel.visible(),
+            windowed,
+            scheme: crate::tokens::Scheme::Dark,
+        };
+        let redraw = parts.toolbar.update(&state, now)?;
+        let zone = parts.toolbar.zone(parts.overlay.rect());
+        if zone != parts.toolbar_zone {
+            parts.toolbar_zone = zone;
+            parts.overlay.send(OverlayCommand::SetToolbarZone(zone));
+        }
+        Ok(redraw)
+    }
+
+    /// The multiplier button's label («×2 Auto», «Auto», «×3», «No»), or
+    /// `None` without frame generation in the session.
+    fn multiplier_label(&self) -> Option<String> {
+        let parts = self.parts.as_ref()?;
+        let active = match parts.presenter.framegen() {
+            Some(fg) => fg.active_multiplier(),
+            None if self.layer.state == lirtup_fg::FrameGenState::Active => Some(self.layer.multiplier),
+            None => return None,
+        };
+        let active = active.filter(|m| *m > 1);
+        Some(match (self.config.frame_gen_multiplier, active) {
+            (lirtup_config::FrameGenMultiplier::Auto, Some(m)) => format!("×{m} Auto"),
+            (lirtup_config::FrameGenMultiplier::Auto, None) => "Auto".to_owned(),
+            (lirtup_config::FrameGenMultiplier::Fixed(n), _) if n > 1 => format!("×{n}"),
+            _ => tr("No", "Off"),
+        })
+    }
+
+    /// The OSD after a screenshot was written (1.x tells once it is saved).
+    fn screenshot_results(&mut self) {
+        while let Ok(saved) = self.screenshots.1.try_recv() {
+            if saved {
+                self.osd(&tr("Captura guardada", "Screenshot saved"));
+            } else {
+                self.osd(&tr("Captura fallida", "Screenshot failed"));
+            }
+        }
+    }
+
+    /// Read the screen back and save it on another thread
+    /// (`_save_screenshot`). The title is read now (1.x), the time is
+    /// local, and the OSD tells once the file is written.
     fn screenshot(&mut self) {
         let Some(parts) = self.parts.as_ref() else { return };
         let image = match parts.presenter.screenshot() {
@@ -1084,26 +1435,41 @@ impl Runner {
                 return;
             }
         };
+        let title = match self.x11.window_info(parts.window.xid) {
+            Ok(Some(info)) => info.title,
+            _ => parts.window.title.clone(),
+        };
         let path = screenshot_path(
             &self.config.screenshot_dir,
             &self.config.screenshot_filename,
             &ScreenshotVars {
                 unix_s: now_ms() / 1000,
-                title: &parts.window.title,
-                profile: self.profile.as_deref().unwrap_or(&parts.window.title),
+                local: true,
+                title: &title,
+                profile: self.profile.as_deref().unwrap_or(&title),
                 model: self.config.scaling.model.as_str(),
                 width: image.width,
                 height: image.height,
             },
         );
+        let done = self.screenshots.0.clone();
         let spawned = std::thread::Builder::new()
             .name("lirtup-screenshot".to_owned())
-            .spawn(move || match save_png(&path, &image) {
-                Ok(()) => tracing::info!("screenshot saved to '{}'", path.display()),
-                Err(e) => tracing::error!("cannot save the screenshot '{}': {e}", path.display()),
+            .spawn(move || {
+                let saved = match save_png(&path, &image) {
+                    Ok(()) => {
+                        tracing::info!("screenshot saved to '{}'", path.display());
+                        true
+                    }
+                    Err(e) => {
+                        tracing::error!("cannot save the screenshot '{}': {e}", path.display());
+                        false
+                    }
+                };
+                let _ = done.send(saved);
             });
         match spawned {
-            Ok(_) => self.osd(&tr("Captura guardada", "Screenshot saved")),
+            Ok(_) => {}
             Err(e) => {
                 tracing::error!("screenshot thread: {e}");
                 self.osd(&tr("Captura fallida", "Screenshot failed"));
@@ -1193,9 +1559,11 @@ impl Runner {
         let context = self.panel_context();
         let parts = self.parts.as_mut().expect("parts while running");
         let mut redraw = parts.osd.update(now)?;
-        if let Some(sample) = sample {
-            redraw |= parts.panel.update(&sample, &context)?;
+        if let Some(sample) = &sample {
+            redraw |= parts.panel.update(sample, &context)?;
         }
+        redraw |= self.update_toolbar(sample.as_ref(), now)?;
+        let parts = self.parts.as_mut().expect("parts while running");
 
         // 4. Idle frame.
         let fg_active = parts.presenter.framegen().is_some_and(|fg| fg.is_active());
@@ -1235,7 +1603,13 @@ impl Runner {
         if let Some(fg) = parts.presenter.framegen_mut() {
             fg.mark_capture(capture_time);
         }
-        let overlays: Vec<&dyn Pass> = parts.osd.pass().into_iter().chain(parts.panel.pass()).collect();
+        let overlays: Vec<&dyn Pass> = parts
+            .osd
+            .pass()
+            .into_iter()
+            .chain(parts.panel.pass())
+            .chain(parts.toolbar.pass())
+            .collect();
         let outcome = parts.presenter.present(&overlays, timed)?;
         let upscale_times = parts.upscaler.finish()?;
         if let Some(times) = merge_timestamps(upscale_times, outcome.timestamps.clone()) {
@@ -1460,6 +1834,8 @@ pub fn step_zoom(zoom: u32, zoom_in: bool) -> u32 {
 pub struct ScreenshotVars<'a> {
     /// Unix time in seconds.
     pub unix_s: u64,
+    /// `{timestamp}` in local time (1.x); `false` = UTC.
+    pub local: bool,
     /// Window title.
     pub title: &'a str,
     /// Profile (the title when there is none).
@@ -1473,9 +1849,10 @@ pub struct ScreenshotVars<'a> {
 }
 
 /// The screenshot path: `screenshot_filename` in `screenshot_dir`, with
-/// `{timestamp}` (or `{timestamp:%Y%m%d_%H%M%S}`, `%Y %m %d %H %M %S` in
-/// UTC), `{title}`, `{profile}`, `{model}`, `{width}` and `{height}`; `.png`
-/// added without an image extension.
+/// `{timestamp}` (or `{timestamp:<strftime>}`: everything C `strftime`
+/// takes, as 1.x's Python `strftime`, in local time unless
+/// [`ScreenshotVars::local`] is off), `{title}`, `{profile}`, `{model}`,
+/// `{width}` and `{height}`; `.png` added without an image extension.
 pub fn screenshot_path(dir: &Path, template: &str, vars: &ScreenshotVars<'_>) -> PathBuf {
     let mut name = String::new();
     let mut rest = template;
@@ -1489,7 +1866,7 @@ pub fn screenshot_path(dir: &Path, template: &str, vars: &ScreenshotVars<'_>) ->
         let field = &rest[start + 1..start + len];
         let (key, format) = field.split_once(':').unwrap_or((field, "%Y%m%d_%H%M%S"));
         match key {
-            "timestamp" => name.push_str(&format_utc(vars.unix_s, format)),
+            "timestamp" => name.push_str(&format_time(vars.unix_s, format, vars.local)),
             "title" => name.push_str(&sanitize(vars.title)),
             "profile" => name.push_str(&sanitize(vars.profile)),
             "model" => name.push_str(vars.model),
@@ -1527,43 +1904,84 @@ fn sanitize(s: &str) -> String {
         .collect()
 }
 
-/// `strftime` with `%Y %m %d %H %M %S %%`, in UTC.
-fn format_utc(unix_s: u64, format: &str) -> String {
-    let days = (unix_s / 86_400) as i64;
-    let secs = unix_s % 86_400;
-    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    let mut out = String::new();
-    let mut chars = format.chars();
-    while let Some(c) = chars.next() {
-        if c != '%' {
-            out.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('Y') => out.push_str(&format!("{year:04}")),
-            Some('m') => out.push_str(&format!("{month:02}")),
-            Some('d') => out.push_str(&format!("{day:02}")),
-            Some('H') => out.push_str(&format!("{:02}", secs / 3600)),
-            Some('M') => out.push_str(&format!("{:02}", secs / 60 % 60)),
-            Some('S') => out.push_str(&format!("{:02}", secs % 60)),
-            Some('%') => out.push('%'),
-            Some(other) => {
-                out.push('%');
-                out.push(other);
-            }
-            None => out.push('%'),
-        }
+/// C `struct tm` (glibc and musl on Linux: nine `int`s, `tm_gmtoff`,
+/// `tm_zone`).
+#[repr(C)]
+struct Tm {
+    tm_sec: i32,
+    tm_min: i32,
+    tm_hour: i32,
+    tm_mday: i32,
+    tm_mon: i32,
+    tm_year: i32,
+    tm_wday: i32,
+    tm_yday: i32,
+    tm_isdst: i32,
+    tm_gmtoff: std::ffi::c_long,
+    tm_zone: *const std::ffi::c_char,
+}
+
+// The C library std links anyway. `libc` would declare these, but
+// `lirtup-pipeline` does not depend on it (the reviewer may switch).
+#[allow(unsafe_code)]
+mod c {
+    use super::Tm;
+
+    unsafe extern "C" {
+        pub fn localtime_r(time: *const i64, out: *mut Tm) -> *mut Tm;
+        pub fn gmtime_r(time: *const i64, out: *mut Tm) -> *mut Tm;
+        pub fn strftime(
+            s: *mut std::ffi::c_char,
+            max: usize,
+            format: *const std::ffi::c_char,
+            tm: *const Tm,
+        ) -> usize;
     }
-    out
+}
+
+/// `strftime(format)` of a Unix time, local or UTC: every code of the C
+/// library, as 1.x's Python `time.strftime`. A format with a NUL, or one
+/// that expands past 1 KiB, comes back as it is.
+#[allow(unsafe_code)]
+fn format_time(unix_s: u64, format: &str, local: bool) -> String {
+    let Ok(c_format) = std::ffi::CString::new(format) else {
+        return format.to_owned();
+    };
+    let time = i64::try_from(unix_s).unwrap_or(i64::MAX);
+    let mut tm = Tm {
+        tm_sec: 0,
+        tm_min: 0,
+        tm_hour: 0,
+        tm_mday: 0,
+        tm_mon: 0,
+        tm_year: 0,
+        tm_wday: 0,
+        tm_yday: 0,
+        tm_isdst: 0,
+        tm_gmtoff: 0,
+        tm_zone: std::ptr::null(),
+    };
+    let mut out = vec![0u8; 1024];
+    // SAFETY: `time` and `tm` are valid for the calls; `localtime_r` and
+    // `gmtime_r` fill `tm` (null on failure, checked); `strftime` writes at
+    // most `out.len()` bytes into `out` and returns how many (0 when it
+    // did not fit), reading the NUL-terminated `c_format` and `tm`.
+    let written = unsafe {
+        let filled = if local {
+            c::localtime_r(&time, &mut tm)
+        } else {
+            c::gmtime_r(&time, &mut tm)
+        };
+        if filled.is_null() {
+            return format.to_owned();
+        }
+        c::strftime(out.as_mut_ptr().cast(), out.len(), c_format.as_ptr(), &tm)
+    };
+    if written == 0 && !format.is_empty() {
+        return format.to_owned();
+    }
+    out.truncate(written);
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn save_png(path: &Path, image: &RgbaImage) -> Result<()> {
@@ -1659,6 +2077,7 @@ mod tests {
     fn screenshot_path_fills_the_template() {
         let vars = ScreenshotVars {
             unix_s: 1_700_000_000, // 2023-11-14 22:13:20 UTC
+            local: false,
             title: "a/b",
             profile: "game",
             model: "4x12",
@@ -1679,6 +2098,52 @@ mod tests {
         assert_eq!(path, PathBuf::from("/tmp/game/4x12_1920x1080_a_b.png"));
         let path = screenshot_path(Path::new("/tmp"), "{unknown}.jpg", &vars);
         assert_eq!(path, PathBuf::from("/tmp/{unknown}.jpg"));
+        // Any strftime code (1.x used Python's).
+        let path = screenshot_path(Path::new("/tmp"), "{timestamp:%a %j %y}", &vars);
+        assert_eq!(path, PathBuf::from("/tmp/Tue 318 23.png"));
+        let path = screenshot_path(Path::new("/tmp"), "{timestamp}", &vars);
+        assert_eq!(path, PathBuf::from("/tmp/20231114_221320.png"));
+    }
+
+    #[test]
+    fn multiplier_cycles_like_the_bar() {
+        use lirtup_config::FrameGenMultiplier::{Auto, Fixed};
+        let mut m = Fixed(1);
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            m = next_multiplier(m);
+            seen.push(m);
+        }
+        assert_eq!(seen, vec![Fixed(2), Fixed(3), Fixed(4), Auto, Fixed(1)]);
+        assert_eq!(next_multiplier(Fixed(5)), Auto);
+    }
+
+    #[test]
+    fn hide_cursor_zero_hides_it_for_good() {
+        let mut config = Config {
+            hide_cursor: Some(0),
+            ..Config::default()
+        };
+        assert_eq!(
+            cursor_commands(&config)[1],
+            OverlayCommand::SetCursorVisible(false)
+        );
+        config.hide_cursor = Some(1500);
+        assert_eq!(
+            cursor_commands(&config)[1],
+            OverlayCommand::HideCursorAfter(Some(Duration::from_millis(1500)))
+        );
+    }
+
+    #[test]
+    fn the_saved_position_is_read_from_the_yaml() {
+        let mut config = Config::default();
+        assert_eq!(saved_position(&config), None);
+        config.extra.insert(
+            WINDOWED_POSITION_KEY.into(),
+            lirtup_config::Value::Sequence(vec![(-20).into(), 300.into()]),
+        );
+        assert_eq!(saved_position(&config), Some((-20, 300)));
     }
 
     #[test]
