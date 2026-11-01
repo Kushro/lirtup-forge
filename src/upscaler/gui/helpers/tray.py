@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, QSettings, QTimer
-from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QIcon, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from ..icons import load_icon
@@ -25,6 +25,9 @@ def _get_signature(
     close_to_tray: bool,
     minimize_to_tray: bool,
     main_window_visible: bool,
+    session_target: Optional[Tuple[int, str]] = None,
+    profiles: Tuple[str, ...] = (),
+    active_profile: Optional[str] = None,
 ) -> Tuple:
     """
     Build a hashable signature representing the current menu state.
@@ -40,6 +43,9 @@ def _get_signature(
         close_to_tray,
         minimize_to_tray,
         main_window_visible,
+        session_target,
+        profiles,
+        active_profile,
     )
 
 
@@ -74,6 +80,8 @@ class TrayController(QObject):
 
         # Build a persistent QMenu; its contents are refreshed as needed
         self._menu = QMenu()
+        self._menu.setToolTipsVisible(True)
+        self._submenus: List[QMenu] = []  # deleted on each rebuild
         self._menu.aboutToShow.connect(self._update_daemon_check_state)
         self.tray_icon.setContextMenu(self._menu)
 
@@ -154,6 +162,7 @@ class TrayController(QObject):
             close_to_tray,
             minimize_to_tray,
             main_window_visible,
+            *self._session_and_profile_state(),
         )
 
         if new_signature != self._cached_signature:
@@ -205,27 +214,46 @@ class TrayController(QObject):
             close_to_tray,
             minimize_to_tray,
             main_window_visible,
+            *self._session_and_profile_state(),
         )
 
-        # Clear and rebuild the menu
+        # Clear and rebuild the menu (clear() keeps the submenus alive)
         self._menu.clear()
+        for submenu in self._submenus:
+            submenu.deleteLater()
+        self._submenus = []
 
         # --------------------------------------------------------------
         # Dynamic window list (only when no manual session is active)
         # --------------------------------------------------------------
         if not session_active:
-            for win in windows:
-                title = win.title or self.tr(
-                    "Unknown", "Fallback if no window title was found"
-                )
-                action = self._menu.addAction(title)
-                action.setIcon(self._get_window_icon(win.handle))
-                action.setData(win)
-                action.triggered.connect(
-                    lambda checked=False, w=win: self._start_upscaling(w)
-                )
+            self._add_window_actions(self._menu, windows, self._start_upscaling)
             if windows:
                 self._menu.addSeparator()
+        else:
+            target = self._main_window.manual_session.window_info
+            header = self._menu.addAction(
+                self.tr("Upscaling: {0}", "Tray menu header; {0} is a window title")
+                .format(self._window_title(target) if target else "?")
+            )
+            header.setEnabled(False)
+            restart_action = self._menu.addAction(
+                self.tr("Restart", "Tray menu: restart upscaling with current settings")
+            )
+            restart_action.setToolTip(
+                self.tr(
+                    "Upscale the same window again with the current settings.",
+                    "Tray menu tooltip",
+                )
+            )
+            restart_action.triggered.connect(self._restart_upscaling)
+            others = [w for w in windows if target is None or w.handle != target.handle]
+            if others:
+                switch_menu = self._menu.addMenu(
+                    self.tr("Switch to", "Tray submenu: upscale another window")
+                )
+                self._submenus.append(switch_menu)
+                self._add_window_actions(switch_menu, others, self._switch_upscaling)
 
         # --------------------------------------------------------------
         # Show / Stop action (single action whose text/icon changes)
@@ -265,6 +293,11 @@ class TrayController(QObject):
                 )
             )
             action.triggered.connect(handler)
+
+        # --------------------------------------------------------------
+        # Profile used for the next session (restarts a running one)
+        # --------------------------------------------------------------
+        self._add_profile_menu()
 
         # --------------------------------------------------------------
         # Daemon Mode toggle
@@ -370,6 +403,64 @@ class TrayController(QObject):
             else:
                 self._icon_cache[handle] = QIcon()  # empty icon
         return self._icon_cache[handle]
+
+    def _session_and_profile_state(
+        self,
+    ) -> Tuple[Optional[Tuple[int, str]], Tuple[str, ...], Optional[str]]:
+        """Session target, profile names and active profile (menu signature)."""
+        session = self._main_window.manual_session
+        target = None
+        if session is not None and session.window_info is not None:
+            target = (session.window_info.handle, session.window_info.title or "")
+        return (
+            target,
+            tuple(self._main_window.profile_names),
+            self._main_window.active_profile_name,
+        )
+
+    def _window_title(self, win: WindowInfo) -> str:
+        return win.title or self.tr("Unknown", "Fallback if no window title was found")
+
+    def _add_window_actions(self, menu: QMenu, windows: List[WindowInfo], slot) -> None:
+        """Add one action per window to *menu*, calling *slot(window)*."""
+        for win in windows:
+            action = menu.addAction(self._window_title(win))
+            action.setIcon(self._get_window_icon(win.handle))
+            action.setData(win)
+            action.triggered.connect(lambda checked=False, w=win: slot(w))
+
+    def _add_profile_menu(self) -> None:
+        """Radio list of profiles; Global auto-matches a profile per window."""
+        menu = self._menu.addMenu(self.tr("Profile", "Tray submenu"))
+        self._submenus.append(menu)
+        group = QActionGroup(menu)
+        active = self._main_window.active_profile_name
+        names: List[Optional[str]] = [None] + self._main_window.profile_names
+        for name in names:
+            label = name or self.tr(
+                "Global (auto-match)", "Tray menu: global settings, no profile"
+            )
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(name == active)
+            group.addAction(action)
+            action.triggered.connect(
+                lambda checked=False, n=name: self._select_profile(n)
+            )
+
+    def _select_profile(self, name: Optional[str]) -> None:
+        self._main_window.select_profile(name)
+        self.refresh_menu()
+
+    def _restart_upscaling(self) -> None:
+        """Upscale the same window again with the current settings."""
+        self._main_window.restart_manual_session()
+        self.refresh_menu()
+
+    def _switch_upscaling(self, win_info: WindowInfo) -> None:
+        """Stop the running session and upscale *win_info* instead."""
+        self._main_window.restart_manual_session(win_info)
+        self.refresh_menu()
 
     def _start_upscaling(self, win_info: WindowInfo) -> None:
         """Start a manual upscaling session for the given window."""

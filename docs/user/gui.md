@@ -135,3 +135,24 @@ When **Daemon Mode** is enabled (found in the General tab), a background process
 3. If the window closes, the daemon goes back to scanning for the next match.
 
 Daemon mode is ideal if you want to automatically upscale a profiled window as soon as it launches, or if your mouse died from exhaustion after a long day of multi-clicking~.
+## System tray
+
+Turn the tray icon on with the round tray button next to the filter bar. The
+app then keeps running in the system tray, and its menu lets you work without
+opening the main window:
+
+- **While nothing is upscaled**: the open windows (click one to upscale it),
+  and *Show* / *Hide* for the main window.
+- **While a window is upscaled**: its title, then
+    - *Restart*: upscale the same window again with the current settings,
+      for example after changing them.
+    - *Switch to*: stop and upscale another window instead.
+    - *Stop*: stop upscaling and go back to the main window (if it was open).
+- **Profile**: the profile for the next session. *Global (auto-match)* picks a
+  matching profile for each window. Picking a profile while a window is
+  upscaled restarts the session with it.
+- *Daemon mode*, and whether the app closes or minimizes to the tray, starts
+  hidden, or keeps running after exit.
+
+Frame generation is set up when the app starts, so changing it still needs a
+restart of the whole app, not only of the session.
