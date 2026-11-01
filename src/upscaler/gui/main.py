@@ -424,6 +424,9 @@ class MainWindow(QMainWindow):
             self.manual_session.pipeline.finished.connect(
                 lambda s=self.manual_session: self._on_manual_pipeline_finished(s)
             )
+            self.manual_session.pipeline.menu_bar_cropped.connect(
+                self.remember_menu_bar_crop
+            )
         except Exception as e:
             logger.exception("Failed to start pipeline")
             QMessageBox.critical(
@@ -768,6 +771,20 @@ class MainWindow(QMainWindow):
         )
         logger.info("Restarting with frame generation x%d", multiplier)
         self._force_quit()
+
+    def remember_menu_bar_crop(self, profile: str, crop_top: int) -> None:
+        """
+        Save a detected menu bar crop in the session's profile, and turn
+        detection off there so the next session does not crop twice.
+        Without a profile it applies to this session only.
+        """
+        if not profile or profile not in self._config_manager.profiles:
+            logger.info("Menu bar crop not saved: the session has no profile")
+            return
+        self._config_manager.update_profile_options(
+            profile, {"crop_top": crop_top, "auto_crop_menu_bar": False}
+        )
+        logger.info("Saved crop_top=%d in profile '%s'", crop_top, profile)
 
     def resume_session(self, handle: int, hide_after: bool) -> None:
         """Upscale the window *handle* again after a relaunch, if it still exists."""

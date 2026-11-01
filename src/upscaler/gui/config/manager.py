@@ -303,6 +303,23 @@ class ConfigManager(QObject):
         logger.debug("Saved global option %s=%r", name, value)
         self.config_changed.emit()
 
+    def update_profile_options(self, name: str, options: Dict[str, Any]) -> None:
+        """
+        Merge *options* into profile *name* and save the file right away,
+        without saving other pending edits.
+        """
+        profile = self.profiles.get(name)
+        if profile is None:
+            return
+        profile.setdefault("options", {}).update(options)
+        save_yaml_config(self._general_opts, dict(self.profiles), self._config_path)
+        if name == self.active_profile_name:
+            for key, value in options.items():
+                setattr(self.persistent_config, key, copy.deepcopy(value))
+                setattr(self.saved_persistent_config, key, copy.deepcopy(value))
+        logger.debug("Saved %s in profile '%s'", sorted(options), name)
+        self.config_changed.emit()
+
     def reset_to_saved(self) -> None:
         """
         Discard any unsaved changes and revert the persistent config to the

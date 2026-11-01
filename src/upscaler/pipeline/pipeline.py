@@ -110,6 +110,8 @@ class Pipeline(QObject):
     daemon_scan_start = Signal()
     daemon_target_acquired = Signal()
     finished = Signal()
+    # A menu bar was cropped: (profile name or "", new crop_top)
+    menu_bar_cropped = Signal(str, int)
 
     def __init__(
         self,
@@ -824,6 +826,7 @@ class Pipeline(QObject):
         self.overlay.update_config.emit(self.config)
         self._handle_window_change()
         self.osd_queue.put(("Menu bar cropped", self.config.osd_duration))
+        self.menu_bar_cropped.emit(self.profile_name or "", self.config.crop_top)
 
     def _stats_rows(self) -> List[StatsRow]:
         """Rows of the stats panel: rates, then the processing chain."""
