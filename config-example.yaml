@@ -580,9 +580,17 @@ frame_gen_flow_scale: 1.0
 # Default: false
 frame_gen_performance: false
 
-# Folder holding lsfg-vk.dll. null searches the Steam libraries.
+# Folder holding lsfg-vk.dll (layer engine), or the path of Lossless.dll
+# (native engine). null searches the Steam libraries.
 # Default: null
 frame_gen_dll: null
+
+# How frames are generated:
+#   layer  - the lsfg-vk Vulkan layer, over the upscaler's own window.
+#   native - (experimental) the lsfg core built into the upscaler, with the
+#            shaders read from Lossless.dll; no layer needed.
+# Default: layer
+frame_gen_engine: layer
 
 # Maximum time (in nanoseconds) to wait for the GPU to finish the previous frame
 # before starting the next capture. If the GPU is still busy after this timeout,

@@ -1,6 +1,6 @@
 # Generación de cuadros (FG): análisis de posibilidad
 
-Estado: **fase 0 integrada** (ajustes `frame_gen_*`, `--frame-gen` y sección en la GUI; ver [integración](#integración-de-la-fase-0-2026-10-31)) (ver [resultados](#fase-0-resultados-2026-10-31)). Fecha: 2026-10-31. Rama: `analysis/frame-generation`.
+Estado: **fase 0 integrada** (ajustes `frame_gen_*`, `--frame-gen` y sección en la GUI; ver [integración](#integración-de-la-fase-0-2026-10-31)) (ver [resultados](#fase-0-resultados-2026-10-31)). **Fase 1 escrita y compilada, sin probar** (ver [fase 1](#fase-1-implementación-2026-11-01)). Fecha: 2026-11-01. Rama de la fase 1: `feature/next-round`.
 
 Convención: **verificado** = leído en el código o comprobado en esta máquina; **medido en otro
 proyecto** = cifra de Enigmata Temple, en otro pipeline; **estimado** = cuenta hecha aquí, sin
@@ -310,6 +310,44 @@ Hallazgos (verificado):
 - **Probado por la persona en la GUI real** (2026-10-31, instalación con pipx): ×4 con la novela
   visual G-senjou no Maou funcionó bien en principio. Es una impresión, no una medición.
 - Sin probar: latencia medida, juegos con mucho movimiento, estelas del OSD, otras GPU.
+
+## Fase 1: implementación (2026-11-01)
+
+Escrita y compilada; **nada de esto se probó todavía en la GPU**. Es el motor «integrado»
+(`frame_gen_engine: native`), al lado de la capa, que sigue siendo el predeterminado.
+
+Qué se hizo, comparado con el plan de arriba:
+
+| Pieza del plan | Qué quedó |
+| --- | --- |
+| 1. Módulo nativo | `src/upscaler/lsfg/`: lsfg-vk (3.1 y 3.1P), pe-parse, volk y `shader_loader` copiados de Enigmata Temple, compilados como la extensión `upscaler.lsfg.lsfg` desde `setup.py` (sin CMake). volk se compila como C++ (`lib/volk_unit.cpp`) con visibilidad oculta, así sus punteros no chocan con `libvulkan` que usa `upscaler.vulkan`. Única modificación a lsfg-vk: `exception.cpp` sin `std::format` (GCC 13). |
+| 2. Compartir por fd | Hecho, sin el respaldo por staging. `vk_external.cpp` en `upscaler.vulkan`: el dispositivo activa `VK_KHR_external_memory_fd` y `VK_KHR_external_semaphore_fd` si están; `Texture2D.external` crea texturas exportables (asignación dedicada, primer tipo `DEVICE_LOCAL`, igual que importa lsfg); semáforos binarios exportables; `copy_texture_signal` y `wait_semaphore`. lsfg usa `createContext` original (por fd), no el `createContextLocal` de Temple. La GPU se elige por `vendorID << 32 \| deviceID` del dispositivo de lirtup. |
+| 3. Detector de cadencia | No hace falta uno aparte: con FG activa el pipeline ya presenta sólo cuadros nuevos (`present_on_change_only`), y el intervalo entre presentaciones es el del juego. Se suaviza (media exponencial, 4,2 a 67 ms). Sin modo automático de multiplicador todavía. |
+| 4. Hilo de presentación | No: el mismo hilo presenta los generados y después el real, repartidos en el intervalo con `sleep`. Mientras espera no captura, pero el próximo cuadro del juego llega recién al final del intervalo. Más simple; si el ritmo sale desparejo, este es el primer sospechoso. |
+| 5. Dónde va en la cadena | Sobre `screen_tex_8bit`, **después** del OSD y del panel de stats (no antes, como proponía el plan): se interpolan también. |
+| 6. Config, GUI, CLI | `frame_gen_engine` (`--frame-gen-engine`), selector «Motor» en la GUI, estados propios (falta el motor, falta `Lossless.dll`), traducción. La bandeja y el panel de stats lo conocen. |
+| 7. `DISABLE_LSFGVK=1` | Sí, el motor integrado deja la capa apagada. |
+
+Cada cuadro nuevo del juego (`pipeline/native_framegen.py`):
+
+1. `copy_texture_signal`: copia `screen_tex_8bit` a la entrada `k % 2` y señala el semáforo de
+   entrada.
+2. `lsfg.present(contexto, fd del semáforo de entrada, fds de los de salida)`. Los fds se exportan
+   de nuevo en cada cuadro (lsfg se queda con ellos); con fds opacos el semáforo es el mismo.
+3. Espera los semáforos de salida (todos, aunque el primer cuadro del contexto no se muestre,
+   para que vuelvan a quedar sin señalar), presenta los generados y después el real.
+
+Cualquier excepción apaga la FG para la sesión y sigue presentando el cuadro real.
+
+Riesgos que hay que mirar al probar:
+
+- Que lsfg acepte la memoria importada: los usos de la imagen difieren entre los dos lados
+  (lirtup agrega `TRANSFER_SRC/DST`), como en la capa de lsfg-vk.
+- La transición de `UNDEFINED` de lsfg en el primer uso descarta el contenido: sólo afecta al
+  primer cuadro, que no se muestra.
+- Sin traspaso explícito de familia de colas (`VK_QUEUE_FAMILY_EXTERNAL`), igual que la capa de
+  escritorio.
+- El ritmo con `fifo`: cada `present` puede bloquear hasta el vblank y correr los siguientes.
 
 ## Próximos pasos propuestos
 

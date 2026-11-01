@@ -7,7 +7,7 @@ with the upstream commits and every modification.
 
 | Folder / file | License | Use here |
 | --- | --- | --- |
-| `lsfg-vk/` | MIT (`lsfg-vk/LICENSE.md`) | Frame generation core, v3.1 and v3.1P. Built without `TEMPLE_LSFG_LOCAL`: images and semaphores are shared by fd (`createContext`). `src/common/temple_local.cpp` is not compiled. |
+| `lsfg-vk/` | MIT (`lsfg-vk/LICENSE.md`) | Frame generation core, v3.1 and v3.1P. Built without `TEMPLE_LSFG_LOCAL`: images and semaphores are shared by fd (`createContext`). `src/common/temple_local.cpp` is not compiled. One LirtUp Forge change: `src/common/exception.cpp` builds its messages without `std::format` (GCC 13). |
 | `pe-parse/` | MIT (`pe-parse/LICENSE`) | Reads the resources of `Lossless.dll`. |
 | `volk/` | MIT (`volk/LICENSE.md`) | Vulkan loader of the core, compiled through `../lib/volk_unit.cpp` with hidden visibility. |
 | `../lib/shader_loader.*` | GPL-3.0-only | Extracts the SPIR-V shader sets from `Lossless.dll` in memory. |

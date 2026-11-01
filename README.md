@@ -35,9 +35,9 @@ A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It u
 - **Customizable output geometry**: scaling mode (fit, stretch, cover), offset, crop and zoom.
 - **Input forwarding** as if interacting directly with the original window.
 - **System tray** controls: restart, switch the upscaled window or change its profile without opening the main window ([GUI guide](docs/user/gui.md#system-tray)).
-- **Menu bar detection** (experimental): crops the menu bar that Windows programs draw below the title bar under Wine (`--auto-crop-menu-bar`, or *Presentation* > *Crop* > *Detect menu bar*).
-- **Stats panel** (experimental), like mpv's stats page: frame rates, GPU times and the active processing chain, toggled with Alt+Shift+I.
-- **Frame generation** through [lsfg-vk](https://lsfg-vk.dev) (×2 to ×5), see [below](#frame-generation).
+- **Menu bar detection** (experimental): crops the menu bar that Windows programs draw below the title bar under Wine (`--auto-crop-menu-bar`, or *Presentation* > *Crop* > *Detect menu bar*). In the GUI the crop is saved in the window's profile.
+- **Stats panel** (experimental), like mpv's stats page: frame rates, GPU times and the active processing chain, toggled with Alt+Shift+I. It warns when the effects are too slow for the game.
+- **Frame generation** with [lsfg-vk](https://lsfg-vk.dev) (×2 to ×5), through its Vulkan layer or built in (experimental), see [below](#frame-generation).
 - **Magpie effects** with a choice of engine: a few effects ported by hand, or 86 effects from [Magpie](https://github.com/Blinue/Magpie) run unmodified by a MagpieFX loader (see below).
 
 ## Requirements
@@ -191,10 +191,15 @@ shows:
   window is polled.
 - **Shown**: frames presented per second, and the CPU time of a full render.
 - **Frame gen**: the lsfg-vk multiplier and an estimate of the output rate.
-  The frames lsfg-vk adds are generated after the app presents, so they are
-  not counted here; MangoHud (`MANGOHUD=1`) measures them.
+  With the layer, the frames lsfg-vk adds are generated after the app
+  presents, so they are not counted here; MangoHud (`MANGOHUD=1`) measures
+  them. With the built-in engine it also shows the shader precision and the
+  pacing interval.
 - **Source**, **Upscale**, **Effects** (each with its GPU time), **Output**,
   **Post**, **Present** and **Profile**: the processing chain in order.
+- **GPU** (in red, only when it applies): the effects take longer on the GPU
+  than the game takes to draw a frame, so they cannot keep up. It names the
+  heaviest effect, the one to make lighter.
 
 While the panel is visible, the Magpie effects are timed with GPU timestamp
 queries, which cost a little. With frame generation on, each panel refresh
@@ -228,6 +233,30 @@ layer alone.
 Trade-offs: smoother motion, at the cost of about one captured frame of
 latency (33 ms at 30 fps, 17 ms at 60 fps), and generated frames can smear HUD
 edges and fast motion.
+
+The multiplier can also be changed from the tray menu (*Frame generation*):
+the app saves it and restarts itself, upscaling the same window again.
+
+### Built-in engine (experimental)
+
+`frame_gen_engine: native` (`--frame-gen-engine native`, or *Engine* >
+*Built in* in the GUI) runs the lsfg core inside the app instead of the layer:
+
+- It needs `Lossless.dll` from Lossless Scaling (any Steam branch), found in
+  the Steam libraries or given by `frame_gen_dll`. lsfg-vk does not need to be
+  installed, and the layer is kept off.
+- lsfg runs on its own Vulkan device on the same GPU. Frames are shared with
+  it by fd (`VK_KHR_external_memory_fd`), so they never leave video memory.
+- The app paces the frames itself: it shows the generated ones and then the
+  real one, spread over the measured game frame interval.
+- The OSD and the stats panel are part of the frame, so they are
+  interpolated too.
+- If anything fails, frame generation turns off for the session and the
+  upscaled image keeps going; the stats panel says so.
+
+Its code comes from Enigmata Temple (lsfg-vk core
+under MIT, the shader loader under GPL-3.0); see
+`src/upscaler/lsfg/third_party/README.md`. Not tested on real hardware yet.
 
 Status: checked by eye on an RX 9070 XT (RADV) with a 30 fps video, where ×2
 and ×4 looked much smoother. Not measured yet: latency, the frame rate that
