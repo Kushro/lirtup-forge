@@ -14,11 +14,13 @@ from PySide6.QtWidgets import (
 )
 
 from ..sidebar import SettingsTab
+from ...dialogs.bench import open_bench_dialog
 from ...styles import (
     info_text_style,
     path_browse_button_style,
     setting_label_style,
 )
+from .... import bench
 from ....magpiefx import MagpieFXError, find_effect, list_effects, parse_effect
 from ....magpiefx.effect import BUILTIN_EFFECTS_DIR
 from ....magpiefx.spec import parse_effect_chain
@@ -35,12 +37,22 @@ def _bundled_effect_count() -> int:
 
 # Reference GPU times (ms/frame) of the effects available in both engines:
 # headless, 1280x720 input, 2560x1440 target, AMD RX 9070 XT (RADV), dxc.
-# From scripts/bench-magpie-effects.py and scripts/magpiefx-bench.py.
+# From scripts/bench-magpie-effects.py and scripts/magpiefx-bench.py. Shown
+# until the user measures their own GPU (upscaler.bench).
 _REFERENCE_MS = (
     ("LumaSharpen", 0.016, 0.016),
     ("Anime4K_Upscale_S", 0.145, 0.142),
     ("CRT_Easymode", 0.122, 0.118),
 )
+
+
+def _fmt_ms(value: Optional[float]) -> str:
+    return "&ndash;" if value is None else f"{value:.3f}"
+
+
+def _fmt_size(size: Optional[List[int]]) -> str:
+    return f"{size[0]}x{size[1]}" if size and len(size) == 2 else "?"
+
 
 if TYPE_CHECKING:
     from ...config import GUIConfig
@@ -122,6 +134,16 @@ class EffectsTab(SettingsTab):
         self._engine_info.setStyleSheet(info_text_style(self._gui_config))
         self._engine_info.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         self.content_layout.addWidget(self._engine_info)
+        bench_btn = QPushButton(self.tr("Measure on my GPU", "Benchmark button"))
+        bench_btn.setStyleSheet(path_browse_button_style(self._gui_config))
+        bench_btn.setToolTip(
+            self.tr(
+                "Measure every effect on this GPU and show those times here.",
+                "Description of a setting (tooltip)",
+            )
+        )
+        bench_btn.clicked.connect(self._on_measure)
+        self.content_layout.addWidget(bench_btn)
 
         native_start = self.content_layout.count()
         self._add_cb(
@@ -503,25 +525,76 @@ class EffectsTab(SettingsTab):
                 ),
             ]
         items = "<br>".join([f"+ {p}" for p in pros] + [f"&minus; {c}" for c in cons])
+        measured = self._measured_rows()
         rows = "".join(
-            f"<tr><td>{name}</td><td align='right'>{a:.3f}</td>"
-            f"<td align='right'>{b:.3f}</td></tr>"
-            for name, a, b in _REFERENCE_MS
+            f"<tr><td>{name}</td><td align='right'>{_fmt_ms(a)}</td>"
+            f"<td align='right'>{_fmt_ms(b)}</td></tr>"
+            for name, a, b in (measured or _REFERENCE_MS)
         )
         head = (
             f"<tr><th align='left'>{self.tr('Effect', 'Benchmark table')}</th>"
             f"<th align='right'>{self._engine_labels['native']}</th>"
             f"<th align='right'>{self._engine_labels['magpiefx']}</th></tr>"
         )
-        note = self.tr(
-            "Reference GPU time in ms/frame (720p to 1440p, RX 9070 XT).",
-            "Benchmark table caption",
-        )
+        if measured:
+            entry = self._bench_entry or {}
+            sizes = (entry.get("sizes") or {}).get(bench.NATIVE) or {}
+            note = self.tr(
+                "GPU time in ms/frame measured on {0} ({1} to {2}).",
+                "Benchmark table caption",
+            ).format(
+                entry.get("name", "?"),
+                _fmt_size(sizes.get("input")),
+                _fmt_size(sizes.get("target")),
+            )
+        else:
+            note = self.tr(
+                "Reference GPU time in ms/frame (720p to 1440p, RX 9070 XT).",
+                "Benchmark table caption",
+            )
         return (
             f"<p>{items}</p>"
             f"<table cellspacing='0' cellpadding='3'>{head}{rows}</table>"
             f"<p>{note}</p>"
         )
+
+    # ------------------------------------------------------------------
+    #  Measured times (upscaler.bench)
+    # ------------------------------------------------------------------
+    @property
+    def _bench_entry(self) -> Optional[Dict[str, Any]]:
+        """Stored results for the GPU of this config (read once, see _reload_bench)."""
+        if not hasattr(self, "_bench_cache"):
+            try:
+                self._bench_cache = bench.results_for_gpu(self._config.gpu)
+            except Exception:
+                self._bench_cache = None
+        return self._bench_cache
+
+    def _reload_bench(self) -> None:
+        if hasattr(self, "_bench_cache"):
+            del self._bench_cache
+
+    def _measured_rows(self) -> List[tuple]:
+        """(name, native ms, MagpieFX ms) rows from the stored results, or []."""
+        entry = self._bench_entry
+        rows = [
+            (
+                name,
+                bench.stored_ms(entry, bench.NATIVE, name),
+                bench.stored_ms(entry, bench.MAGPIEFX, name),
+            )
+            for name in bench.NATIVE_EFFECTS
+        ]
+        if all(a is None and b is None for _, a, b in rows):
+            return []
+        return rows
+
+    def _on_measure(self) -> None:
+        if open_bench_dialog(self._gui_config, self._config, bench.SECTION_EFFECTS, self):
+            self._reload_bench()
+            self._update_engine_ui()
+            QTimer.singleShot(0, self._build_magpiefx_chain)
 
     def _magpiefx_chain(self) -> List[Dict[str, Any]]:
         """The configured MagpieFX chain as a list of {name, params} dicts."""
@@ -575,7 +648,11 @@ class EffectsTab(SettingsTab):
         remove = QPushButton(self.tr("Remove", "MagpieFX effect button"))
         remove.setStyleSheet(path_browse_button_style(self._gui_config))
         remove.clicked.connect(lambda: self._on_remove_magpiefx(index))
-        self._add_row(entry["name"], remove)
+        label = entry["name"]
+        ms = bench.stored_ms(self._bench_entry, bench.MAGPIEFX, entry["name"])
+        if ms is not None:
+            label += f"  ({_fmt_ms(ms)} ms)"
+        self._add_row(label, remove)
         name_label = self.content_layout.itemAt(
             self.content_layout.count() - 1
         ).layout().itemAt(0).widget()
