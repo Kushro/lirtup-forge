@@ -479,6 +479,26 @@ impl OverlayWindow {
         Ok(())
     }
 
+    /// Follow another target window (`WM_TRANSIENT_FOR` outside windowed
+    /// mode); the window itself stays as it is.
+    pub fn set_target(&mut self, target: u32) -> Result<()> {
+        self.target = target;
+        if self.mode == OverlayMode::Windowed || target == x11rb::NONE {
+            self.conn
+                .delete_property(self.window, AtomEnum::WM_TRANSIENT_FOR.into())?;
+        } else {
+            self.conn.change_property32(
+                PropMode::REPLACE,
+                self.window,
+                AtomEnum::WM_TRANSIENT_FOR,
+                AtomEnum::WINDOW,
+                &[target],
+            )?;
+        }
+        self.conn.flush()?;
+        Ok(())
+    }
+
     /// Move the window (drag in windowed mode).
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<()> {
         self.conn.configure_window(

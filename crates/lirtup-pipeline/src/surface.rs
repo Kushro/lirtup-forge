@@ -82,8 +82,16 @@ pub enum OverlayCommand {
     SetOpacity(f32),
     /// Show or hide the window (`ToggleScaling` pauses with it hidden).
     SetVisible(bool),
-    /// Show or hide the cursor over the overlay (`hide_cursor`).
+    /// Show or hide the cursor over the overlay. Hidden wins over
+    /// [`OverlayCommand::HideCursorAfter`].
     SetCursorVisible(bool),
+    /// `hide_cursor`: hide the cursor after this long without pointer
+    /// motion over the overlay, show it again on the next motion (`None` =
+    /// never hide it).
+    HideCursorAfter(Option<Duration>),
+    /// Forward input to another window (`SwitchWindow`, `follow_focus`)
+    /// without making a new overlay.
+    SetTarget(u32),
     /// Where the scaled content is now: input is mapped through it. Sent
     /// after every change of the content rect (zoom, offset, resize).
     SetMapper(CoordinateMapper),
@@ -234,6 +242,13 @@ struct Overlay {
     configure_due: Option<Instant>,
     /// The target is gone (logged once).
     target_gone: bool,
+    /// `SetCursorVisible(false)`.
+    cursor_forced_hidden: bool,
+    /// `HideCursorAfter`.
+    cursor_idle: Option<Duration>,
+    /// The idle timer hid the cursor.
+    cursor_idle_hidden: bool,
+    last_motion: Instant,
 }
 
 /// An X11 error of the overlay, as the session reports it.
@@ -261,6 +276,10 @@ impl Overlay {
             swallowed: None,
             configure_due: None,
             target_gone: false,
+            cursor_forced_hidden: false,
+            cursor_idle: None,
+            cursor_idle_hidden: false,
+            last_motion: Instant::now(),
         })
     }
 
@@ -282,6 +301,7 @@ impl Overlay {
                 self.set_rect(rect);
                 let _ = notices.send(OverlayNotice::Configured(rect));
             }
+            self.hide_idle_cursor();
             match self.window.wait_event(EVENT_SLICE) {
                 Ok(Some(event)) => {
                     if let Some(notice) = self.event(event)
@@ -317,7 +337,23 @@ impl Overlay {
             }
             OverlayCommand::SetOpacity(opacity) => self.window.set_opacity(opacity),
             OverlayCommand::SetVisible(visible) => self.window.set_visible(visible),
-            OverlayCommand::SetCursorVisible(visible) => self.window.set_cursor_visible(visible),
+            OverlayCommand::SetCursorVisible(visible) => {
+                self.cursor_forced_hidden = !visible;
+                self.cursor_idle_hidden = false;
+                self.last_motion = Instant::now();
+                self.window.set_cursor_visible(visible)
+            }
+            OverlayCommand::HideCursorAfter(idle) => {
+                self.cursor_idle = idle;
+                self.last_motion = Instant::now();
+                self.show_idle_cursor()
+            }
+            OverlayCommand::SetTarget(target) => {
+                self.target_gone = false;
+                self.window
+                    .set_target(target)
+                    .and_then(|()| self.forwarder.set_target(target))
+            }
             OverlayCommand::SetMapper(mapper) => {
                 self.forwarder.set_mapper(mapper);
                 self.target_gone = false;
@@ -331,8 +367,35 @@ impl Overlay {
         }
     }
 
+    /// Hide the cursor once the pointer has been still for `cursor_idle`.
+    fn hide_idle_cursor(&mut self) {
+        let Some(idle) = self.cursor_idle else { return };
+        if self.cursor_forced_hidden || self.cursor_idle_hidden || self.last_motion.elapsed() < idle {
+            return;
+        }
+        self.cursor_idle_hidden = true;
+        if let Err(e) = self.window.set_cursor_visible(false) {
+            tracing::warn!("overlay: {e}");
+        }
+    }
+
+    /// The pointer moved: show the cursor the idle timer hid.
+    fn show_idle_cursor(&mut self) -> lirtup_x11::Result<()> {
+        if !self.cursor_idle_hidden {
+            return Ok(());
+        }
+        self.cursor_idle_hidden = false;
+        self.window.set_cursor_visible(!self.cursor_forced_hidden)
+    }
+
     /// One event: forward it, or turn it into a notice.
     fn event(&mut self, event: OverlayEvent) -> Option<OverlayNotice> {
+        if let OverlayEvent::Pointer { .. } = event {
+            self.last_motion = Instant::now();
+            if let Err(e) = self.show_idle_cursor() {
+                tracing::warn!("overlay: {e}");
+            }
+        }
         match event {
             OverlayEvent::Configure(rect) => {
                 self.configure_due = None;

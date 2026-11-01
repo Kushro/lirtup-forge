@@ -88,6 +88,23 @@ impl InputForwarder {
         })
     }
 
+    /// Forward to another window from now on (the pointer leaves the old
+    /// one first).
+    pub fn set_target(&mut self, target: u32) -> Result<()> {
+        if target == self.target {
+            return Ok(());
+        }
+        let left = self.leave(0, x11rb::CURRENT_TIME);
+        self.target = target;
+        self.origin = None;
+        self.inside = false;
+        // The old target may be gone already.
+        match left {
+            Err(X11Error::NoWindow(_)) => Ok(()),
+            other => other,
+        }
+    }
+
     /// Update the mapping (geometry, zoom or offset changed).
     pub fn set_mapper(&mut self, mapper: CoordinateMapper) {
         self.mapper = mapper;
