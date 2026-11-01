@@ -437,3 +437,19 @@ def test_close_waits_for_a_restart(monkeypatch):
     fg.close()
     assert lsfg.calls[-1] == ("finalize",)  # after the restart's initialize
     assert ("initialize", 1) in lsfg.calls
+
+
+def test_auto_does_not_start_high_on_a_still_image():
+    """Round 1.3, T6.6: a blinking cursor (2 fps) chose x5 at 144 Hz."""
+    auto = native_framegen.AutoMultiplier(144.0)
+    assert auto.update(2.0, 0.0) == native_framegen.AUTO_MIN_MULTIPLIER
+
+
+def test_auto_rises_once_the_game_moves():
+    auto = native_framegen.AutoMultiplier(144.0)
+    auto.update(2.0, 0.0)  # still image at the start: x2
+    t = 0.0
+    while t < 10.0:
+        t += 0.1
+        auto.update(30.0, t)
+    assert auto.current == 4

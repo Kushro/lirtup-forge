@@ -139,8 +139,13 @@ class AutoMultiplier:
     def update(self, game_fps: float, now: float) -> int:
         """The multiplier to use at *now* (seconds) for *game_fps*."""
         if self.current is None:
-            # First choice: nothing to restart, take it right away
-            self.current = ideal_multiplier(game_fps, self.refresh_hz)
+            # First choice: nothing to restart, take it right away. A still
+            # image (a blinking cursor) says nothing about the game's rate:
+            # start low and let the rules above raise it once it moves
+            if game_fps < _AUTO_MIN_FPS:
+                self.current = AUTO_MIN_MULTIPLIER
+            else:
+                self.current = ideal_multiplier(game_fps, self.refresh_hz)
             self._last_switch = now
             return self.current
         if game_fps < _AUTO_MIN_FPS:
