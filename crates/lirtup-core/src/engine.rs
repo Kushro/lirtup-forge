@@ -37,6 +37,7 @@
 //! | `ListEffects`, `CompileEffect` | `lirtup_magpiefx::Catalog` and `compile_effect` on a blocking task (cache in `paths::magpiefx_cache_dir`) |
 //! | `SetDaemon` | state only in round 2 (the daemon is round 4) |
 //! | `Diagnostics` | gather `DiagReport` |
+//! | `WatchGpuTimes` | count the watchers ([`Engine::watch_gpu_times`]; the server counts per connection); `PipelineCommand::SetTimestamps` when the count goes to or from 0 |
 //! | `Quit` | shutdown |
 //!
 //! # Details of round 2
@@ -177,6 +178,8 @@ struct State {
     framegen: FrameGenStatus,
     /// What `Restart` starts again: window, kind and named profile.
     last_start: Option<(u32, SessionKind, Option<String>)>,
+    /// Clients that show GPU times (`WatchGpuTimes`).
+    gpu_watchers: u32,
 }
 
 impl State {
@@ -335,6 +338,14 @@ impl Engine {
     /// Handle one command. Answers and progress arrive as events.
     pub fn handle(&self, command: Command) -> Result<()> {
         self.inner.handle(command)
+    }
+
+    /// One client more (`on`) or less wants GPU times. The server calls it
+    /// once per connection that sends `WatchGpuTimes`, and with `false` when
+    /// that connection closes; [`Engine::handle`] counts a direct caller as
+    /// one watcher.
+    pub fn watch_gpu_times(&self, on: bool) {
+        self.inner.watch_gpu_times(on);
     }
 
     /// Subscribe to events. A lagging receiver gets `RecvError::Lagged` and
@@ -596,12 +607,29 @@ impl Inner {
                 let report = inner.diagnostics();
                 inner.publish(Event::Diagnostics(report));
             }),
+            Command::WatchGpuTimes { on } => self.watch_gpu_times(on),
             Command::Quit => {
                 self.stop_session(StopReason::Quit);
                 self.quit.send_replace(true);
             }
         }
         Ok(())
+    }
+
+    fn watch_gpu_times(&self, on: bool) {
+        let mut st = lock(&self.state);
+        let before = st.gpu_watchers > 0;
+        st.gpu_watchers = if on {
+            st.gpu_watchers.saturating_add(1)
+        } else {
+            st.gpu_watchers.saturating_sub(1)
+        };
+        let after = st.gpu_watchers > 0;
+        if before != after
+            && let Some(running) = st.live()
+        {
+            running.session.send(PipelineCommand::SetTimestamps(after));
+        }
     }
 
     fn hotkey(self: &Arc<Self>, action: HotkeyAction) {
@@ -716,6 +744,7 @@ impl Inner {
             mode: resolved.mode,
             layer: self.layer.clone(),
             events: self.pipeline_tx.clone(),
+            timestamps: lock(&self.state).gpu_watchers > 0,
         };
         match Session::start(setup) {
             Ok(session) => {
@@ -959,6 +988,7 @@ impl Inner {
             name: name.into(),
             done: false,
             error: None,
+            session: false,
         });
         let fp16 = {
             let gpu = lock(&self.gpu);
@@ -982,6 +1012,7 @@ impl Inner {
             name: name.into(),
             done: true,
             error,
+            session: false,
         });
     }
 

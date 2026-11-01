@@ -203,8 +203,34 @@ pub struct FrameGenStatus {
     pub native_available: bool,
     /// Set by `LSFGVK_*` variables: the GUI disables the section.
     pub env_locked: bool,
-    /// Human-readable reason when not active.
+    /// Why it is not active, as a code the GUI translates (`None` when off
+    /// or active).
+    #[serde(default)]
+    pub reason_code: Option<FrameGenReason>,
+    /// Detail of the reason, in English (the log line; the GUI shows it
+    /// under the translated text, e.g. the lsfg error).
     pub reason: Option<String>,
+}
+
+/// Why frame generation is not running (`FrameGenStatus.reason_code`).
+/// Finer than [`FrameGenState`]: `NoDll` and `NoNative` have several causes
+/// the GUI words differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameGenReason {
+    /// The lsfg-vk layer is not installed (`NoLayer`).
+    LayerMissing,
+    /// `Lossless.dll` was not found (native engine).
+    LosslessDllMissing,
+    /// `lsfg-vk.dll` was not found (layer engine).
+    LsfgVkDllMissing,
+    /// `LSFGVK_*` variables configure it (`External`).
+    EnvLocked,
+    /// The driver cannot share memory by fd (`VK_KHR_external_memory_fd`).
+    NoExternalFd,
+    /// lsfg failed during the session and frame generation was turned off;
+    /// `reason` has the error.
+    EngineFailed,
 }
 
 /// What frame generation is doing, or why not. Same values as

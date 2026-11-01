@@ -23,6 +23,7 @@ fn framegen() -> FrameGenStatus {
         dll_found: true,
         native_available: true,
         env_locked: false,
+        reason_code: None,
         reason: None,
     }
 }
@@ -128,6 +129,7 @@ fn commands() -> Vec<Command> {
         },
         Command::CancelBench,
         Command::Diagnostics,
+        Command::WatchGpuTimes { on: true },
         Command::Quit,
     ]
 }
@@ -266,6 +268,7 @@ fn events() -> Vec<Event> {
             dll_found: true,
             native_available: false,
             env_locked: true,
+            reason_code: Some(FrameGenReason::LayerMissing),
             reason: Some("lsfg-vk is not installed".into()),
         }),
         Event::FrameGen(FrameGenStatus {
@@ -278,6 +281,8 @@ fn events() -> Vec<Event> {
         }),
         Event::FrameGen(FrameGenStatus {
             state: FrameGenState::NoNative,
+            reason_code: Some(FrameGenReason::EngineFailed),
+            reason: Some("lsfg: present failed".into()),
             ..FrameGenStatus::default()
         }),
         Event::DaemonState {
@@ -351,11 +356,13 @@ fn events() -> Vec<Event> {
             name: "FSR/FSR_EASU".into(),
             done: false,
             error: None,
+            session: false,
         },
         Event::EffectCompile {
             name: "FSR/FSR_EASU".into(),
             done: true,
             error: Some("dxc: error: undeclared identifier".into()),
+            session: true,
         },
         Event::Devices {
             monitors: vec![
@@ -496,10 +503,11 @@ fn every_command_and_event_variant_is_covered() {
             Command::Bench { .. } => "Bench",
             Command::CancelBench => "CancelBench",
             Command::Diagnostics => "Diagnostics",
+            Command::WatchGpuTimes { .. } => "WatchGpuTimes",
             Command::Quit => "Quit",
         });
     }
-    assert_eq!(seen_commands.len(), 16);
+    assert_eq!(seen_commands.len(), 17);
 
     let mut seen_events = std::collections::BTreeSet::new();
     for e in events() {

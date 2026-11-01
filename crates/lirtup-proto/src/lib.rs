@@ -116,6 +116,15 @@ pub enum Command {
     CancelBench,
     /// Collect diagnostics; answered with [`Event::Diagnostics`].
     Diagnostics,
+    /// This client shows GPU times (`StatsSample.gpu_ms` and `stages`):
+    /// while at least one connection asks for them, or the stats panel is
+    /// visible, the session times every pass with Vulkan timestamps. The
+    /// GUI sends `on: true` while a screen that shows them is open and the
+    /// window is visible; a connection that closes counts as `on: false`.
+    WatchGpuTimes {
+        /// Wanted or not.
+        on: bool,
+    },
     /// Stop the session and exit `lirtup serve`.
     Quit,
 }
@@ -186,7 +195,8 @@ pub enum Event {
         /// The catalog.
         effects: Vec<EffectInfo>,
     },
-    /// Progress of `CompileEffect` (and of compiles the session triggers).
+    /// Progress of `CompileEffect`, and the effects a session had to
+    /// disable (compile or bind error; `session: true`, always `done`).
     EffectCompile {
         /// Effect.
         name: String,
@@ -194,6 +204,9 @@ pub enum Event {
         done: bool,
         /// Compiler error.
         error: Option<String>,
+        /// Sent by the running session, not by a `CompileEffect`.
+        #[serde(default)]
+        session: bool,
     },
     /// Answer to `ListDevices`.
     Devices {

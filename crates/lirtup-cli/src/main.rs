@@ -334,6 +334,7 @@ fn answer_timeout(command: &Command) -> Option<Duration> {
         | Command::ReloadConfig
         | Command::SetDaemon { .. }
         | Command::Hotkey { .. }
+        | Command::WatchGpuTimes { .. }
         | Command::CancelBench => 1,
     };
     Some(Duration::from_secs(secs))
@@ -355,7 +356,7 @@ fn answers(command: &Command, event: &Event) -> bool {
         Command::PickWindow => matches!(event, Event::WindowPicked { .. }),
         Command::ListEffects => matches!(event, Event::Effects { .. }),
         Command::CompileEffect { name } => {
-            matches!(event, Event::EffectCompile { name: n, done: true, .. } if n == name)
+            matches!(event, Event::EffectCompile { name: n, done: true, session: false, .. } if n == name)
         }
         Command::ListDevices => matches!(event, Event::Devices { .. }),
         Command::FrameGenProbe => matches!(event, Event::FrameGen(_)),
@@ -823,6 +824,7 @@ mod tests {
             name: name.into(),
             done,
             error: None,
+            session: false,
         };
         assert!(!answers(&compile, &progress("a", false)));
         assert!(!answers(&compile, &progress("b", true)));

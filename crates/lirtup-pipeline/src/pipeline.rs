@@ -100,6 +100,10 @@ pub struct SessionSetup {
     pub layer: LayerSetup,
     /// Where the session's events go (`Engine` relays them to the socket).
     pub events: Sender<Event>,
+    /// Time every pass with Vulkan timestamps (a client shows GPU times;
+    /// `SetTimestamps` changes it). The stats panel asks for them too while
+    /// it is visible.
+    pub timestamps: bool,
 }
 
 /// What `Engine` can ask of a running session.
@@ -122,6 +126,9 @@ pub enum PipelineCommand {
     /// Scale another window with the same settings (`follow_focus`, the
     /// daemon replacing a session).
     SwitchWindow(WindowInfo),
+    /// A client started or stopped showing GPU times (see
+    /// [`SessionSetup::timestamps`]).
+    SetTimestamps(bool),
     /// End the session; `SessionStopped` carries `reason`.
     Stop(StopReason),
 }
@@ -418,6 +425,8 @@ struct Runner {
     last_frame: Option<Instant>,
     damage: Vec<DamageRect>,
     view: Arc<ArcSwapOption<SessionView>>,
+    /// [`SessionSetup::timestamps`].
+    timestamps: bool,
 }
 
 impl Runner {
@@ -460,6 +469,7 @@ impl Runner {
             last_frame: None,
             damage: Vec::new(),
             view,
+            timestamps: setup.timestamps,
         };
         runner.parts = Some(runner.build(setup.window)?);
         Ok(runner)
@@ -653,6 +663,12 @@ impl Runner {
             PipelineCommand::Stop(reason) => return Ok(Some(reason)),
             PipelineCommand::Hotkey(action) => self.handle_hotkey(action)?,
             PipelineCommand::SetPaused(paused) => self.set_paused(paused),
+            PipelineCommand::SetTimestamps(on) => {
+                self.timestamps = on;
+                if !on && !self.parts.as_ref().is_some_and(|p| p.panel.visible()) {
+                    self.stats.clear_gpu_times();
+                }
+            }
             PipelineCommand::SwitchWindow(window) => self.switch_window(window)?,
             PipelineCommand::UpdateConfig {
                 config,
@@ -925,6 +941,9 @@ impl Runner {
                     let visible = !p.panel.visible();
                     p.panel.set_visible(visible);
                     self.stale = true;
+                    if !visible && !self.timestamps {
+                        self.stats.clear_gpu_times();
+                    }
                 }
             }
             HotkeyAction::CycleModel => {
@@ -1163,9 +1182,10 @@ impl Runner {
         // 5. Upscale.
         let render_start = Instant::now();
         let full = frame.full || !frame.dirty;
+        let timed = self.timestamps || parts.panel.visible();
         let upscale = parts
             .upscaler
-            .process(&parts.buffer, frame.stride, full, &self.damage, true)?;
+            .process(&parts.buffer, frame.stride, full, &self.damage, timed)?;
         self.stats.record_dirty(upscale.dirty_fraction, upscale.tiles);
 
         // 6. Present.
@@ -1174,7 +1194,7 @@ impl Runner {
             fg.mark_capture(capture_time);
         }
         let overlays: Vec<&dyn Pass> = parts.osd.pass().into_iter().chain(parts.panel.pass()).collect();
-        let outcome = parts.presenter.present(&overlays, true)?;
+        let outcome = parts.presenter.present(&overlays, timed)?;
         let upscale_times = parts.upscaler.finish()?;
         if let Some(times) = merge_timestamps(upscale_times, outcome.timestamps.clone()) {
             self.stats.set_gpu_times(&times);
@@ -1225,6 +1245,19 @@ impl Runner {
     fn poll_stats(&mut self) {
         if let Some(sample) = self.stats.poll(Instant::now()) {
             let _ = self.events.send(Event::Stats(sample));
+        }
+        let disabled = self
+            .parts
+            .as_mut()
+            .map(|p| p.presenter.take_disabled())
+            .unwrap_or_default();
+        for (name, error) in disabled {
+            let _ = self.events.send(Event::EffectCompile {
+                name,
+                done: true,
+                error: Some(error),
+                session: true,
+            });
         }
     }
 

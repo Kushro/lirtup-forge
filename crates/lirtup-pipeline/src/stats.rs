@@ -248,6 +248,13 @@ impl Stats {
         });
     }
 
+    /// Nobody asks for GPU times any more: forget them, so samples carry
+    /// `gpu_ms: 0` and no stages instead of stale ones.
+    pub fn clear_gpu_times(&mut self) {
+        self.gpu.clear();
+        self.gpu_total = None;
+    }
+
     /// Frame generation multiplier now (`None` = off).
     pub fn set_multiplier(&mut self, active: Option<u8>) {
         self.multiplier = active;

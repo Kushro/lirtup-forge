@@ -152,6 +152,10 @@ async fn client(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
     let mut lines = BufReader::new(read).lines();
     // `None` until `Hello`.
     let mut events: Option<broadcast::Receiver<Event>> = None;
+    let mut gpu_watch = GpuWatch {
+        engine: Arc::clone(&engine),
+        on: false,
+    };
 
     loop {
         tokio::select! {
@@ -168,6 +172,7 @@ async fn client(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
                         events = Some(engine.subscribe());
                         write_event(&mut write, &Event::Snapshot(engine.snapshot())).await?;
                     }
+                    Line::Command(Command::WatchGpuTimes { on }) => gpu_watch.set(on),
                     Line::Command(command) => {
                         let engine = Arc::clone(&engine);
                         let name = format!("{command:?}");
@@ -204,6 +209,28 @@ async fn client(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
                 Err(RecvError::Closed) => return Ok(()),
             },
         }
+    }
+}
+
+/// Whether one connection counts as a GPU-time watcher; a closed
+/// connection stops counting.
+struct GpuWatch {
+    engine: Arc<Engine>,
+    on: bool,
+}
+
+impl GpuWatch {
+    fn set(&mut self, on: bool) {
+        if on != self.on {
+            self.on = on;
+            self.engine.watch_gpu_times(on);
+        }
+    }
+}
+
+impl Drop for GpuWatch {
+    fn drop(&mut self) {
+        self.set(false);
     }
 }
 

@@ -61,7 +61,7 @@ use lirtup_gpu::{
     Device, ExternalSemaphore, ExternalTexture, Format, PresentOptions, PresentStatus, Submission,
     SubmitOptions, Texture, TextureDesc, TextureUsage,
 };
-use lirtup_proto::{Event, FrameGenStatus, Stage};
+use lirtup_proto::{Event, FrameGenReason, FrameGenStatus, Stage};
 
 use crate::pacing::{FrameInterval, FramePacer, sleep_until};
 use crate::stats::{FrameGenLine, FrameKind, PresentRecord, PresentSink};
@@ -367,6 +367,7 @@ pub struct FrameGen {
     generated: u32,
     /// `Active`, `Off` (by a `ReloadConfig`) or `NoNative` (failed).
     state: FrameGenState,
+    reason_code: Option<FrameGenReason>,
     reason: Option<String>,
     lsfg: Lsfg,
     shared: Option<Shared>,
@@ -399,18 +400,25 @@ impl FrameGen {
         let mut base = status_from_setup(config, layer);
         let dll = find_dll(DllKind::Lossless, config.frame_gen_dll.as_deref());
         let unavailable = if !setup.device.info().supports_external_fd {
-            Some("the GPU driver cannot share memory by fd (VK_KHR_external_memory_fd)".to_string())
+            Some((
+                FrameGenReason::NoExternalFd,
+                "the GPU driver cannot share memory by fd (VK_KHR_external_memory_fd)",
+            ))
         } else if dll.is_none() {
-            Some("Lossless.dll (Lossless Scaling on Steam) was not found".to_string())
+            Some((
+                FrameGenReason::LosslessDllMissing,
+                "Lossless.dll (Lossless Scaling on Steam) was not found",
+            ))
         } else {
             None
         };
-        if let Some(reason) = unavailable {
+        if let Some((code, reason)) = unavailable {
             tracing::warn!("native frame generation is not available: {reason}");
             base.state = lirtup_proto::FrameGenState::NoNative;
             base.active = None;
             base.native_available = false;
-            base.reason = Some(reason);
+            base.reason_code = Some(code);
+            base.reason = Some(reason.to_string());
             let _ = setup.events.send(Event::FrameGen(base));
             return Ok(None);
         }
@@ -430,6 +438,7 @@ impl FrameGen {
             size: setup.size,
             generated,
             state: FrameGenState::Active,
+            reason_code: None,
             reason: None,
             lsfg: Lsfg::Idle,
             shared: None,
@@ -620,6 +629,7 @@ impl FrameGen {
         FrameGenStatus {
             state: to_proto(self.state),
             active: active.then(|| self.multiplier()),
+            reason_code: self.reason_code,
             reason: self.reason.clone(),
             ..self.base.clone()
         }
@@ -881,6 +891,7 @@ impl FrameGen {
         tracing::error!("native frame generation failed, turning it off: {reason}");
         self.shutdown();
         self.state = FrameGenState::NoNative;
+        self.reason_code = Some(FrameGenReason::EngineFailed);
         self.reason = Some(reason);
         self.report();
     }
@@ -946,6 +957,7 @@ pub fn status_from_setup(config: &Config, layer: &LayerSetup) -> FrameGenStatus 
         dll_found,
         native_available: lossless,
         env_locked: layer.state == FrameGenState::External || layer::external_env(),
+        reason_code: reason_code(layer.state, engine),
         reason: reason_for(layer.state, engine),
     }
 }
@@ -961,6 +973,21 @@ fn to_proto(state: FrameGenState) -> lirtup_proto::FrameGenState {
         FrameGenState::External => P::External,
         FrameGenState::NoNative => P::NoNative,
     }
+}
+
+/// The code of [`reason_for`].
+fn reason_code(state: FrameGenState, engine: FrameGenEngine) -> Option<FrameGenReason> {
+    Some(match state {
+        FrameGenState::Off | FrameGenState::Active => return None,
+        FrameGenState::NoLayer => FrameGenReason::LayerMissing,
+        FrameGenState::NoDll => match engine {
+            FrameGenEngine::Native => FrameGenReason::LosslessDllMissing,
+            FrameGenEngine::Layer => FrameGenReason::LsfgVkDllMissing,
+        },
+        FrameGenState::External => FrameGenReason::EnvLocked,
+        // `layer::prepare` never says it; `FrameGen` does, with its own code.
+        FrameGenState::NoNative => FrameGenReason::EngineFailed,
+    })
 }
 
 /// Why frame generation is not running, for the states that need a reason.
@@ -1026,6 +1053,15 @@ mod tests {
             reason_for(FrameGenState::NoDll, FrameGenEngine::Layer)
                 .unwrap()
                 .contains("lsfg-vk.dll")
+        );
+        assert_eq!(reason_code(FrameGenState::Active, FrameGenEngine::Native), None);
+        assert_eq!(
+            reason_code(FrameGenState::NoDll, FrameGenEngine::Layer),
+            Some(FrameGenReason::LsfgVkDllMissing)
+        );
+        assert_eq!(
+            reason_code(FrameGenState::External, FrameGenEngine::Native),
+            Some(FrameGenReason::EnvLocked)
         );
     }
 

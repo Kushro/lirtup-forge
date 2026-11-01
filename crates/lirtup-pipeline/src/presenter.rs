@@ -457,6 +457,9 @@ pub struct Presenter {
     screen_passes: Vec<Box<dyn Pass>>,
     frame: u64,
     started: Instant,
+    /// MagpieFX effects disabled since the last [`Presenter::take_disabled`]:
+    /// `(name, error)`, for `Event::EffectCompile { session: true }`.
+    disabled: Vec<(String, String)>,
 }
 
 fn poisoned() -> PipelineError {
@@ -508,6 +511,7 @@ impl Presenter {
             frame: 0,
             started: Instant::now(),
             plan,
+            disabled: Vec::new(),
         };
         presenter.build_screen_passes()?;
         if !presenter.plan.magpie.is_empty() {
@@ -517,11 +521,19 @@ impl Presenter {
                 let last = presenter.plan.magpie.len() - 1;
                 if let Err(e) = ctx.compile(&spec.name, i == 0, i == last) {
                     tracing::error!("MagpieFX effect '{}' disabled: {e}", spec.name);
+                    presenter.disabled.push((spec.name.clone(), e.to_string()));
                 }
             }
             presenter.magpie = Some(ctx);
         }
         Ok(presenter)
+    }
+
+    /// The MagpieFX effects disabled (compile or bind error) since the last
+    /// call: `(name, error)`. The session sends each as
+    /// `Event::EffectCompile { session: true }`.
+    pub fn take_disabled(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.disabled)
     }
 
     /// The final 8-bit screen texture (swapchain size). The OSD and the
@@ -939,7 +951,8 @@ impl Presenter {
                 Ok(passes) => return (passes, active),
                 Err((i, e)) => {
                     tracing::error!("MagpieFX effect '{}' disabled: {e}", active[i].name);
-                    active.remove(i);
+                    let spec = active.remove(i);
+                    self.disabled.push((spec.name, e.to_string()));
                 }
             }
         }
