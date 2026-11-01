@@ -20,6 +20,11 @@
  *
  * The other device must import the memory with the same size and memory
  * type, which lsfg does (first DEVICE_LOCAL type, dedicated allocation).
+ *
+ * Like the rest of this module, every call that uses the queue keeps the
+ * GIL while it does, so Python threads (the pipeline and the frame
+ * generation presenter) never use the queue at the same time, as Vulkan
+ * requires. Only fence waits release the GIL.
  */
 
 #include "vk_device.h"
@@ -227,9 +232,7 @@ PyObject *vk_Device_destroy_semaphore(vk_Device *self, PyObject *args) {
   if (!PyArg_ParseTuple(args, "K", &handle))
     return nullptr;
   if (self->device && handle) {
-    Py_BEGIN_ALLOW_THREADS;
-    vkQueueWaitIdle(self->queue);
-    Py_END_ALLOW_THREADS;
+    vkQueueWaitIdle(self->queue); // with the GIL: the queue is shared
     vkDestroySemaphore(self->device, semaphore_from_handle(handle), nullptr);
   }
   Py_RETURN_NONE;
@@ -349,9 +352,11 @@ PyObject *vk_Device_wait_semaphore(vk_Device *self, PyObject *args) {
   if (res == VK_SUCCESS) {
     Py_BEGIN_ALLOW_THREADS;
     res = vkWaitForFences(self->device, 1, &fence, VK_TRUE, timeout);
-    if (res == VK_TIMEOUT) // the submission must finish before the fence goes
-      vkQueueWaitIdle(self->queue);
     Py_END_ALLOW_THREADS;
+    // The submission must finish before its fence is destroyed (with the
+    // GIL, since the queue is shared)
+    if (res == VK_TIMEOUT)
+      vkQueueWaitIdle(self->queue);
   }
   vkDestroyFence(self->device, fence, nullptr);
   if (res == VK_TIMEOUT)

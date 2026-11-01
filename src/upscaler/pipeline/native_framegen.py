@@ -1,17 +1,25 @@
 """
-Native frame generation: lsfg runs inside the upscaler and the presenter
-paces the frames it generates.
+Native frame generation: lsfg runs inside the upscaler, and a presentation
+thread paces the frames it generates.
 
 For each new frame of the game (the pipeline only presents new frames while
-frame generation is on):
+frame generation is on), on the pipeline thread:
 
-1. The finished screen texture is copied into one of two shared input
-   textures (they alternate, lsfg reads the previous and the current one),
-   and a shared semaphore is signalled once the copy is done.
-2. lsfg generates ``multiplier - 1`` frames between the previous frame and
+1. Wait until the presentation thread is done with the previous cycle, so
+   no texture it still shows is written again.
+2. Copy the finished screen texture into one of two shared input textures
+   (they alternate, lsfg reads the previous and the current one), and signal
+   a shared semaphore once the copy is done.
+3. lsfg generates ``multiplier - 1`` frames between the previous frame and
    this one, into shared output textures, signalling one semaphore each.
-3. The generated frames are presented, then the real one, spread evenly over
-   the game's frame interval.
+4. Hand the cycle over to the presentation thread and go back to capturing.
+
+The presentation thread waits for each generated frame, presents it, and
+then presents the real one (the input texture, which holds a copy of the
+frame), spread evenly over the game's frame interval. The pipeline thread
+never sleeps for the pacing, so it can capture and process the next frame
+meanwhile. Both threads use the same Vulkan queue; the GIL keeps them apart,
+since the vulkan module holds it whenever it uses the queue.
 
 The textures and semaphores live on the upscaler's device and are shared with
 lsfg's device by fd (``Texture2D.external``, ``Device.create_external_semaphore``).
@@ -22,8 +30,10 @@ from __future__ import annotations
 
 import logging
 import statistics
+import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Deque, List, Optional
 
 from ..framegen import NativeSettings
@@ -42,12 +52,28 @@ _MIN_INTERVAL = 1 / 240
 _MAX_INTERVAL = 1 / 15
 # The interval is the time spanned by the last measured intervals over the
 # game frames they hold. Polling rounds each interval to the display refresh,
-# so a median would be biased; the long average is not. An interval that
-# lost frames counts as as many frames as medians fit in it.
+# so a median would be biased; the long average is not. An interval of at
+# least _LOST_FRAME_RATIO medians lost frames, and counts as as many frames
+# as medians fit in it. (At 60 fps and 144 Hz the intervals alternate 13.8
+# and 20.7 ms: a lower ratio would count the long ones as two frames.)
 _INTERVAL_HISTORY = 30
-# A cycle waits at most this share of a step to stay chained to the previous
-# one; more would block the pipeline into the next game frame and lose it
-_MAX_CHAIN_WAIT = 0.5
+_LOST_FRAME_RATIO = 1.75
+# A chain that restarts (its frame came late) starts this share of a step
+# later than needed, so the jitter of later frames (polling rounds them to
+# the display refresh) does not restart it again: a little latency for
+# steady pacing
+_CHAIN_MARGIN = 0.5
+_DRAIN_TIMEOUT = 1.0  # seconds; a presentation thread slower than this is stuck
+
+
+@dataclass
+class _Cycle:
+    """What the presentation thread shows for one game frame."""
+
+    generated: List[Texture2D]  # empty for the first frame of a context
+    semaphores: List[int]  # one per output, waited even when not shown
+    real: Texture2D
+    swapchain: "SwapchainManager"
 
 
 class NativeFrameGen:
@@ -77,6 +103,15 @@ class NativeFrameGen:
         self._interval = 1 / 60
         self._intervals: Deque[float] = deque(maxlen=_INTERVAL_HISTORY)
 
+        # Presentation thread (started with the first cycle)
+        self._thread: Optional[threading.Thread] = None
+        self._wake = threading.Condition()
+        self._next: Optional[_Cycle] = None
+        self._stopping = False
+        self._idle = threading.Event()
+        self._idle.set()
+        self._failed: Optional[str] = None  # set by the thread
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -86,45 +121,34 @@ class NativeFrameGen:
         return self._interval
 
     def present(self, texture: Texture2D, swapchain: SwapchainManager) -> None:
-        """Present the generated frames before *texture*, then *texture*."""
-        start = time.perf_counter()
-        self._update_interval(start)
-        generated: List[Texture2D] = []
+        """
+        Generate the frames before *texture* and hand them, with *texture*,
+        to the presentation thread. Returns without waiting for the pacing.
+        """
+        self._update_interval(time.perf_counter())
+        self._drain()
+        if self._failed is not None:
+            self._disable(self._failed)
         if self.enabled:
             try:
-                generated = self._generate(texture)
+                cycle = self._generate(texture, swapchain)
             except Exception as e:
-                logger.error("Native frame generation failed, turning it off: %s", e)
-                self.enabled = False
-                self.close()
-                generated = []
-
-        if not generated:
-            self._last_real_present = None
-            swapchain.present(texture, wait_for_fence=False)
-            return
-
-        # Chain this cycle to the previous real frame, one step after it, so
-        # the gaps do not follow the jitter of when a new frame is noticed
-        # (polling) and generated. Start now instead when the frame came too
-        # late for that, or when keeping the chain would wait too long.
-        step = self._interval / (len(generated) + 1)
-        now = time.perf_counter()
-        base = now
-        if self._last_real_present is not None:
-            chained = self._last_real_present + step
-            if 0 <= chained - now <= step * _MAX_CHAIN_WAIT:
-                base = chained
-        for i, frame in enumerate(generated):
-            self._sleep_until(base + i * step)
-            swapchain.present(frame, wait_for_fence=False)
-        real_time = base + len(generated) * step
-        self._sleep_until(real_time)
+                self._disable(str(e))
+            else:
+                self._hand_over(cycle)
+                return
+        self._last_real_present = None
         swapchain.present(texture, wait_for_fence=False)
-        self._last_real_present = real_time
 
     def close(self) -> None:
-        """Release lsfg's device and the shared textures and semaphores."""
+        """Stop the presentation thread and release lsfg and the shared objects."""
+        thread = self._thread
+        self._thread = None
+        if thread is not None:
+            with self._wake:
+                self._stopping = True
+                self._wake.notify()
+            thread.join(_DRAIN_TIMEOUT * 2)
         lsfg = self._lsfg
         self._lsfg = None
         if lsfg is not None:
@@ -137,10 +161,100 @@ class NativeFrameGen:
         self._context = None
         self._release_shared()
 
+    def _disable(self, reason: str) -> None:
+        logger.error("Native frame generation failed, turning it off: %s", reason)
+        self.enabled = False
+        self._failed = None
+        self.close()
+
+    # ------------------------------------------------------------------
+    # Presentation thread
+    # ------------------------------------------------------------------
+    def _drain(self) -> None:
+        """Wait until the presentation thread has shown the previous cycle."""
+        if not self._idle.wait(_DRAIN_TIMEOUT):
+            self._failed = "the presentation thread is stuck"
+
+    def _hand_over(self, cycle: _Cycle) -> None:
+        if self._thread is None:
+            self._stopping = False
+            self._thread = threading.Thread(
+                target=self._run, name="lsfg-present", daemon=True
+            )
+            self._thread.start()
+        with self._wake:
+            self._idle.clear()
+            self._next = cycle
+            self._wake.notify()
+
+    def _run(self) -> None:
+        while True:
+            with self._wake:
+                while self._next is None and not self._stopping:
+                    self._wake.wait()
+                if self._stopping:
+                    self._idle.set()
+                    return
+                cycle, self._next = self._next, None
+            try:
+                self._show(cycle)
+            except Exception as e:
+                self._failed = str(e)
+            finally:
+                self._idle.set()
+
+    def _show(self, cycle: _Cycle) -> None:
+        """Present the generated frames, then the real one, evenly spaced."""
+        dev = self._device
+        if not cycle.generated:
+            # Nothing to show before the real frame, but lsfg signalled the
+            # semaphores all the same: wait so they can be signalled again
+            for semaphore in cycle.semaphores:
+                self._wait(dev, semaphore)
+            self._last_real_present = time.perf_counter()
+            cycle.swapchain.present(cycle.real, wait_for_fence=False)
+            return
+
+        # Chain this cycle to the previous real frame, one step after it, so
+        # the gaps do not follow the jitter of when a new frame is noticed
+        # (polling) and generated. When the frame came too late for that,
+        # start a new chain with some margin. (It never comes too early:
+        # cycles are shown one at a time, so the previous real frame is
+        # already on screen.)
+        step = self._interval / (len(cycle.generated) + 1)
+        self._wait(dev, cycle.semaphores[0])
+        now = time.perf_counter()
+        chained = (
+            self._last_real_present + step
+            if self._last_real_present is not None
+            else None
+        )
+        if chained is not None and chained >= now:
+            base = chained
+        elif chained is not None:
+            base = now + step * _CHAIN_MARGIN
+        else:
+            base = now
+        for i, (frame, semaphore) in enumerate(zip(cycle.generated, cycle.semaphores)):
+            if i > 0:
+                self._wait(dev, semaphore)
+            self._sleep_until(base + i * step)
+            cycle.swapchain.present(frame, wait_for_fence=False)
+        real_time = base + len(cycle.generated) * step
+        self._sleep_until(real_time)
+        cycle.swapchain.present(cycle.real, wait_for_fence=False)
+        self._last_real_present = real_time
+
+    @staticmethod
+    def _wait(dev, semaphore: int) -> None:
+        if not dev.wait_semaphore(semaphore, _SEMAPHORE_TIMEOUT_NS):
+            raise RuntimeError("lsfg did not finish a generated frame in time")
+
     # ------------------------------------------------------------------
     # Generation
     # ------------------------------------------------------------------
-    def _generate(self, texture: Texture2D) -> List[Texture2D]:
+    def _generate(self, texture: Texture2D, swapchain: SwapchainManager) -> _Cycle:
+        """Start lsfg on *texture* (the presentation thread must be idle)."""
         if self._lsfg is None:
             self._initialize()
         size = (texture.width, texture.height)
@@ -148,8 +262,8 @@ class NativeFrameGen:
             self._create_context(*size)
 
         dev = self._device
-        slot = self._frame % 2
-        dev.copy_texture_signal(texture, self._inputs[slot], self._in_semaphore)
+        real = self._inputs[self._frame % 2]
+        dev.copy_texture_signal(texture, real, self._in_semaphore)
         self._lsfg.present(
             self._context,
             dev.export_semaphore_fd(self._in_semaphore),
@@ -157,14 +271,13 @@ class NativeFrameGen:
         )
         first = self._frame == 0
         self._frame += 1
-
-        # Wait for every output even when unused: the semaphores must be
-        # unsignalled before lsfg signals them again
-        for semaphore in self._out_semaphores:
-            if not dev.wait_semaphore(semaphore, _SEMAPHORE_TIMEOUT_NS):
-                raise RuntimeError("lsfg did not finish a generated frame in time")
         # The first frame has nothing before it to interpolate from
-        return [] if first else list(self._outputs)
+        return _Cycle(
+            generated=[] if first else list(self._outputs),
+            semaphores=list(self._out_semaphores),
+            real=real,
+            swapchain=swapchain,
+        )
 
     def _initialize(self) -> None:
         from ..lsfg import lsfg
@@ -248,7 +361,10 @@ class NativeFrameGen:
             return
         self._intervals.append(min(max(now - last, _MIN_INTERVAL), _MAX_INTERVAL))
         median = statistics.median(self._intervals)
-        frames = sum(max(1, round(v / median)) for v in self._intervals)
+        frames = sum(
+            max(2, round(v / median)) if v >= median * _LOST_FRAME_RATIO else 1
+            for v in self._intervals
+        )
         self._interval = sum(self._intervals) / frames
 
     @staticmethod
