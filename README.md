@@ -285,6 +285,14 @@ the app saves it and restarts itself, upscaling the same window again.
   interpolated too.
 - If anything fails, frame generation turns off for the session and the
   upscaled image keeps going; the stats panel says so.
+- It shares the GPU time of each frame with the effects. With heavy effects
+  the layer keeps more frames: on G-senjou no Maou with Anime4K UL
+  (Upscale_Denoise + Restore_Soft, about 34 ms) the built-in engine at ×2
+  showed 29.5 fps with flow scale 1.0 and 40 fps with flow scale 0.5 and the
+  Performance model, while the layer at ×4 kept the 22.4 real frames lirtup
+  draws without frame generation and multiplied them. With light effects
+  the built-in engine paces evenly up to ×5 (measured on video: 60, 90 and
+  120 fps from 30 fps at ×2, ×3 and ×4).
 - *Auto* (`frame_gen_multiplier: auto`, `--frame-gen auto`) picks the
   multiplier while it runs: the largest from ×2 to ×5 whose output fits the
   display refresh (at 144 Hz: ×5 for 24 fps, ×4 for 30 fps, ×2 for 60 fps).
