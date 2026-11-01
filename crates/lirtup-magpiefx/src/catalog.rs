@@ -75,9 +75,13 @@ pub fn builtin_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os(EFFECTS_DIR_ENV) {
         return PathBuf::from(dir);
     }
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("effects");
-    if cfg!(debug_assertions) && repo.is_dir() {
-        return repo.canonicalize().unwrap_or(repo);
+    // Not compiled in release: the build folder would stay in the binary.
+    #[cfg(debug_assertions)]
+    {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("effects");
+        if repo.is_dir() {
+            return repo.canonicalize().unwrap_or(repo);
+        }
     }
     PathBuf::from(SYSTEM_EFFECTS_DIR)
 }
