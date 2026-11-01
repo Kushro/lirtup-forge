@@ -576,6 +576,10 @@ present_on_change_only: false
 # Output frames per captured frame: 1 (off) to 5. x4 turns 30 captured fps into
 # 120 shown fps. Needs lsfg-vk and lsfg-vk.dll (the 'lsfg-vk' branch of
 # Lossless Scaling on Steam). Adds about one captured frame of latency.
+# auto (built-in engine only) picks x2 to x5 from the game's frame rate so the
+# output fits the display refresh (at 144 Hz: x5 for 24 fps, x4 for 30 fps,
+# x2 for 60 fps), and changes it when the frame rate stays different for a
+# few seconds; with the layer, auto runs at x2.
 # Read once at startup; profiles cannot change these options.
 # Default: 1
 frame_gen_multiplier: 1

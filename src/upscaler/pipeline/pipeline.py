@@ -36,7 +36,7 @@ from ..utils import (
     parse_output_geometry,
 )
 from .. import framegen
-from ..vulkan import SwapchainError, select_device
+from ..vulkan import SwapchainError, get_current_device, select_device
 from ..window import WindowInfo, WindowTracker
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ _MENU_BAR_AGREE = 3
 _MENU_BAR_MAX_SAMPLES = 12
 
 
-def _refresh_interval(overlay: OverlayWindow) -> float:
-    """Seconds per refresh of the overlay's display, within sane bounds."""
+def _refresh_rate(overlay: OverlayWindow) -> float:
+    """Refresh rate (Hz) of the overlay's display, or a default."""
     try:
         screen = overlay.screen()
         rate = screen.refreshRate() if screen is not None else 0.0
@@ -65,6 +65,12 @@ def _refresh_interval(overlay: OverlayWindow) -> float:
         rate = 0.0
     if not rate or rate < 1:
         rate = _DEFAULT_REFRESH_RATE
+    return rate
+
+
+def _refresh_interval(overlay: OverlayWindow) -> float:
+    """Seconds per refresh of the overlay's display, within sane bounds."""
+    rate = _refresh_rate(overlay)
     interval = 1.0 / rate
     logger.debug(
         "Display refresh %.1f Hz: polling every %.1f ms when idle",
@@ -188,8 +194,13 @@ class Pipeline(QObject):
         )
         self.osd = OSDManager(osd_texts, self._screen_width, self._screen_height)
 
-        # Stats panel (experimental), toggled with the toggle_stats hotkey
-        self.stats = StatsHUD(self._screen_height, visible=config.show_stats)
+        # Stats panel (experimental), toggled with the toggle_stats hotkey;
+        # it also keeps the latency log (latency_log)
+        self.stats = StatsHUD(
+            self._screen_height,
+            visible=config.show_stats,
+            latency_log=config.latency_log,
+        )
 
         # Presenter: Lanczos scaling + OSD blending + swapchain present
         self.presenter = Presenter(
@@ -205,6 +216,19 @@ class Pipeline(QObject):
         )
         self._last_present_state_hash: Optional[int] = None
         self._presenter_params_stale = True
+
+        # Native frame generation: the automatic multiplier aims at the
+        # display refresh, and every present reports its latency
+        native = self.presenter.frame_gen
+        if native is not None:
+            native.set_refresh_rate(_refresh_rate(overlay))
+            native.on_present = self._on_frame_gen_present
+
+        device = get_current_device()
+        logger.info(
+            "Vulkan robustImageAccess: %s",
+            "on" if device.robust_image_access else "not available",
+        )
 
         # Upscaler manager: full-frame or tile processing
         self.upscaler_mgr: Optional[UpscalerLike] = None
@@ -416,6 +440,7 @@ class Pipeline(QObject):
             logger.warning("Frame fence wait timed out, possible GPU hang?")
 
         # --- 1. Capture ----------------------------------------------------
+        capture_time = time.perf_counter()  # for the frame latency
         try:
             frame, is_dirty, rects = self._grabber.grab()
         except RuntimeError as e:
@@ -530,7 +555,14 @@ class Pipeline(QObject):
 
         # --- 5. Present ----------------------------------------------------
         self.presenter.set_upscaled_source(src_tex)
+        native = self.presenter.frame_gen
+        if native is not None:
+            native.mark_capture(capture_time)  # it reports its own presents
         self.presenter.present()
+        if native is None:
+            self.stats.record_latency(
+                capture_time, "real", framegen.active_multiplier()
+            )
         self.stats.record_present((time.perf_counter() - render_start) * 1000)
 
         # --- 6. Update mouse mapping for event forwarding -------------------
@@ -845,6 +877,12 @@ class Pipeline(QObject):
             },
         )
 
+    def _on_frame_gen_present(
+        self, capture_time: float, kind: str, multiplier: int
+    ) -> None:
+        """A present of the native frame generation (any thread)."""
+        self.stats.record_latency(capture_time, kind, multiplier)
+
     def _stats_rows(self) -> List[StatsRow]:
         """Rows of the stats panel: rates, then the processing chain."""
         c = self.config
@@ -861,23 +899,36 @@ class Pipeline(QObject):
         status = framegen.status()
         native = self.presenter.frame_gen
         if native is not None:
-            m = native.settings.multiplier
-            if native.enabled:
+            m = native.multiplier
+            mode = f"auto x{m}" if native.auto else f"x{m}"
+            if not native.enabled:
+                rows.append(("Frame gen", f"{mode} built-in failed, off", True))
+            elif native.restarting:
+                rows.append(("Frame gen", f"{mode} built-in, restarting lsfg"))
+            else:
                 shaders = {True: "FP16", False: "FP32"}.get(native.fp16, "")
                 rows.append(
                     (
                         "Frame gen",
-                        f"x{m} built-in {shaders}  ~{new_frames * m:.0f} fps, "
+                        f"{mode} built-in {shaders}  ~{new_frames * m:.0f} fps, "
                         f"pacing {native.interval * 1000:.1f} ms",
                     )
                 )
-            else:
-                rows.append(("Frame gen", f"x{m} built-in failed, off", True))
         elif status == framegen.FrameGenStatus.ACTIVE:
             m = framegen.active_multiplier()
             rows.append(("Frame gen", f"x{m} lsfg-vk  ~{new_frames * m:.0f} fps est."))
         elif status == framegen.FrameGenStatus.EXTERNAL:
             rows.append(("Frame gen", "lsfg-vk (LSFGVK_* env)"))
+
+        latency = self.stats.latency()
+        if latency:
+            parts = [
+                f"{kind} {avg:.1f} ms (max {peak:.0f})"
+                for kind, (avg, peak) in latency.items()
+            ]
+            if native is None and framegen.is_active():
+                parts.append("+ lsfg-vk")  # the layer adds its own after us
+            rows.append(("Latency", "  ".join(parts)))
 
         def gpu(label: str) -> str:
             ms = self.stats.gpu_ms(label)

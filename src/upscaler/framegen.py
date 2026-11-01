@@ -20,6 +20,11 @@ top of it. This module only prepares the layer for this process:
 The "native" engine (experimental) runs the lsfg core inside the upscaler
 instead (:mod:`upscaler.lsfg`, used by the presenter). It reads the shaders
 from the classic ``Lossless.dll`` and keeps the layer disabled.
+
+The multiplier is 1 (off), 2 to 5, or :data:`AUTO`: the native engine then
+picks 2 to 5 from the game's frame rate and the display refresh while it
+runs. The layer fixes its multiplier when it loads, so with it ``auto``
+runs at x2.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator, List, Mapping, NamedTuple, Optional
+from typing import Any, Iterator, List, Mapping, NamedTuple, Optional, Union
 
 from .config.yaml import default_config_path
 
@@ -46,6 +51,49 @@ _USER_ENV = ("LSFGVK_CONFIG", "LSFGVK_ENV", "DISABLE_LSFGVK")
 # Marks the variables above as ours (inherited by a restarted process)
 _MANAGED_MARK = "LIRTUP_FORGE_FRAMEGEN"
 
+# frame_gen_multiplier value for the automatic multiplier (native engine)
+AUTO = "auto"
+# What "auto" starts with, and what the layer runs with when asked for it
+AUTO_START_MULTIPLIER = 2
+
+# A frame generation multiplier setting: 1 to 5, or AUTO
+Multiplier = Union[int, str]
+
+
+def parse_multiplier(value: Any) -> Multiplier:
+    """
+    A ``frame_gen_multiplier`` value from the configuration or the command
+    line: an integer from 1 to 5, or "auto" (any case).
+
+    Raises:
+        ValueError: For anything else.
+    """
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text == AUTO:
+            return AUTO
+        value = text
+    if isinstance(value, bool):
+        raise ValueError(f"invalid frame generation multiplier: {value!r}")
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"invalid frame generation multiplier: {value!r} (1 to 5, or auto)"
+        ) from None
+    if number != value and str(number) != value:
+        raise ValueError(f"invalid frame generation multiplier: {value!r}")
+    if not 1 <= number <= 5:
+        raise ValueError(
+            f"invalid frame generation multiplier: {number} (1 to 5, or auto)"
+        )
+    return number
+
+
+def multiplier_on(value: Multiplier) -> bool:
+    """True when the setting *value* turns frame generation on."""
+    return value == AUTO or (isinstance(value, int) and value > 1)
+
 
 class FrameGenStatus(Enum):
     """State of frame generation in this process."""
@@ -61,6 +109,7 @@ class FrameGenStatus(Enum):
 # Set once by prepare(), read by the pipeline and the GUI
 _status: FrameGenStatus = FrameGenStatus.OFF
 _multiplier: int = 1
+_auto: bool = False
 _engine: str = "layer"
 _native: Optional["NativeSettings"] = None
 
@@ -69,9 +118,10 @@ class NativeSettings(NamedTuple):
     """What the presenter needs to run the native engine."""
 
     dll: Path
-    multiplier: int
+    multiplier: int  # the one lsfg starts with
     flow_scale: float
     performance: bool
+    auto: bool = False  # pick the multiplier while running
 
 
 def status() -> FrameGenStatus:
@@ -80,8 +130,18 @@ def status() -> FrameGenStatus:
 
 
 def active_multiplier() -> int:
-    """Multiplier the layer runs with (1 when frame generation is not active)."""
+    """
+    Multiplier frame generation started with (1 when it is not active). With
+    the automatic multiplier the native engine changes it while it runs.
+    """
     return _multiplier if _status == FrameGenStatus.ACTIVE else 1
+
+
+def active_setting() -> Multiplier:
+    """The setting this process was set up with: 1 when not active, 2 to 5 or AUTO."""
+    if _status != FrameGenStatus.ACTIVE:
+        return 1
+    return AUTO if _auto else _multiplier
 
 
 def is_active() -> bool:
@@ -226,7 +286,7 @@ def _write_config(
 
 
 def prepare(
-    multiplier: int,
+    multiplier: Multiplier,
     flow_scale: float = 1.0,
     performance: bool = False,
     dll_path: Optional[str] = None,
@@ -236,16 +296,26 @@ def prepare(
     Configure lsfg-vk for this process. Must run before any Vulkan call.
 
     Args:
-        multiplier: Output frames per captured frame (1 = off, 2 to 5).
+        multiplier: Output frames per captured frame (1 = off, 2 to 5), or
+            AUTO (native engine; the layer runs at x2).
         flow_scale: Optical flow resolution (0.25 to 1.0).
         performance: Use the lighter model.
         dll_path: Folder (or file inside it) holding ``lsfg-vk.dll``, or
             ``Lossless.dll`` for the native engine.
         engine: "layer" or "native".
     """
-    global _status, _multiplier, _engine, _native
+    global _status, _multiplier, _auto, _engine, _native
     _engine = engine
     _native = None
+    _auto = multiplier == AUTO
+    if _auto:
+        multiplier = AUTO_START_MULTIPLIER
+        if engine != "native":
+            logger.warning(
+                "The automatic frame generation multiplier needs the built-in "
+                "engine; lsfg-vk runs at x%d",
+                multiplier,
+            )
 
     if os.environ.pop(_MANAGED_MARK, None):
         for var in _USER_ENV:
@@ -275,8 +345,11 @@ def prepare(
             )
         else:
             _status = FrameGenStatus.ACTIVE
-            _native = NativeSettings(dll, multiplier, flow_scale, performance)
-            logger.info("Frame generation x%d with the native engine", multiplier)
+            _native = NativeSettings(dll, multiplier, flow_scale, performance, _auto)
+            if _auto:
+                logger.info("Frame generation with the native engine, automatic")
+            else:
+                logger.info("Frame generation x%d with the native engine", multiplier)
         # The layer must not generate frames on top of ours
     elif find_layer() is None:
         _status = FrameGenStatus.NO_LAYER
@@ -316,7 +389,7 @@ def prepare_from_options(options: Mapping[str, Any]) -> FrameGenStatus:
 
     try:
         return prepare(
-            int(opt("frame_gen_multiplier")),
+            parse_multiplier(opt("frame_gen_multiplier")),
             float(opt("frame_gen_flow_scale")),
             bool(opt("frame_gen_performance")),
             opt("frame_gen_dll"),

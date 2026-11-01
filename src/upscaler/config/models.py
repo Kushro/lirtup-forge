@@ -329,7 +329,7 @@ class Config:
     present_on_change_only: bool = False
 
     # Frame generation (lsfg-vk), read once at startup
-    frame_gen_multiplier: int = 1
+    frame_gen_multiplier: Union[int, str] = 1  # 1 to 5, or "auto"
     frame_gen_flow_scale: float = 1.0
     frame_gen_performance: bool = False
     frame_gen_dll: Optional[str] = None

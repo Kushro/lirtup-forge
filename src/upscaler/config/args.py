@@ -92,6 +92,16 @@ def get_version() -> str:
             return "unknown (development mode)"
 
 
+def _frame_gen_multiplier(text: str) -> Any:
+    """argparse type of --frame-gen: 1 to 5, or auto."""
+    from ..framegen import parse_multiplier
+
+    try:
+        return parse_multiplier(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
 def parse_args() -> Tuple[Dict, Optional[str], Optional[str]]:
     """Parse command line arguments and return (args, profile_name, config_path)."""
     parser = argparse.ArgumentParser(
@@ -1155,15 +1165,21 @@ micro-stutters and 'immediate' may still present tearing.
     framegen_group.add_argument(
         "--frame-gen",
         dest="frame_gen_multiplier",
-        type=int,
-        choices=range(1, 6),
+        type=_frame_gen_multiplier,
+        metavar="{1,2,3,4,5,auto}",
         default=DEFAULT_CONFIG.frame_gen_multiplier,
         help="""Generate frames with lsfg-vk: output frames per captured
-frame (1 = off, 2 to 5). Default: %(default)s.
+frame (1 = off, 2 to 5), or 'auto'. Default: %(default)s.
 
 Needs the lsfg-vk Vulkan layer and lsfg-vk.dll (the
 'lsfg-vk' branch of Lossless Scaling on Steam). Adds about
 one captured frame of latency. Read only at startup.
+
+'auto' needs the built-in engine (--frame-gen-engine
+native): it picks x2 to x5 from the game's frame rate so
+the output fits the display refresh (x4 for 30 fps at
+144 Hz), and changes it when the frame rate changes for a
+while. With the layer it runs at x2.
 
 """,
     )
