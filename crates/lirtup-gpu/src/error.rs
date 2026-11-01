@@ -39,3 +39,51 @@ pub enum GpuError {
 
 /// Result of this crate.
 pub type Result<T, E = GpuError> = std::result::Result<T, E>;
+
+impl GpuError {
+    /// Map a failed Vulkan call: `ERROR_DEVICE_LOST` becomes
+    /// [`GpuError::DeviceLost`], `ERROR_OUT_OF_DATE_KHR` becomes
+    /// [`GpuError::OutOfDate`], `TIMEOUT` becomes [`GpuError::Timeout`].
+    pub(crate) fn vk(call: &'static str, result: ash::vk::Result) -> GpuError {
+        match result {
+            ash::vk::Result::ERROR_DEVICE_LOST => GpuError::DeviceLost,
+            ash::vk::Result::ERROR_OUT_OF_DATE_KHR => GpuError::OutOfDate,
+            ash::vk::Result::TIMEOUT => GpuError::Timeout,
+            result => GpuError::Vk { call, result },
+        }
+    }
+}
+
+/// `.map_err(vk_err("vkCreateImage"))`.
+pub(crate) fn vk_err(call: &'static str) -> impl Fn(ash::vk::Result) -> GpuError {
+    move |result| GpuError::vk(call, result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ash::vk;
+
+    #[test]
+    fn special_results() {
+        assert!(matches!(
+            GpuError::vk("x", vk::Result::ERROR_DEVICE_LOST),
+            GpuError::DeviceLost
+        ));
+        assert!(matches!(
+            GpuError::vk("x", vk::Result::ERROR_OUT_OF_DATE_KHR),
+            GpuError::OutOfDate
+        ));
+        assert!(matches!(
+            GpuError::vk("x", vk::Result::TIMEOUT),
+            GpuError::Timeout
+        ));
+        assert!(matches!(
+            GpuError::vk("vkCreateImage", vk::Result::ERROR_OUT_OF_DEVICE_MEMORY),
+            GpuError::Vk {
+                call: "vkCreateImage",
+                ..
+            }
+        ));
+    }
+}

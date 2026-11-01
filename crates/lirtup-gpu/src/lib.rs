@@ -22,8 +22,6 @@
 //! `unsafe` is allowed in this crate; every block has a `// SAFETY:` comment.
 
 #![allow(unsafe_code)]
-// Round 0 stubs: the bodies are `todo!()`. Front G removes this.
-#![allow(unused_variables)]
 
 pub mod compute;
 pub mod device;
@@ -34,6 +32,7 @@ pub mod instance;
 pub mod recorder;
 pub mod resource;
 pub mod sampler;
+mod spirv;
 pub mod swapchain;
 
 pub use ash::vk;
