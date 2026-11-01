@@ -1,0 +1,25 @@
+[package]
+name = "lirtup-ui"
+description = "lirtup-gui: the Dioxus Desktop GUI of LirtUp Forge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+dioxus = { workspace = true, features = ["desktop"] }
+lirtup-config.workspace = true
+lirtup-proto.workspace = true
+lirtup-x11.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "lirtup-gui"
+path = "src/main.rs"

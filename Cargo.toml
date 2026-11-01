@@ -15,6 +15,11 @@ members = [
     "crates/lirtup-magpiefx",
     "crates/lsfg-sys",
     "crates/lirtup-fg",
+    "crates/lirtup-proto",
+    "crates/lirtup-pipeline",
+    "crates/lirtup-core",
+    "crates/lirtup-cli",
+    "crates/lirtup-ui",
 ]
 
 [workspace.package]

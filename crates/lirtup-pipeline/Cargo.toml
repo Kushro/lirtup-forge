@@ -1,0 +1,26 @@
+[package]
+name = "lirtup-pipeline"
+description = "The scaling pipeline of LirtUp Forge: capture, tiles, effects, presentation, frame generation, stats"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+lirtup-config.workspace = true
+lirtup-gpu.workspace = true
+lirtup-x11.workspace = true
+lirtup-effects.workspace = true
+lirtup-magpiefx.workspace = true
+lirtup-fg.workspace = true
+lirtup-proto.workspace = true
+crossbeam-channel.workspace = true
+arc-swap.workspace = true
+image.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
