@@ -38,7 +38,51 @@ mod windows;
 
 use dioxus::desktop::{Config, LogicalPosition, LogicalSize, WindowBuilder, WindowCloseBehaviour};
 
+/// `-c`/`--config FILE` (1.x `upscale-gui -c`): another `config.yaml`, with
+/// its `modes/` next to it. `gui-config.yaml` stays the default one. The
+/// scaler the GUI starts gets it too. Other 1.x options of the GUI are not
+/// taken (the GUI edits the files instead).
+pub static CONFIG_PATH: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+
+/// The config file the GUI reads and writes.
+pub fn config_path() -> std::path::PathBuf {
+    CONFIG_PATH
+        .get()
+        .cloned()
+        .flatten()
+        .unwrap_or_else(lirtup_config::paths::config_path)
+}
+
+/// The modes folder next to [`config_path`].
+pub fn modes_dir() -> std::path::PathBuf {
+    match CONFIG_PATH.get().cloned().flatten() {
+        Some(path) => path
+            .parent()
+            .map(|d| d.join("modes"))
+            .unwrap_or_else(lirtup_config::paths::modes_dir),
+        None => lirtup_config::paths::modes_dir(),
+    }
+}
+
+fn parse_args() {
+    let mut args = std::env::args_os().skip(1);
+    let mut config = None;
+    while let Some(arg) = args.next() {
+        match arg.to_str() {
+            Some("-c" | "--config") => config = args.next().map(std::path::PathBuf::from),
+            Some(a) if a.starts_with("--config=") => config = Some(a["--config=".len()..].into()),
+            Some("-h" | "--help") => {
+                println!("Usage: lirtup-gui [-c|--config FILE]");
+                std::process::exit(0);
+            }
+            _ => eprintln!("lirtup-gui: ignoring the argument {arg:?}"),
+        }
+    }
+    let _ = CONFIG_PATH.set(config.map(|p| lirtup_config::paths::expand_tilde(&p)));
+}
+
 fn main() {
+    parse_args();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("LIRTUP_LOG")

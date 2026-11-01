@@ -62,8 +62,9 @@ enum CliCommand {
         #[command(flatten)]
         config: Box<ConfigArgs>,
 
-        /// Program to launch and scale.
-        #[arg(last = true)]
+        /// Program to launch and scale, with its arguments (`lirtup run prog
+        /// args`, as 1.x; `--` before it also works).
+        #[arg(trailing_var_arg = true)]
         program: Vec<String>,
     },
     /// Run the scaler and daemon for lirtup-gui.
@@ -129,7 +130,7 @@ enum CliCommand {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    init_logging(cli.verbose, cli.quiet);
+    init_logging(cli.verbose, cli.quiet, &log_settings(&cli.command));
     let result = match cli.command {
         CliCommand::Run { config, program } => run(config, program),
         CliCommand::Serve {
@@ -157,28 +158,100 @@ fn main() -> ExitCode {
         Err(e) => {
             tracing::error!("{e:#}");
             eprintln!("lirtup: {e:#}");
-            ExitCode::FAILURE
+            // 1.x: 2 for a configuration error, 1 for the rest.
+            if e.chain().any(|c| c.downcast_ref::<lirtup_config::ConfigError>().is_some())
+                || e.chain().any(|c| {
+                    c.downcast_ref::<lirtup_core::CoreError>()
+                        .is_some_and(|core| matches!(core, lirtup_core::CoreError::Config(_)))
+                })
+            {
+                ExitCode::from(EXIT_CONFIG)
+            } else {
+                ExitCode::FAILURE
+            }
         }
     }
 }
 
+/// Exit code of a configuration error (1.x `cli.py`).
+const EXIT_CONFIG: u8 = 2;
+
+/// Where and how much to log beyond stderr: `--debug`, `--log-level` and
+/// `--log-file` of `run`, else `log_level` and `log_file` of the top level of
+/// `config.yaml` (1.x `config/logging.py`).
+struct LogSettings {
+    level: Option<String>,
+    file: Option<PathBuf>,
+}
+
+fn log_settings(command: &CliCommand) -> LogSettings {
+    let (config_path, args) = match command {
+        CliCommand::Run { config, .. } => (config.config.clone(), Some(config)),
+        CliCommand::Serve { config, .. } | CliCommand::Migrate { config, .. } => (config.clone(), None),
+        _ => (None, None),
+    };
+    let path = config_path.unwrap_or_else(lirtup_config::paths::config_path);
+    let general = lirtup_config::ConfigFile::load(&path)
+        .map(|(f, _)| f.general)
+        .unwrap_or_default();
+    let from_yaml = |key: &str| general.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+    let level = args
+        .and_then(|a| if a.options.debug { Some("DEBUG".to_owned()) } else { a.options.log_level.clone() })
+        .or_else(|| from_yaml("log_level"));
+    let file = args
+        .and_then(|a| a.options.log_file.clone())
+        .or_else(|| from_yaml("log_file").map(PathBuf::from))
+        .map(|p| lirtup_config::paths::expand_tilde(&p));
+    LogSettings { level, file }
+}
+
 /// `-q` → warnings, nothing → info, `-v` → debug, `-vv` → trace; `RUST_LOG`
 /// wins. Never spawns a thread (`layer::prepare` comes later).
-fn init_logging(verbose: u8, quiet: bool) {
-    use tracing_subscriber::EnvFilter;
+fn init_logging(verbose: u8, quiet: bool, settings: &LogSettings) {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    use tracing_subscriber::{EnvFilter, Layer as _, fmt};
 
-    let level = match (quiet, verbose) {
-        (true, _) => "warn",
-        (false, 0) => "info",
-        (false, 1) => "debug",
-        (false, _) => "trace",
+    let flags = match (quiet, verbose) {
+        (true, _) => None,
+        (false, 0) => None,
+        (false, 1) => Some("debug"),
+        (false, _) => Some("trace"),
     };
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    // `-v`/`-q` win over `log_level` (the 1.x names, upper case).
+    let level = match (quiet, flags, settings.level.as_deref()) {
+        (true, _, _) => "warn".to_owned(),
+        (false, Some(f), _) => f.to_owned(),
+        (false, None, Some(l)) => match l.to_ascii_lowercase().as_str() {
+            "warning" => "warn".to_owned(),
+            other => other.to_owned(),
+        },
+        (false, None, None) => "info".to_owned(),
+    };
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&level));
+    let stderr = fmt::layer()
         .with_writer(std::io::stderr)
         .with_target(false)
-        .init();
+        .with_filter(filter);
+    // The log file takes everything at DEBUG, with time (1.x).
+    let file = settings.file.as_ref().and_then(|path| {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            Ok(f) => Some(
+                fmt::layer()
+                    .with_writer(std::sync::Mutex::new(f))
+                    .with_ansi(false)
+                    .with_filter(EnvFilter::new("debug")),
+            ),
+            Err(e) => {
+                eprintln!("lirtup: cannot open the log file {}: {e}", path.display());
+                None
+            }
+        }
+    });
+    tracing_subscriber::registry().with(stderr).with(file).init();
 }
 
 // ---- run -------------------------------------------------------------------
@@ -187,7 +260,13 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
     // The program first, with the user's environment (X11 forced, as 1.x):
     // `Engine::new` sets the lsfg-vk variables for this process only. It is
     // terminated when the run ends (`Launched` drops it).
-    let launched = match program.split_first() {
+    // 1.x order (`acquisition.py`): a title or a title regex wins over
+    // `--select` and over the program, which is then not launched.
+    let by_title = config.options.target_title.is_some() || config.options.target_title_regex.is_some();
+    if by_title && !program.is_empty() {
+        tracing::warn!("a target title was given: {} is not launched", program[0]);
+    }
+    let launched = match program.split_first().filter(|_| !by_title && !config.options.select) {
         Some((exe, args)) => {
             let child =
                 lirtup_core::lifecycle::launch(exe, args).with_context(|| format!("cannot start {exe}"))?;
@@ -214,16 +293,21 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
         return serve::daemon_foreground(engine);
     }
 
-    let (target, delay_s) = if let Some(pid) = launched_pid {
-        (Target::Pid(pid), None)
-    } else if base.select {
-        (Target::Window(select_window()?), None)
-    } else if let Some(regex) = base.target_title_regex.as_deref() {
-        let window = lirtup_core::listing::find_window(None, Some(regex))?
-            .with_context(|| format!("no window title matches {regex:?}"))?;
+    let (target, delay_s) = if let Some(regex) = base.target_title_regex.as_deref() {
+        let Some(window) = lirtup_core::listing::find_window(None, Some(regex))? else {
+            eprintln!("lirtup: no window title matches {regex:?}");
+            return Ok(ExitCode::FAILURE);
+        };
         (Target::Window(window.xid), None)
     } else if let Some(title) = base.target_title.clone() {
         (Target::Title(title), None)
+    } else if base.select {
+        match select_window()? {
+            Some(xid) => (Target::Window(xid), None),
+            None => return Ok(ExitCode::SUCCESS),
+        }
+    } else if let Some(pid) = launched_pid {
+        (Target::Pid(pid), None)
     } else {
         let delay = base.target_delay.max(0.0) as f32;
         if delay > 0.0 {
@@ -256,6 +340,7 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
     })?;
 
     let mut failed = false;
+    let mut config_failed = false;
     loop {
         let event = match events.blocking_recv() {
             Ok(event) => event,
@@ -277,7 +362,10 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
                     view.profile.map(|p| format!(", profile {p}")).unwrap_or_default(),
                 );
             }
-            Event::SessionError { .. } => failed = true,
+            Event::SessionError { stage, .. } => {
+                failed = true;
+                config_failed |= stage == lirtup_proto::Stage::Config;
+            }
             Event::SessionStopped { reason } => {
                 tracing::info!("stopped ({reason:?})");
                 failed |= reason == StopReason::Error;
@@ -305,7 +393,9 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
     }
     engine.shutdown(STOP_TIMEOUT);
     drop(launched.lock().ok().and_then(|mut l| l.take()));
-    Ok(if failed {
+    Ok(if config_failed {
+        ExitCode::from(EXIT_CONFIG)
+    } else if failed {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
@@ -313,20 +403,30 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
 }
 
 /// `--select`: number the windows and read a choice from stdin.
-fn select_window() -> anyhow::Result<u32> {
-    let windows = lirtup_core::listing::windows()?;
+fn select_window() -> anyhow::Result<Option<u32>> {
+    // As 1.x (`acquisition.py`): sorted by title, numbered from 0, `q`
+    // cancels, a bad answer asks again.
+    let mut windows = lirtup_core::listing::windows()?;
     anyhow::ensure!(!windows.is_empty(), "no windows to scale");
+    windows.sort_by_key(|w| w.title.to_lowercase());
     for (i, w) in windows.iter().enumerate() {
-        eprintln!("{:>3}  {}x{}  {}", i + 1, w.rect.width, w.rect.height, w.title);
+        eprintln!("{i:>3}  {}x{}  {}", w.rect.width, w.rect.height, w.title);
     }
-    eprint!("Window to scale [1-{}]: ", windows.len());
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    let n: usize = line.trim().parse().context("not a number")?;
-    let window = windows
-        .get(n.wrapping_sub(1))
-        .with_context(|| format!("no window {n}"))?;
-    Ok(window.xid)
+    loop {
+        eprint!("Window to scale [0-{}, q to cancel]: ", windows.len() - 1);
+        let mut line = String::new();
+        if std::io::stdin().read_line(&mut line)? == 0 {
+            return Ok(None);
+        }
+        let answer = line.trim();
+        if answer.eq_ignore_ascii_case("q") {
+            return Ok(None);
+        }
+        match answer.parse::<usize>().ok().and_then(|n| windows.get(n)) {
+            Some(window) => return Ok(Some(window.xid)),
+            None => eprintln!("lirtup: {answer:?} is not a window number"),
+        }
+    }
 }
 
 // ---- migrate ---------------------------------------------------------------

@@ -188,9 +188,12 @@ fn launch_server() {
     // `--exit-with-clients`: it exits after the GUI unless the daemon keeps
     // running after exit (round 4, front Y). Its own process group, so a
     // signal to the GUI's (Ctrl+C in a terminal) does not reach it.
-    match std::process::Command::new(&exe)
-        .arg("serve")
-        .arg("--exit-with-clients")
+    let mut command = std::process::Command::new(&exe);
+    command.arg("serve").arg("--exit-with-clients");
+    if let Some(config) = crate::CONFIG_PATH.get().cloned().flatten() {
+        command.arg("--config").arg(config);
+    }
+    match command
         .process_group(0)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

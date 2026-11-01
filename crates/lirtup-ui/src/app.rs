@@ -262,11 +262,11 @@ fn parse_route(text: &str) -> Option<Route> {
 /// read leaves its defaults and a log line (the scaler reports the same
 /// warnings on its side).
 fn load_files() -> Action {
-    let config = ConfigFile::load_default().map(|(f, _)| f).unwrap_or_else(|e| {
+    let config = ConfigFile::load(&crate::config_path()).map(|(f, _)| f).unwrap_or_else(|e| {
         tracing::error!("config.yaml: {e}");
         ConfigFile::default()
     });
-    let modes = ModeStore::load_default().map(|(m, _)| m).unwrap_or_else(|e| {
+    let modes = ModeStore::load(&crate::modes_dir()).map(|(m, _)| m).unwrap_or_else(|e| {
         tracing::error!("modes: {e}");
         ModeStore::default()
     });
@@ -334,8 +334,8 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
         Effect::Migrate(plan) => {
             spawn(async move {
                 let result = tokio::task::spawn_blocking(move || {
-                    let (mut file, _) = ConfigFile::load_default()?;
-                    let (mut modes, _) = ModeStore::load_default()?;
+                    let (mut file, _) = ConfigFile::load(&crate::config_path())?;
+                    let (mut modes, _) = ModeStore::load(&crate::modes_dir())?;
                     lirtup_config::migrate::apply(&mut file, &mut modes, &plan)
                 })
                 .await;

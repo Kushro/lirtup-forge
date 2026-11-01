@@ -956,6 +956,15 @@ impl Inner {
         let profile = request.profile.clone().or_else(|| self.options.profile.clone());
         let resolved = match self.resolve_for(&window, profile.as_deref()) {
             Ok(r) => r,
+            // 1.x (`config/setup.py`): an unknown `-p` warns and goes on
+            // with the base configuration.
+            Err(CoreError::Config(lirtup_config::ConfigError::UnknownProfile(name))) => {
+                self.log(Level::Warn, format!("no profile named {name:?}: using the base configuration"));
+                match self.resolve_for(&window, None) {
+                    Ok(r) => r,
+                    Err(e) => return self.fail(Stage::Config, e.to_string(), false),
+                }
+            }
             Err(e) => return self.fail(Stage::Config, e.to_string(), false),
         };
         tracing::info!(
