@@ -59,6 +59,18 @@ impl WindowInfo {
     pub fn height(&self) -> u32 {
         self.rect.height
     }
+
+    /// A window of LirtUp Forge by its `WM_CLASS`: `lirtup` (the overlay,
+    /// `lirtup`/`LirtUp`) or `lirtup-…` (the GUI, named after its binary).
+    pub fn is_lirtup_class(&self) -> bool {
+        let ours = |name: &str| {
+            let name = name.to_ascii_lowercase();
+            name == "lirtup" || name.starts_with("lirtup-") || name.starts_with("lirtup_")
+        };
+        self.class
+            .as_ref()
+            .is_some_and(|c| ours(&c.instance) || ours(&c.class))
+    }
 }
 
 impl X11 {
@@ -235,6 +247,18 @@ impl X11 {
 // -------------------------------------------------------------------------
 
 impl X11 {
+    /// Whether `window` is LirtUp Forge itself (an overlay, marked with
+    /// `_LIRTUP_OVERLAY`, or the GUI): never a target to scale.
+    pub fn is_lirtup_window(&self, window: &WindowInfo) -> Result<bool> {
+        if window.is_lirtup_class() {
+            return Ok(true);
+        }
+        let marker = self
+            .conn
+            .get_property(false, window.xid, self.atoms._LIRTUP_OVERLAY, AtomEnum::ANY, 0, 1)?;
+        Ok(gone_to_none(marker.reply())?.is_some_and(|m| m.type_ != u32::from(AtomEnum::NONE)))
+    }
+
     /// A `WINDOW[]` property of the root (`_NET_CLIENT_LIST`, ...).
     fn window_list_property(&self, atom: u32) -> Result<Option<Vec<Window>>> {
         let reply = self

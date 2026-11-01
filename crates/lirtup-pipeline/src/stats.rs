@@ -140,7 +140,8 @@ pub struct Stats {
     presents: Rate,
     generated: Rate,
     /// `(when, cpu ms)` of full renders.
-    render_ms: VecDeque<(Instant, f32)>,
+    /// `(when, render without waits, waits)`, ms.
+    render_ms: VecDeque<(Instant, f32, f32)>,
     /// `(present, latency ms, kind)` of presents with a capture time.
     latency: VecDeque<(Instant, f32, FrameKind)>,
     /// Smoothed GPU ms per pass label, in dispatch order.
@@ -210,9 +211,11 @@ impl Stats {
         }
     }
 
-    /// CPU time of the frame (upload, record, submit), in ms.
-    pub fn record_render(&mut self, cpu_ms: f32) {
-        self.render_ms.push_back((Instant::now(), cpu_ms));
+    /// CPU time of the frame (upload, record, submit), in ms, and of it
+    /// the time spent waiting to present (`wait_ms`, shown apart).
+    pub fn record_render(&mut self, cpu_ms: f32, wait_ms: f32) {
+        self.render_ms
+            .push_back((Instant::now(), (cpu_ms - wait_ms).max(0.0), wait_ms));
     }
 
     /// Fraction of the frame that changed, and the tiles processed (`None`
@@ -318,8 +321,9 @@ impl Stats {
         expire(&mut self.render_ms, now, |e| e.0);
         expire(&mut self.latency, now, |e| e.0);
         let (latency_ms, latency_p95_ms) = latency_summary(self.latency.iter().map(|e| e.1));
-        let render_ms = (!self.render_ms.is_empty())
-            .then(|| self.render_ms.iter().map(|e| e.1).sum::<f32>() / self.render_ms.len() as f32);
+        let n = self.render_ms.len() as f32;
+        let render_ms = (!self.render_ms.is_empty()).then(|| self.render_ms.iter().map(|e| e.1).sum::<f32>() / n);
+        let wait_ms = (!self.render_ms.is_empty()).then(|| self.render_ms.iter().map(|e| e.2).sum::<f32>() / n);
         let latency_by_kind = [FrameKind::Real, FrameKind::Generated]
             .into_iter()
             .filter_map(|kind| {
@@ -357,6 +361,7 @@ impl Stats {
             gpu_warning,
             poll_fps,
             render_ms,
+            wait_ms,
             latency_by_kind,
         }
     }
@@ -505,6 +510,11 @@ fn panel_rows(sample: &StatsSample, context: &PanelContext) -> Vec<Row> {
                 + &sample
                     .render_ms
                     .map(|ms| format!("  render {ms:.1} ms"))
+                    .unwrap_or_default()
+                + &sample
+                    .wait_ms
+                    .filter(|ms| *ms >= 0.05)
+                    .map(|ms| format!(" (+{ms:.1} wait)"))
                     .unwrap_or_default(),
         ),
     ];

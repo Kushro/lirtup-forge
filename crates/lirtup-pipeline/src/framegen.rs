@@ -377,6 +377,8 @@ pub struct FrameGen {
     interval: FrameInterval,
     frames_seen: u32,
     capture: Option<Instant>,
+    /// Time [`FrameGen::drain`] waited since the last [`FrameGen::take_waited`].
+    waited: Duration,
     /// The last frame was presented from this thread, not by the cycles.
     chain_broken: bool,
     /// What does not change during the session (layer, DLL, env).
@@ -447,6 +449,7 @@ impl FrameGen {
             interval: FrameInterval::new(),
             frames_seen: 0,
             capture: None,
+            waited: Duration::ZERO,
             chain_broken: true,
             base,
             reported: None,
@@ -672,10 +675,19 @@ impl FrameGen {
 
     /// Wait for the present thread's previous cycle.
     fn drain(&mut self) -> std::result::Result<(), String> {
-        match &mut self.thread {
+        let started = Instant::now();
+        let result = match &mut self.thread {
             Some(thread) => thread.drain(),
             None => Ok(()),
-        }
+        };
+        self.waited += started.elapsed();
+        result
+    }
+
+    /// How long presenting waited for the previous cycle since the last
+    /// call (the panel's «wait», apart from «render»).
+    pub fn take_waited(&mut self) -> Duration {
+        std::mem::take(&mut self.waited)
     }
 
     /// Follow the automatic multiplier (`_update_auto`): pick the first

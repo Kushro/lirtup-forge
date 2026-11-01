@@ -244,6 +244,7 @@ fn events() -> Vec<Event> {
             }),
             poll_fps: 120.0,
             render_ms: Some(1.5),
+            wait_ms: Some(6.25),
             latency_by_kind: vec![
                 KindLatency {
                     kind: "real".into(),

@@ -43,7 +43,7 @@
 //! `Conversion::create_into(output)` removes that copy.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use lirtup_config::{Config, Downsampler, EffectsEngine, Geometry, Upsampler};
 use lirtup_effects::convert::Conversion;
@@ -70,6 +70,9 @@ pub struct PresentOutcome {
     /// The swapchain must be recreated (out of date or suboptimal): the
     /// session thread calls [`Presenter::resize`] with the overlay size.
     pub recreate: bool,
+    /// Time spent waiting to present (the previous frame generation cycle,
+    /// or a blocking swapchain present), part of the call's time.
+    pub waited: Duration,
 }
 
 // -------------------------------------------------------------------------
@@ -609,16 +612,22 @@ impl Presenter {
         let times = submission.wait(self.config.frame_timeout)?;
         self.frame += 1;
 
-        let recreate = match self.framegen.as_mut() {
+        let (recreate, waited) = match self.framegen.as_mut() {
             Some(fg) => {
                 fg.present(&self.screen)?;
-                self.surface.lock().map_err(|_| poisoned())?.needs_recreation()
+                let waited = fg.take_waited();
+                (self.surface.lock().map_err(|_| poisoned())?.needs_recreation(), waited)
             }
-            None => self.present_screen()?,
+            None => {
+                let started = Instant::now();
+                let recreate = self.present_screen()?;
+                (recreate, started.elapsed())
+            }
         };
         Ok(PresentOutcome {
             timestamps: times,
             recreate,
+            waited,
         })
     }
 
@@ -626,10 +635,12 @@ impl Presenter {
     /// false` and nothing changed). Not called while frame generation is
     /// active.
     pub fn present_unchanged(&mut self) -> Result<PresentOutcome> {
+        let started = Instant::now();
         let recreate = self.present_screen()?;
         Ok(PresentOutcome {
             timestamps: None,
             recreate,
+            waited: started.elapsed(),
         })
     }
 

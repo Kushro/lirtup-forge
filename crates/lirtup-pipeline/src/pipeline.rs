@@ -50,9 +50,11 @@
 //!
 //! # Switching windows
 //!
-//! [`PipelineCommand::SwitchWindow`] (and `follow_focus`) rebuild everything
-//! that depends on the window, overlay included (the overlay forwards input
-//! to one target), keeping the stats, the view and the configuration.
+//! [`PipelineCommand::SwitchWindow`] (and `follow_focus`) keep the overlay,
+//! the swapchain and the presenter: the overlay forwards input to the new
+//! window (`OverlayCommand::SetTarget`), and only the capture and the
+//! upscaler are rebuilt for it (in windowed mode the overlay also takes the
+//! new window's size). The stats, the view and the configuration stay.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -286,6 +288,11 @@ const GEOMETRIES: [&str; 3] = ["fit", "stretch", "cover"];
 const OFFSET_STEP: i32 = 25;
 /// How often `Event::Stats` and the panel are refreshed.
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(500);
+
+/// `hide_cursor` (ms) as the overlay takes it.
+fn hide_cursor_after(config: &Config) -> Option<Duration> {
+    config.hide_cursor.map(|ms| Duration::from_millis(u64::from(ms)))
+}
 
 /// The overlay mode of a session kind (module docs).
 pub fn overlay_mode(kind: SessionKind, configured: OverlayMode) -> OverlayMode {
@@ -552,10 +559,7 @@ impl Runner {
         presenter.set_source(upscaler.output());
         let osd = Osd::new(&self.device, presenter.screen(), &self.config)?;
         let panel = StatsPanel::new(&self.device, presenter.screen(), self.config.show_stats)?;
-        if let Some(ms) = self.config.hide_cursor {
-            tracing::debug!("hide_cursor {ms} ms: the overlay hides the cursor");
-            overlay.send(OverlayCommand::SetCursorVisible(false));
-        }
+        overlay.send(OverlayCommand::HideCursorAfter(hide_cursor_after(&self.config)));
         self.stale = true;
         self.mapper = None;
         let mut parts = Parts {
@@ -782,16 +786,37 @@ impl Runner {
             return Ok(());
         }
         tracing::info!("switching to window 0x{:x} ({})", window.xid, window.title);
-        if let Some(parts) = self.parts.take() {
-            Runner::teardown(parts);
-        }
         self.menu_crop = Crop::default();
         self.menubar = self
             .config
             .auto_crop_menu_bar
             .then(|| MenuBarDetector::new(Instant::now()));
-        self.parts = Some(self.build(window)?);
         self.started_at_ms = None;
+        let Some(parts) = self.parts.as_mut() else {
+            self.parts = Some(self.build(window)?);
+            return Ok(());
+        };
+        let xid = window.xid;
+        parts.window = window;
+        parts.overlay.send(OverlayCommand::SetTarget(xid));
+        self.rebuild_capture()?;
+        if self.overlay_mode() == OverlayMode::Windowed
+            && let Some(parts) = self.parts.as_ref()
+        {
+            let rect = overlay_rect(
+                &self.config,
+                OverlayMode::Windowed,
+                (parts.window.width(), parts.window.height()),
+                self.monitor,
+            );
+            parts.overlay.send(OverlayCommand::SetMode {
+                mode: OverlayMode::Windowed,
+                rect,
+            });
+        }
+        // The content rect may not change: send the mapper again anyway.
+        self.mapper = None;
+        self.stale = true;
         Ok(())
     }
 
@@ -913,9 +938,9 @@ impl Runner {
                 .send(OverlayCommand::SetOpacity(self.config.overlay_opacity_max));
         }
         if old.hide_cursor != self.config.hide_cursor {
-            parts.overlay.send(OverlayCommand::SetCursorVisible(
-                self.config.hide_cursor.is_none(),
-            ));
+            parts
+                .overlay
+                .send(OverlayCommand::HideCursorAfter(hide_cursor_after(&self.config)));
         }
         let mut parts = self.parts.take().expect("checked above");
         self.apply_view(&mut parts);
@@ -1211,8 +1236,10 @@ impl Runner {
         }
         self.stats
             .set_multiplier(parts.presenter.framegen().and_then(|fg| fg.active_multiplier()));
-        self.stats
-            .record_render(render_start.elapsed().as_secs_f32() * 1000.0);
+        self.stats.record_render(
+            render_start.elapsed().as_secs_f32() * 1000.0,
+            outcome.waited.as_secs_f32() * 1000.0,
+        );
         self.last_frame = Some(capture_time);
 
         // 7. Input mapping.

@@ -778,10 +778,24 @@ impl Inner {
             .filter(|d| d.is_finite() && *d > 0.0)
             .map(Duration::from_secs_f32);
         if let Target::Focused = request.target {
-            return Ok(match delay {
+            let window = match delay {
                 Some(d) => x11.active_after(d)?,
                 None => x11.active_window()?,
-            });
+            };
+            // The activation hotkey pressed over the GUI, or over a stale
+            // overlay: never scale LirtUp Forge itself.
+            if let Some(w) = &window
+                && x11.is_lirtup_window(w)?
+            {
+                return Err(CoreError::Session {
+                    stage: Stage::Window,
+                    message: format!(
+                        "the focused window is LirtUp Forge itself ({}); focus the window to scale",
+                        w.title
+                    ),
+                });
+            }
+            return Ok(window);
         }
         if let Some(delay) = delay {
             // In small steps, so a `Stop` cancels it.

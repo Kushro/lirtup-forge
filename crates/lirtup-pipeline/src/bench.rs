@@ -36,7 +36,7 @@ use lirtup_magpiefx::compiler::{HlslCompiler, SpirvCache, detect_compilers};
 use lirtup_magpiefx::runtime::{compile_effect_with, fp16_wanted};
 use lirtup_magpiefx::spec::parse_effect_spec;
 use lirtup_magpiefx::{Catalog, CompileOptions, MagpieEffect};
-use lirtup_proto::{BenchEntry, BenchKind, BenchReport, BenchRequest, Stage};
+use lirtup_proto::{BenchEntry, BenchKind, BenchReport, BenchRequest, Size, Stage};
 use serde_json::{Map, Value, json};
 
 use crate::{PipelineError, Result};
@@ -777,11 +777,20 @@ fn round4(v: f32) -> f64 {
 
 /// Merge a report into `bench.json` under its GPU (atomic write).
 ///
-/// As 1.x: a case measured again replaces the old value; failed cases are
-/// kept with their error. Cancelled runs keep what they measured. The
-/// report carries no sizes nor the `gpu` selector, so `sizes` and
-/// `selectors` of the file are left as they are (see the round 2 note).
-pub fn save_results(path: &Path, report: &BenchReport) -> Result<()> {
+/// As 1.x (`save_results`): a case measured again replaces the old value;
+/// failed cases are kept with their error; cancelled runs keep what they
+/// measured. `sizes.<kind>` records the input and target sizes of the run
+/// (only the target for frame generation): times at other sizes are not
+/// comparable, so a kind measured at new sizes starts over. `selector` is
+/// the `gpu` setting the run used (`None` = automatic, stored as `""`), so
+/// `selectors` finds the entry without opening the GPU.
+pub fn save_results(
+    path: &Path,
+    report: &BenchReport,
+    input: Size,
+    target: Size,
+    selector: Option<&str>,
+) -> Result<()> {
     let mut data = load_results(path);
     let stamp = utc_stamp(SystemTime::now());
     let name = report.gpu.splitn(3, ':').nth(2).unwrap_or(&report.gpu).to_owned();
@@ -798,6 +807,21 @@ pub fn save_results(path: &Path, report: &BenchReport) -> Result<()> {
     entry.insert("name".into(), json!(name));
     for e in &report.entries {
         let kind = kind_key(e.kind);
+        let mut sizes = Map::new();
+        sizes.insert("target".into(), json!([target.width, target.height]));
+        if e.kind != BenchKind::Framegen {
+            sizes.insert("input".into(), json!([input.width, input.height]));
+        }
+        let sizes = Value::Object(sizes);
+        let all_sizes = entry.entry("sizes").or_insert_with(|| json!({}));
+        if !all_sizes.is_object() {
+            *all_sizes = json!({});
+        }
+        let all_sizes = all_sizes.as_object_mut().expect("just made an object");
+        if all_sizes.get(kind) != Some(&sizes) {
+            all_sizes.insert(kind.into(), sizes);
+            entry.insert(kind.into(), json!({}));
+        }
         let cases = entry.entry(kind).or_insert_with(|| json!({}));
         if !cases.is_object() {
             *cases = json!({});
@@ -820,6 +844,11 @@ pub fn save_results(path: &Path, report: &BenchReport) -> Result<()> {
             .expect("just made an object")
             .insert(kind.into(), json!(stamp));
     }
+    data.entry("selectors")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .expect("checked by load_results")
+        .insert(selector.unwrap_or_default().to_owned(), json!(report.gpu));
     data.insert("version".into(), json!(RESULTS_VERSION));
 
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -1016,12 +1045,20 @@ mod tests {
             ],
             cancelled: false,
         };
-        save_results(&path, &first).unwrap();
+        let input = Size {
+            width: 1280,
+            height: 720,
+        };
+        let target = Size {
+            width: 2560,
+            height: 1440,
+        };
+        save_results(&path, &first, input, target, Some("rx 6800")).unwrap();
         let again = BenchReport {
             entries: vec![entry("CAS", Some(0.5), None)],
-            ..first
+            ..first.clone()
         };
-        save_results(&path, &again).unwrap();
+        save_results(&path, &again, input, target, Some("rx 6800")).unwrap();
 
         let mut read = results_for_gpu(&path, &gpu).unwrap();
         read.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1036,6 +1073,19 @@ mod tests {
         assert_eq!(data["version"], 1);
         assert_eq!(data["gpus"][&gpu]["name"], "AMD Radeon RX 6800");
         assert_eq!(data["gpus"][&gpu]["magpiefx"]["CAS"]["ms"], 0.5);
+        assert_eq!(data["gpus"][&gpu]["sizes"]["magpiefx"]["input"], json!([1280, 720]));
+        assert_eq!(data["gpus"][&gpu]["sizes"]["magpiefx"]["target"], json!([2560, 1440]));
+        assert_eq!(data["selectors"]["rx 6800"], json!(gpu));
+
+        // Other sizes: that kind starts over.
+        let smaller = Size {
+            width: 1920,
+            height: 1080,
+        };
+        save_results(&path, &again, input, smaller, None).unwrap();
+        assert_eq!(results_for_gpu(&path, &gpu).unwrap().len(), 1);
+        let data: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(data["selectors"][""], json!(gpu));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

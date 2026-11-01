@@ -164,9 +164,14 @@ pub struct StatsSample {
     #[serde(default)]
     pub poll_fps: f32,
     /// CPU time of a full render, mean ms over the last second (`None`
-    /// when nothing was rendered).
+    /// when nothing was rendered), without [`StatsSample::wait_ms`].
     #[serde(default)]
     pub render_ms: Option<f32>,
+    /// Of each render, the time spent waiting to present, mean ms over the
+    /// last second: the previous frame generation cycle (its pacing), or a
+    /// blocking swapchain present. Not work: the panel shows it apart.
+    #[serde(default)]
+    pub wait_ms: Option<f32>,
     /// Latency per kind of frame over the last second, real first (1.x
     /// «real 12.3 ms (max 20)  generated …»).
     #[serde(default)]

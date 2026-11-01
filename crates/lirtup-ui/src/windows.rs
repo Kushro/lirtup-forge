@@ -98,17 +98,7 @@ pub fn without_own(mut list: Vec<WindowInfo>, own_pid: u32) -> Vec<WindowInfo> {
 /// `lirtup` (the overlay: `lirtup`/`LirtUp`) or `lirtup-…` (the GUI, whose
 /// class comes from the binary name).
 pub fn is_own(window: &WindowInfo, own_pid: u32) -> bool {
-    if window.pid == Some(own_pid) {
-        return true;
-    }
-    let ours = |name: &str| {
-        let name = name.to_ascii_lowercase();
-        name == "lirtup" || name.starts_with("lirtup-") || name.starts_with("lirtup_")
-    };
-    window
-        .class
-        .as_ref()
-        .is_some_and(|c| ours(&c.instance) || ours(&c.class))
+    window.pid == Some(own_pid) || window.is_lirtup_class()
 }
 
 #[cfg(test)]

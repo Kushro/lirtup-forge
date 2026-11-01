@@ -590,7 +590,13 @@ fn bench(request: &str, json: bool, gpu: Option<&str>) -> anyhow::Result<ExitCod
             }
         },
     )?;
-    if let Err(e) = bench::save_results(&bench::results_path(), &report) {
+    if let Err(e) = bench::save_results(
+        &bench::results_path(),
+        &report,
+        request.src,
+        request.dst,
+        selector.as_deref(),
+    ) {
         tracing::warn!("cannot save {}: {e}", bench::results_path().display());
     }
     if json {
