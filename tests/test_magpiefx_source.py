@@ -221,3 +221,38 @@ def test_all_bundled_source_effects_load_their_textures():
             assert not declared or declared == image.format
         for p in desc.passes:
             generate_pass_source(desc, p.index)
+
+
+def test_a_dxc_failure_without_glslang_says_to_install_it(monkeypatch):
+    """Round 1.3, T5.5: the error only showed dxc's diagnostics."""
+    from upscaler.magpiefx import compiler
+
+    monkeypatch.setattr(compiler, "select_backends", lambda: [("dxc", "/usr/bin/dxc")])
+
+    def fail(backend, *args, **kwargs):
+        raise compiler.MagpieFXError(f"{backend} failed to compile X: boom")
+
+    monkeypatch.setattr(compiler, "_compile_with", fail)
+    with pytest.raises(compiler.MagpieFXError) as err:
+        compiler.compile_hlsl("void main() {}", "X", use_cache=False)
+    message = str(err.value)
+    assert message.startswith("X needs glslangValidator")
+    assert "dxc failed to compile X" in message
+
+
+def test_no_install_hint_when_glslang_also_failed(monkeypatch):
+    from upscaler.magpiefx import compiler
+
+    monkeypatch.setattr(
+        compiler,
+        "select_backends",
+        lambda: [("dxc", "/usr/bin/dxc"), ("glslang", "/usr/bin/glslangValidator")],
+    )
+
+    def fail(backend, *args, **kwargs):
+        raise compiler.MagpieFXError(f"{backend} failed to compile X: boom")
+
+    monkeypatch.setattr(compiler, "_compile_with", fail)
+    with pytest.raises(compiler.MagpieFXError) as err:
+        compiler.compile_hlsl("void main() {}", "X", use_cache=False)
+    assert "needs glslangValidator" not in str(err.value)

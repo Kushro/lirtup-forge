@@ -220,7 +220,8 @@ def compile_hlsl(
         MagpieFXError: with the compiler's diagnostics if compilation fails.
     """
     errors: List[str] = []
-    for backend, exe in select_backends():
+    backends = select_backends()
+    for backend, exe in backends:
         try:
             spirv = _compile_with(
                 backend, exe, source, name, include_dir, use_cache, transform,
@@ -232,6 +233,14 @@ def compile_hlsl(
         if errors:
             logger.warning("%s: dxc failed, compiled with %s instead", name, backend)
         return spirv
+    if all(backend != "glslang" for backend, _ in backends):
+        # Some effects (the Anime4K_Denoise_Bilateral ones) only compile
+        # with glslang; say so before dxc's diagnostics
+        errors.insert(
+            0,
+            f"{name} needs glslangValidator (dxc cannot compile it); "
+            "install glslang to use this effect.",
+        )
     raise MagpieFXError("\n".join(errors))
 
 
