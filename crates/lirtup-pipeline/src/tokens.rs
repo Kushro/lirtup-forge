@@ -4,8 +4,10 @@
 //! `crates/lirtup-ui/design/tokens.rs`; this module includes that file so
 //! there is one generated copy.
 
-// The generated constants (`SHAPE_*`, `TYPE_*`) document themselves by name.
+// The generated constants (`SHAPE_*`, `TYPE_*`) document themselves by name;
+// `cargo fmt` leaves the file as `gen-tokens.py` writes it.
 #[allow(missing_docs)]
+#[rustfmt::skip]
 #[path = "../../lirtup-ui/design/tokens.rs"]
 mod generated;
 
