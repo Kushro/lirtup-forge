@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, Signal
 from .controller import PipelineController
 from .osd import OSDManager
 from .presenter import Presenter
+from .menubar import detect_menu_bar
 from .stats import StatsHUD, StatsRow
 from .swapchain import SwapchainManager
 from .upscale import UpscalerLike, create_upscaler_like
@@ -43,6 +44,12 @@ logger = logging.getLogger(__name__)
 # Seconds between captures while waiting for a new frame with
 # present_on_change_only (short, so a new frame is not delayed).
 _CHANGE_POLL_INTERVAL = 0.001
+
+# Menu bar detection: seconds between samples, how many samples in a row
+# must agree before cropping, and how many to take before giving up.
+_MENU_BAR_INTERVAL = 0.25
+_MENU_BAR_AGREE = 3
+_MENU_BAR_MAX_SAMPLES = 12
 
 
 class PauseReason(Enum):
@@ -101,6 +108,9 @@ class Pipeline(QObject):
         self.profiles = profiles or {}
         self.profile_name: Optional[str] = profile_name
 
+        # Menu bar detection (auto_crop_menu_bar), see _check_menu_bar()
+        self._reset_menu_bar_detection()
+
         # Crop margins (fixed for the session)
         self._crop_left = config.crop_left
         self._crop_top = config.crop_top
@@ -147,6 +157,7 @@ class Pipeline(QObject):
             + [f"Geometry: {g}" for g in self.controller.available_geometries]
             + [f"Zoom: {z}" for z in self.controller.available_zoom_levels]
             + ["View restored", "Screenshot saved", "Screenshot failed"]
+            + ["Menu bar cropped"]
         )
         self.osd = OSDManager(osd_texts, self._screen_width, self._screen_height)
 
@@ -361,6 +372,7 @@ class Pipeline(QObject):
         self._crop_top = new_config.crop_top
         self._crop_right = new_config.crop_right
         self._crop_bottom = new_config.crop_bottom
+        self._reset_menu_bar_detection()
         self.overlay.update_scale_mode.emit(new_config.output_geometry)
         self.overlay.update_config.emit(new_config)
         self.presenter.update_config(new_config)
@@ -392,6 +404,10 @@ class Pipeline(QObject):
         # If we get here, capture succeeded, so reset the counter
         self._consecutive_capture_failures = 0
         self.stats.record_capture(is_dirty)
+
+        # --- Menu bar detection (recreates the grabber when it crops) -------
+        if self._menu_bar_pending and self._check_menu_bar(frame):
+            return
 
         if not self._running:
             return
@@ -744,6 +760,46 @@ class Pipeline(QObject):
     # ----------------------------------------------------------------------
     # Internal helpers
     # ----------------------------------------------------------------------
+    def _reset_menu_bar_detection(self) -> None:
+        """Look for a menu bar again (new window or configuration)."""
+        self._menu_bar_pending = self.config.auto_crop_menu_bar
+        self._menu_bar_samples: List[int] = []
+        self._menu_bar_next_check = 0.0
+
+    def _check_menu_bar(self, frame: memoryview) -> bool:
+        """
+        Sample the frame for a menu bar every _MENU_BAR_INTERVAL seconds.
+        Once _MENU_BAR_AGREE samples in a row find the same height, crop it
+        and return True (the frame and the grabber are no longer valid).
+        After _MENU_BAR_MAX_SAMPLES samples without agreement, give up.
+        """
+        now = time.perf_counter()
+        if now < self._menu_bar_next_check:
+            return False
+        self._menu_bar_next_check = now + _MENU_BAR_INTERVAL
+        rows = detect_menu_bar(frame, self.crop_width, self.crop_height)
+        samples = self._menu_bar_samples
+        samples.append(rows)
+        last = samples[-_MENU_BAR_AGREE:]
+        if len(last) == _MENU_BAR_AGREE and last[0] > 0 and len(set(last)) == 1:
+            self._menu_bar_pending = False
+            self._apply_menu_bar_crop(rows)
+            return True
+        if len(samples) >= _MENU_BAR_MAX_SAMPLES:
+            self._menu_bar_pending = False
+            logger.info("No menu bar found at the top of the window")
+        return False
+
+    def _apply_menu_bar_crop(self, rows: int) -> None:
+        """Add *rows* to the top crop and rebuild what depends on it."""
+        logger.info("Menu bar detected: cropping %d more rows at the top", rows)
+        # The overlay maps clicks with the config's crop, so change it there
+        self.config.crop_top += rows
+        self._crop_top = self.config.crop_top
+        self.overlay.update_config.emit(self.config)
+        self._handle_window_change()
+        self.osd_queue.put(("Menu bar cropped", self.config.osd_duration))
+
     def _stats_rows(self) -> List[StatsRow]:
         """Rows of the stats panel: rates, then the processing chain."""
         c = self.config

@@ -1613,6 +1613,16 @@ Read at startup: restart to apply.</source>
         <comment>Frame generation status</comment>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>Detect menu bar</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Experimental. Look for the menu bar that Windows programs draw below the title bar (under Wine) during the first seconds, and crop it on top of the Top value.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
   </context>
   <context>
     <name>ProfileActions</name>

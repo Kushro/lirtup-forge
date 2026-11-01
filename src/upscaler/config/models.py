@@ -134,6 +134,8 @@ class Config:
         crop_bottom: Pixels to crop from bottom.
         crop_left: Pixels to crop from left.
         crop_right: Pixels to crop from right.
+        auto_crop_menu_bar: If True, detect a Wine menu bar at the top of
+            the window and crop it (experimental).
         background_color: Color for letterbox bars.
         offset_x: Horizontal content offset in pixels.
         offset_y: Vertical content offset in pixels.
@@ -291,6 +293,7 @@ class Config:
     crop_bottom: int = 0
     crop_left: int = 0
     crop_right: int = 0
+    auto_crop_menu_bar: bool = False
     background_color: BackgroundColor = "black"
     offset_x: int = 0
     offset_y: int = 0

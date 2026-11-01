@@ -214,6 +214,12 @@ crop_bottom: 0
 crop_left: 0
 crop_right: 0
 
+# Detect the menu bar that Windows programs draw below the title bar (under
+# Wine, e.g. "System  Text Display  Screen  Help") during the first seconds,
+# and crop it on top of crop_top. Experimental.
+# Default: false
+auto_crop_menu_bar: false
+
 # Horizontal / vertical offset (in pixels) from the centered position.
 # Positive values move right / down; negative values move left / up.
 # Default: 0
