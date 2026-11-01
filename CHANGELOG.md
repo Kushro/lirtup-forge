@@ -1,6 +1,40 @@
 # Changelog
 
-## 1.2.0 (unreleased)
+## 1.3.0 (unreleased)
+
+### Added
+
+- **31 more Magpie effects** in MagpieFX: the 26 RAVU, the 4 SMAA and NIS,
+  with their `.dds` lookup textures (`//!SOURCE`), unmodified. MagpieFX now
+  bundles 117 effects.
+- **FP16** in the MagpieFX effects that declare `//!CAPABILITY FP16`, when
+  the GPU supports it (`UPSCALER_MAGPIEFX_FP16=0` turns it off). A pass that
+  does not compile in FP16 falls back to FP32.
+- **Measure on my GPU**: a dialog that times every effect and the built-in
+  frame generation (×2 to ×4, flow scale, model) on this GPU, saves the
+  results per GPU and shows them instead of the reference times. Also as
+  `python -m upscaler.bench`.
+- **Automatic frame generation multiplier** (`frame_gen_multiplier: auto`,
+  built-in engine only): picks ×2 to ×5 from the game's frame rate and the
+  display refresh, with hysteresis.
+- **Latency** in the stats panel, and an optional per-present CSV
+  (`--latency-log`).
+
+### Changed
+
+- `fifo` presentation no longer holds the GIL while it waits: the Vulkan
+  queue is guarded by its own mutex, so the frame generation thread does
+  not stall the pipeline.
+- `robustImageAccess` is enabled when the GPU offers it.
+- The GPU warning of the stats panel uses the game's real frame interval
+  when no frames are lost, so content under 30 fps that keeps up is not
+  flagged.
+- The flow scale and the lsfg model are explained in the GUI, and the
+  frame generation section shows the measured cost of the chosen setting.
+- Every GUI string has a Spanish translation, including the settings tab
+  names and the Style and Scaling tabs.
+
+## 1.2.0
 
 First release of the LirtUp Forge fork with its own features.
 
