@@ -1,0 +1,22 @@
+#!/bin/sh
+# Entry point of the LirtUp Forge AppImage. It starts the GUI; the CLI is
+# reached with `cli` as first argument, or through a symlink to the AppImage
+# named `lirtup` (the AppImage runtime passes its name in $ARGV0):
+#
+#   ./LirtUp_Forge-x86_64.AppImage                 the GUI
+#   ./LirtUp_Forge-x86_64.AppImage cli run -s      lirtup run -s
+#   ln -s LirtUp_Forge-x86_64.AppImage lirtup; ./lirtup list windows
+#
+# WebKitGTK, GTK and the Vulkan loader come from the system; libxdo is bundled
+# next to the GUI (its soname differs between distributions).
+set -eu
+here=$(dirname -- "$(readlink -f -- "$0")")
+
+case "$(basename -- "${ARGV0:-}")" in
+    lirtup) exec "$here/usr/bin/lirtup" "$@" ;;
+esac
+if [ "${1:-}" = cli ]; then
+    shift
+    exec "$here/usr/bin/lirtup" "$@"
+fi
+exec "$here/usr/bin/lirtup-gui" "$@"

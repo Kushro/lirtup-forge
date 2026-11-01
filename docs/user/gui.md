@@ -1,163 +1,129 @@
-# Graphical User Interface (GUI)
+# Graphical interface
 
-## Starting
+Start the app from the menu (*LirtUp Forge*) or with `lirtup-gui`. The window
+has a drawer on the left and the current page on the right; below 1100 px the
+drawer shrinks to a rail of icons. The interface is in English and Spanish
+(*Settings* ▸ *General* ▸ *Language*).
 
-You can start the GUI running `upscale-gui` from the terminal or using the [desktop entry](installation.md#desktop-integration-optional).
+The GUI does not scale anything itself: it talks to `lirtup serve`, which it
+starts the first time it needs it. The banner at the top says so when the
+scaler cannot be reached.
 
-## Layout
+## Home
 
-The main window is split into three panels:
+**Activation** starts scaling the focused window without picking it:
 
-| Panel             | Content                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------- |
-| **Left sidebar**  | List of profiles (including a global entry) with a toolbar at the bottom for editing. |
-| **Central grid**  | Live thumbnails of all open, valid windows. Click one to upscale it.                  |
-| **Right sidebar** | Tabbed settings panels that control how the upscaler behaves once working.            |
+| Row | What it does |
+| --- | --- |
+| *Scale fullscreen* | `Alt`+`Shift`+`A`: the focused window, with the mode of its profile |
+| *Scale in a window* | `Alt`+`Shift`+`Q`: the same, in an always-on-top window you can move from the toolbar |
+| *Deferred scaling* | *Start* waits a few seconds (3 by default, the arrow picks another delay) so you can go back to the game, then scales the focused window |
+| *Daemon mode* | Scales the windows that match a profile as they appear, even with this window closed (see [Tray and daemon](tray-daemon.md)) |
 
-### Central Grid: Window Previews
+The pencil next to each hotkey changes it.
 
-The central grid shows the windows that the upscaler can capture.
+**Open windows** shows a live preview of every window that can be scaled.
+Filter them by title or class (`Ctrl`+`F`), or with *All*, *With profile* and
+*Without profile*. Then:
 
-!!! note "If a window doesn't appear"
+- click a tile (or select it with the arrows and press `Enter`) to scale it
+  with the mode of the profile that matches it;
+- right-click it, or use its ⋮ button, to scale it in a window, create a
+  profile from it or copy its title.
 
-    The grid updates periodically (every 2 seconds). If you can't see a window which should be valid, make sure it's not minimized.
+While a window is scaled, a card at the top shows it: the mode, the source
+and output sizes, the captured and shown frame rates and the frame generation
+multiplier, with *Restart* and *Stop*. If the GPU cannot keep up, the card
+says how many milliseconds a frame takes against the time available. If
+scaling fails, the card says at which step and offers *Retry*.
 
-Here you can:
+## Scaling modes
 
-- Type in the bar at the top to **filter** by window title.
-- You can also navigate through it using `Ctrl`+`F` to focus the filter bar, then `↓` to move focus to the grid and any other arrow key to navigate through the thumbnails.
-- Finally, click or press `Enter`/`Space` on a selected tile to start upscaling that window.
-- And... That's it! Superresolution magic (hopefully)! ✨✨✨
+A **mode** groups how a window is processed: the SRCNN model, the sampling
+filters, the Magpie effects and the finishing touches. Profiles name a mode,
+so several profiles can share one. *Scaling modes* lists them with their total
+GPU cost and how many profiles use each one. The editor is described in
+[Scaling modes](modes.md).
 
-!!! note "Closing the upscale overlay"
+## Profiles
 
-    Once upscaling, you can use the Close hotkey `Alt`+`Shift`+`Escape` to stop upscaling and close the app.
+A profile holds the settings for the windows that match its rules. The drawer
+lists *Default* (the settings every window starts from) and your profiles; a
+dot marks unsaved changes and an amber ▶ the profile being scaled.
 
-    For more info on hotkeys, see [Controls](controls.md#hotkeys).
+A profile page has a header with its icon, name and rules (*Edit profile*
+changes them) and five tabs:
 
-### Right Sidebar: Settings
+| Tab | Settings |
+| --- | --- |
+| *Scaling* | The mode (and *Edit mode*), follow focus, pause when the window loses focus, exclude from the daemon |
+| *Presentation* | Overlay mode, output geometry, menu bar detection, cursor hiding, crop and offset, background color, frame generation |
+| *Display* | Monitor, GPU, present mode, frame rate limit, scale factor |
+| *Extras* | Screenshots, on-screen messages, stats panel |
+| *Advanced* | Tiles, damage tracking, timing and error recovery |
 
-#### Settings tabs
+Every row shows where its value comes from: inherited from *Default*,
+changed in this profile (a stripe, with a button to inherit again), or
+changed and not saved yet (an amber stripe with the previous value).
 
-To customize the upscaling (or the app itself) you can change the settings at the right sidebar, organized into these tabs:
+### New profile
 
-| Tab              | Configuration options                                                     |
-| ---------------- |---------------------------------------------------------------------------|
-| **General**      | Model, Double upscale, Focus tracking, Daemon mode                        |
-| **Scaling**      | Spatial upsampler / downsampler                                           |
-| **Display**      | Monitor, GPU, V-Sync, FPS limit, Wayland scale factor                     |
-| **Presentation** | Overlay, Geometry, Cursor Hiding, Crop, Offset, Background color          |
-| **Effects**      | Debanding, CAS sharpening, Bloom, Vignette, Film grain, LUT color grading |
-| **Advanced**     | Vulkan, Tile processing, Timing, Error recovery                           |
-| **Extras**       | Screenshot directory and template, On-Screen Display                      |
-| **GUI Style**    | GUI color scheme and style                                                |
+*New profile* in the drawer (`Ctrl`+`N`), or *Create a profile from this
+window* in a tile's menu, opens a dialog with:
 
-#### Relevant settings
+- an icon, captured from a window or taken from a file;
+- the name;
+- the mode, and which profile to copy the settings from;
+- the rules: the title (exact, contains or regular expression) and the width
+  and height, with `>` and `<`;
+- a preview that counts the open windows that match.
 
-Three of these settings deserve a look:
+*Capture window* lists the open windows; *Point at window* lets you click one.
 
-- **Model** defines the SRCNN model to use, ordered from the fastest (but worst quality) `veryfast` to the slowest (but superior) `8x32`. Each model upscales to 2x, differing in resource usage. Depending on your system and the window to upscale, you may want to test each to find the best tradeoff for you.
+## Saving
 
-    !!! note "Testing SRCNN models"
+Changes are not applied until you save them. While there are unsaved changes,
+a bar at the bottom counts them and offers *Reset* (discard them, or restore
+the defaults) and *Save* (`Ctrl`+`S`). Leaving a page with unsaved changes
+asks whether to save or discard them. After saving, *Undo* in the message at
+the bottom goes back to the previous files.
 
-        - You can cycle through all the models using the hotkey `Alt`+`Shift`+`M`.
-        - The upscaler uses a tile-based processing, actively processing only the tiles (sections of the frame) that change. Static or mostly static frames therefore consume less GPU power than dynamic ones. Use a window with changing frames when evaluating models.
-        - If you want to measure performance, consider using a tool like [MangoHUD](https://github.com/flightlessmango/MangoHud). 
+The scaler reads the saved files: a session that uses the profile you saved
+applies the change at once.
 
-- **Double upscaling** applies two consecutive 2x upscaling passes, with a total of 4x. This increases GPU usage and could lead to slower frames, so keep that in mind.
-- **Daemon Mode**, that enables automatic upscaling ([see below](#daemon-mode)).
+## Settings
 
-#### Saving settings, or reverting them
+| Tab | Settings |
+| --- | --- |
+| *General* | Language, theme (system, light or dark) and its seed color, the tray icon (show it, minimize and close to the tray, start hidden), daemon mode and *Keep running after exit* |
+| *Hotkeys* | Every hotkey, grouped as Activation, Session, View, and Zoom and offset. Click one and press the new combination |
+| *Style* | Zoom, font size, font, tile shape (4:3, 16:9 or automatic) and how often the window list and the previews refresh |
 
-Once you've changed any settings to your liking, you can save or revert them with the buttons at the bottom:
+## About
 
-- **Save**: Writes the current configuration to the YAML configuration file in `~/.config/linux-rt-upscaler/config.yaml`.
-- **Reset**: Reverts all unsaved changes back to the last saved state. The button also has a dropdown menu with additional actions:
-    - If a profile is active: "Clear profile overrides" removes all options from that profile, falling back to global settings.
-    - If global settings are active: "Restore system defaults" resets every option to the factory defaults.
+The version, links, third-party licenses and *Diagnostics*: the GPU and
+driver, whether lsfg and `dxc` were found, with a button to copy it all when
+reporting a problem.
 
-!!! note "About the YAML configuration file"
+## Keyboard
 
-    - For operations like duplicating a profile, editing the file with a text editor may be easier.
-    - The upscaler keeps backups of this file, but if the data is important to you, consider keeping your own backups.
-    - Changes to the GUI style are saved to `~/.config/linux-rt-upscaler/config-gui.yaml`, independently of the upscaler settings.
-    - For more info, see [Configuration](configuration.md#yaml-configuration-file).
+The whole window works with the keyboard: `Tab` moves between the title bar,
+the drawer and the page, and the arrows move inside lists and the window
+grid.
 
-### Left Sidebar: Profiles
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl`+`S` | Save |
+| `Ctrl`+`N` | New profile |
+| `Ctrl`+`D` | Duplicate the current profile |
+| `Ctrl`+`F` | Filter the windows |
 
-!!! tip "Why use profiles"
+## Files
 
-    When upscaling a variety of windows, you may want to use different settings for each scenario. For example, while an 800x600 window would need double upscaling to reach a 4k output, a 1080p one doesn't need the extra upscaling.
+The GUI writes the same files as the command line reads:
 
-    For this reason, the upscaler supports configuration profiles that let you define specific settings for each window or setup. They contain **settings overrides** that change how the upscaler behaves for matching windows.
+- `~/.config/linux-rt-upscaler/config.yaml`: the default settings and the profiles;
+- `~/.config/linux-rt-upscaler/modes/*.yaml`: the scaling modes;
+- `~/.config/linux-rt-upscaler/gui-config.yaml`: the settings of the app itself.
 
-    For more info on profiles, see [Configuration](configuration.md#profiles).
-
-#### Profile list and toolbar
-
-The profile list shows **Global** (applies to all windows) followed by your custom profiles.
-
-The toolbar at the button contains buttons that let you:
-
-- **Add** a new profile (`Ctrl`+`N`).
-- **Edit** an existing profile (`Enter`, `F2` or double-click).
-- **Delete** a profile (`Del`).
-- **Reorder** with up/down arrows (`Ctrl`+`Shift`+`↑`/`↓`).
-
-#### Creating a profile
-
-1. Click the `+` button in the profile toolbar (or press `Ctrl`+`N`).
-2. A dialog opens where you can:
-    - Name the profile.
-    - Optionally, set an icon from an open window or from a file.
-    - Optionally, define any rules that the window needs to satisfy to automatically match.
-3. After creating it, the profile appears in the left list, where it can be selected and edited.
-
-!!! note "Selecting a profile"
-
-    - Selecting a profile (clicking it or navigating to it with arrow keys) activates it, and the right sidebar switches to editing that profile's overrides.
-    - Instead, if the **Global** entry is active (no custom profile selected), the settings sidebar edits the base configuration that every window uses unless a profile overrides it.
-
-#### Applying a profile
-
-Profiles are applied:
-
-- **Manually** by clicking a profile in the list. Any window selected in the grid will use the manually selected profile.
-- **Automatically** when selecting a window thumbnail if all the match rules are satisfied.
-- With the **Daemon mode** ([see below](#daemon-mode)), if a match is found, the daemon switches to that window and applies the profile's options.
-
-## Daemon Mode
-
-When **Daemon Mode** is enabled (found in the General tab), a background process continuously looks for windows that match any of your profiles. As soon as a match appears, the daemon:
-
-1. Focus the matched window.
-2. Starts upscaling with the profile's settings.
-3. If the window closes, the daemon goes back to scanning for the next match.
-
-Daemon mode is ideal if you want to automatically upscale a profiled window as soon as it launches, or if your mouse died from exhaustion after a long day of multi-clicking~.
-## System tray
-
-Turn the tray icon on with the round tray button next to the filter bar. The
-app then keeps running in the system tray, and its menu lets you work without
-opening the main window:
-
-- **While nothing is upscaled**: the open windows (click one to upscale it),
-  and *Show* / *Hide* for the main window.
-- **While a window is upscaled**: its title, then
-    - *Restart*: upscale the same window again with the current settings,
-      for example after changing them.
-    - *Switch to*: stop and upscale another window instead.
-    - *Stop*: stop upscaling and go back to the main window (if it was open).
-- **Profile**: the profile for the next session. *Global (auto-match)* picks a
-  matching profile for each window. Picking a profile while a window is
-  upscaled restarts the session with it.
-- *Daemon mode*, and whether the app closes or minimizes to the tray, starts
-  hidden, or keeps running after exit.
-
-- **Frame generation**: *Off* or ×2 to ×5. Frame generation is set up when
-  the app starts, so picking one saves it and restarts the whole app, which
-  upscales the same window again.
-
-When menu bar detection crops a menu bar, the new top crop is saved in the
-profile that matched the window, with detection turned off there, so the next
-session starts already cropped.
+See [Configuration](configuration.md).

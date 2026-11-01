@@ -1,0 +1,90 @@
+name: Rust
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  check:
+    name: fmt, clippy, test, dx build
+    runs-on: ubuntu-latest
+    # Arch, like the AUR package: recent Vulkan headers for the lsfg core,
+    # and dioxus-cli in the repositories.
+    container: archlinux:base-devel
+    steps:
+      - name: System packages
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git rustup npm python \
+            vulkan-headers vulkan-icd-loader libxcb \
+            gtk3 webkit2gtk-4.1 xdotool libayatana-appindicator \
+            dioxus-cli
+
+      - uses: actions/checkout@v5
+
+      - name: Toolchain of rust-toolchain.toml
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          rustup toolchain install
+          rustc --version
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/dx
+            target
+          key: rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: rust-
+
+      - name: dx of the dioxus in Cargo.lock
+        run: |
+          want=$(sed -n '/^name = "dioxus"$/{n;s/^version = "\(.*\)"$/\1/p;q}' Cargo.lock)
+          have=$(dx --version | awk '{print $2}')
+          if [ "$have" != "$want" ]; then
+            cargo install --locked dioxus-cli --version "$want"
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # The parity tests that need a GPU are #[ignore]d; the rest skip
+      # without a Vulkan device or an X server.
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+      - name: Translation keys
+        run: python scripts/check-ftl-keys.py
+
+      - name: Tailwind of package.json
+        run: npm ci --prefix crates/lirtup-ui --no-audit --no-fund
+
+      - name: Committed tailwind.css is current
+        working-directory: crates/lirtup-ui
+        run: |
+          npx tailwindcss -i ./tailwind.css -o ./assets/tailwind.css --minify
+          git diff --exit-code -- assets/tailwind.css
+
+      # NO_DOWNLOADS: dx runs packaging/tools/tailwindcss (the Tailwind of
+      # package.json) instead of downloading its own 4.1.5.
+      - name: dx build
+        run: |
+          NO_DOWNLOADS=1 PATH="$PWD/packaging/tools:$PATH" \
+            dx build --release -p lirtup-ui --desktop
+          git diff --exit-code

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/baronsmv/linux-rt-upscaler/main/data/icons/hicolor/scalable/apps/io.github.baronsmv.linux-rt-upscaler.svg" width="128" alt="icon">
+  <img src="data/icons/hicolor/scalable/apps/io.github.baronsmv.linux-rt-upscaler.svg" width="128" alt="icon">
 </p>
 
 <h1 align="center">LirtUp Forge</h1>
@@ -12,326 +12,175 @@
   A fork of <a href="https://github.com/baronsmv/linux-rt-upscaler">Linux Real-Time Upscaler</a> by <a href="https://github.com/baronsmv">baronsmv</a>.
 </p>
 
-**LirtUp** = **Li**nux **R**eal-**T**ime **Up**scaler. This fork adds the
-[Magpie effects](#magpie-effects): you can run them on a few hand-ported
-shaders or on 86 of Magpie's effects loaded unmodified.
+**LirtUp** = **Li**nux **R**eal-**T**ime **Up**scaler. It upscales any X11 or
+XWayland window to full screen in real time, with
+[CuNNy](https://github.com/funnyplanter/CuNNy) neural networks running on
+Vulkan compute, while you keep playing: mouse clicks and motion go to the
+original window. On top of that it runs the effects of
+[Magpie](https://github.com/Blinue/Magpie) and frame generation with
+[lsfg-vk](https://lsfg-vk.dev).
 
-A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It uses [CuNNy](https://github.com/funnyplanter/CuNNy) neural networks to perform 2x (or 4x) upscaling to full screen while preserving aspect ratio. Mouse clicks and motion are automatically forwarded to the original window.
-
-![](https://raw.githubusercontent.com/baronsmv/linux-rt-upscaler/main/docs/assets/screenshots/dark_02.png)
+**Version 2.0 is a rewrite in Rust** with a new interface. It replaces the
+Python 1.x under the same package name and reads its configuration; see
+[Migrating from 1.x](docs/user/migration.md).
 
 ## Results at 400% magnification
 
-![](https://raw.githubusercontent.com/baronsmv/linux-rt-upscaler/main/docs/assets/comparisons/gurikaji/w40-60_h20-50_4x_comparison.png)
+![](docs/assets/comparisons/gurikaji/w40-60_h20-50_4x_comparison.png)
 
-![](https://raw.githubusercontent.com/baronsmv/linux-rt-upscaler/main/docs/assets/comparisons/fatamoru/w30-50_h10-50_4x_comparison.png)
+![](docs/assets/comparisons/fatamoru/w30-50_h10-50_4x_comparison.png)
 
 ## Features
 
-- **Neural-Network upscaling** using SRCNNs trained for high-quality upscaling of visual novels and illustrations.
-- **Model selection** from 9 variants with variable quality/performance trade-offs.
-- **Hardware accelerated** using Vulkan compute.
-- **Tile-Based processing** that upscales only the frame regions that change, reducing GPU load for mostly static content.
-- **Customizable output geometry**: scaling mode (fit, stretch, cover), offset, crop and zoom.
-- **Input forwarding** as if interacting directly with the original window.
-- **System tray** controls: restart, switch the upscaled window or change its profile without opening the main window ([GUI guide](docs/user/gui.md#system-tray)).
-- **Menu bar detection** (experimental): crops the menu bar that Windows programs draw below the title bar under Wine (`--auto-crop-menu-bar`, or *Presentation* > *Crop* > *Detect menu bar*), and the 2 px frame many programs draw around their image. In the GUI the crop is saved in the window's profile.
-- **Stats panel** (experimental), like mpv's stats page: frame rates, GPU times and the active processing chain, toggled with Alt+Shift+I. It warns when the effects are too slow for the game.
-- **Frame generation** with [lsfg-vk](https://lsfg-vk.dev) (×2 to ×5), through its Vulkan layer or built in (experimental), see [below](#frame-generation).
-- **Magpie effects** with a choice of engine: a few effects ported by hand, or 86 effects from [Magpie](https://github.com/Blinue/Magpie) run unmodified by a MagpieFX loader (see below).
+- **Neural network upscaling** with 9 SRCNN models trained for visual novels
+  and illustrations, from `veryfast` to `8x32`, and 4x with two passes.
+- **Scaling modes**: the model, the sampling filters, the Magpie effects and
+  the finishing touches (CAS, debanding, bloom, vignette, grain, LUT) in one
+  place, shared by the profiles that use them.
+- **Profiles** that match windows by title and size, each with its mode and
+  presentation settings.
+- **The 117 Magpie effects**, run unmodified by a MagpieFX loader, or three of
+  them ported by hand. *Measure on my GPU* times them on your hardware.
+- **Frame generation** ×2 to ×5 or automatic, through the lsfg-vk layer or
+  built in.
+- **A toolbar over the game** that appears at the top edge: stats, crop,
+  screenshot, frame generation, window or fullscreen, stop.
+- **Stats panel**, like mpv's: frame rates, latency, GPU time per effect, and
+  a warning when the effects cannot keep up.
+- **Tray icon and daemon**: scale the windows that match a profile as they
+  appear, with the main window closed.
+- **Tile-based processing**: only the parts of the frame that change are
+  upscaled, so still scenes cost little.
+- **Menu bar detection** for Windows programs under Wine, crop, offset, zoom
+  and output geometry (fit, stretch, cover).
+- English and Spanish.
 
 ## Requirements
 
-- **OS:** GNU/Linux
-- **Display server:** X11, or Wayland with XWayland
-- **GPU:** Vulkan-capable (NVIDIA, AMD, Intel)
-- **Python:** 3.10 or newer
-- **Qt dependencies:** see [Dependencies](https://baronsmv.github.io/linux-rt-upscaler/user/installation/#dependencies)
+- GNU/Linux with X11, or Wayland with XWayland.
+- A Vulkan GPU (AMD, NVIDIA or Intel).
+- WebKitGTK 4.1 and GTK 3, for the interface.
+- Optional: `dxc` or `glslang` for the MagpieFX effects, lsfg-vk or Lossless
+  Scaling for frame generation.
 
 ## Installation
 
-LirtUp Forge is not published on PyPI (`pipx install linux-rt-upscaler`
-installs the original project). Install it from this repository with `pipx`:
+- **Arch Linux and derivatives**: the PKGBUILD in [`packaging/aur`](packaging/aur)
+  (`makepkg -si`), package `linux-rt-upscaler`.
+- **Any distribution**: the AppImage.
+- **From source**: `scripts/build-release-linux.sh` builds a tarball and the
+  AppImage.
+
+Details, dependencies per distribution and the build requirements:
+[Installation](docs/user/installation.md).
+
+## Quick start
+
+1. Open *LirtUp Forge* from the menu, or run `lirtup-gui`.
+2. Click a window in *Open windows*, or focus the game and press
+   `Alt`+`Shift`+`A`.
+3. `Alt`+`Shift`+`Escape` stops scaling.
+
+From a terminal, `lirtup run` does the same as the 1.x `upscale`:
 
 ```sh
-pipx install git+https://github.com/Kushro/lirtup-forge
+lirtup run -s                  # pick the window from a list
+lirtup run -t "My game" -m 4x24
+lirtup run -- wine game.exe    # launch a program and scale its window
 ```
 
-This builds the native Vulkan and capture extensions, so you need a C++
-compiler and the Vulkan and XCB development headers. The MagpieFX engine also
-needs `dxc` (`directx-shader-compiler`) or `glslangValidator` at runtime.
-For the other dependencies and how to install `pipx`, see the original
-[Installation Guide](https://baronsmv.github.io/linux-rt-upscaler/user/installation/).
+## Guides
 
-After installation, the `upscale` and `upscale-gui` commands will be available globally. You can also create a [desktop entry](https://baronsmv.github.io/linux-rt-upscaler/user/installation/#desktop-integration-optional) of the GUI for easy access. 
+- [Installation](docs/user/installation.md)
+- [Migrating from 1.x](docs/user/migration.md)
+- [Graphical interface](docs/user/gui.md)
+- [Scaling modes](docs/user/modes.md), with frame generation
+- [Controls](docs/user/controls.md): hotkeys, the toolbar over the game, the stats panel
+- [Tray and daemon](docs/user/tray-daemon.md)
+- [Command line](docs/user/cli.md)
+- [Configuration](docs/user/configuration.md)
+- [MagpieFX effects](docs/user/magpiefx.md)
+- [Troubleshooting](docs/user/troubleshooting.md)
 
-## Guides and Docs
+## Known limitations
 
-The guides of the original project apply to LirtUp Forge, except for the
-Magpie effects, which are documented [here](#magpie-effects).
+- **Vulkan games are captured black under KWin with XWayland.** On a Plasma
+  Wayland session, windows that present with Vulkan through XWayland (DXVK
+  and VKD3D-Proton games, native Vulkan games on X11) come out black. The
+  1.x behaves the same way. OpenGL and plain X11 windows are not affected.
+  A Plasma X11 session works; see [Troubleshooting](docs/user/troubleshooting.md#vulkan-games-are-captured-black-under-kwin-with-xwayland).
+- **Native Wayland windows** cannot be captured, only X11 and XWayland ones.
+- **The keyboard is not forwarded**: keep the focus on the game. The
+  `always-on-top` overlay never takes it.
 
+## Changes from 1.x
 
-- [Home](https://baronsmv.github.io/linux-rt-upscaler/)
-- [Installation](https://baronsmv.github.io/linux-rt-upscaler/user/installation/)
-- [GUI Usage](https://baronsmv.github.io/linux-rt-upscaler/user/gui/)
-- [CLI Options](https://baronsmv.github.io/linux-rt-upscaler/user/cli/)
-- [Controls](https://baronsmv.github.io/linux-rt-upscaler/user/controls/)
-- [Configuration](https://baronsmv.github.io/linux-rt-upscaler/user/configuration/)
-- [API Reference](https://baronsmv.github.io/linux-rt-upscaler/api/overview/)
+Most of the 1.x carries over: the configuration folder and format, the CLI
+options, the hotkeys and the profiles. What changed on purpose:
+
+| 1.x | 2.0 |
+| --- | --- |
+| Python, PySide6 and C++ extensions; `pipx install` | Rust, with a Dioxus interface; AUR package and AppImage |
+| `upscale`, `upscale-gui` | `lirtup run`, `lirtup-gui` |
+| Model and effects in each profile | Scaling modes shared by profiles; the GUI offers to migrate (`config.yaml.1x.bak` is kept) |
+| Scaling with unsaved settings | The scaler reads the saved files |
+| — | A toolbar over the game, *Measure on my GPU*, a daemon that keeps running after the GUI quits |
+| Python API (`upscaler.api`) | No Python API; `lirtup serve` has a socket protocol |
+| `--list-*`, `--help-all`, `-v` for the version | `lirtup list …`, `--help`, `-V` |
+| A value out of range stops with code 2 | A warning, and the default value is used |
+| Mouse forwarding with XTest or `SendEvent` | `SendEvent` only |
+| The launched program gets `__GLX_VENDOR_LIBRARY_NAME=nvidia` | Not set (it breaks OpenGL on AMD and Intel) |
+
+The full list: [Migrating from 1.x](docs/user/migration.md#3-what-changed-on-purpose).
 
 ## Magpie effects
 
-The effects of [Magpie](https://github.com/Blinue/Magpie) (Windows) run here
-through two engines. You pick one in the GUI (*Effects* tab > *Engine*), with
-`effects_engine` in the config or with `--effects-engine` on the CLI. Only the
-selected engine runs.
+The effects of [Magpie](https://github.com/Blinue/Magpie) (Windows) run through
+one of two engines, picked in the mode editor, with `effects_engine` or with
+`--effects-engine`:
 
 | | Native | MagpieFX |
-|---|---|---|
-| How | Each effect ported by hand to a fixed shader class | Magpie's `.hlsl` files run unmodified by a generic loader |
-| Effects | 3 | All 117 of Magpie bundled, plus any you add to `~/.config/linux-rt-upscaler/effects` |
-| Loading | Precompiled, instant | Compiled on first load (dxc, or glslangValidator as fallback), then cached |
-| Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
-| Settings | Tuned controls | Controls generated from each effect's parameters |
+| --- | --- | --- |
+| How | Each effect ported by hand | Magpie's `.hlsl` files run unmodified by a generic loader |
+| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | All 117 of Magpie, plus any you add to `~/.config/linux-rt-upscaler/effects` |
+| Loading | Instant | Compiled on first load (`dxc`, or `glslang`), then cached |
+| Settings | Tuned controls | Generated from each effect's parameters |
 
-Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, RADV,
-dxc), measured without a window:
+Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, RADV):
 
 | Effect | Native | MagpieFX |
-|---|---|---|
+| --- | --- | --- |
 | LumaSharpen | 0.016 | 0.016 |
 | Anime4K_Upscale_S | 0.145 | 0.142 |
 | CRT_Easymode | 0.122 | 0.118 |
 
+The effects are bundled unmodified under GPLv3 (Magpie commit `241e0a44`).
 Details: [MagpieFX guide](docs/user/magpiefx.md) and
 [compatibility report](docs/developer/magpiefx-report.md).
 
-### Status
-
-**Ported by hand (Native engine)**
-
-- `LumaSharpen`, `Anime4K_Upscale_S` (4 passes) and `CRT_Easymode`, each with
-  its config, CLI options and GUI controls.
-- Adaptations: frames arrive as BGRA, so the shaders swap red and blue when
-  they read and write (the Magpie code itself is unchanged). Anime4K's 2x2
-  writes are bounds-checked.
-
-**Adapted (MagpieFX engine)**
-
-- A loader for the MagpieFX format (version 4). It reads the `//!`
-  directives, generates one compute shader per pass (CS and PS styles,
-  multiple outputs, `MulAdd`, `Rmp8x8`, the `MP_*` macros) and compiles them
-  to SPIR-V at runtime with a cache. It also runs the passes with their
-  intermediate textures.
-- The red/blue swap is built into the generated shaders, at no measurable
-  cost. Only the 3 FXAA effects still need a separate swap pass.
-- `//!SOURCE` lookup textures: uncompressed `.dds` files (and PNG/BMP/JPEG/
-  TIFF images) are read when the effect loads and uploaded once. This
-  enables the 26 `RAVU` effects, the 4 `SMAA` effects and `NIS`.
-- FP16 (`//!CAPABILITY FP16`): on GPUs with `shaderFloat16` those effects
-  are compiled with 16-bit `MF` types, with a fallback to 32-bit floats
-  (no GPU support, `UPSCALER_MAGPIEFX_FP16=0`, or a pass that does not
-  compile in FP16).
-- All 117 effects from Magpie's `src/Effects` (commit `241e0a44`) are
-  bundled unmodified under GPLv3, with their `.dds` files.
-- Changing a parameter in the GUI updates the running effect without
-  recompiling it.
-
-**Shared changes**
-
-- An `effects_engine` setting, plus a GUI section with the engine selector,
-  its pros and cons and the reference timings above.
-- Fix for GPU timestamps in `Compute.dispatch_sequence`. The readback could
-  block forever, and the conversion to milliseconds was only accurate to
-  about 1 ms.
-- Spanish translations for the new GUI strings.
-
-**Verified**
-
-- The first 86 bundled effects compile and run once on a 1280x720 frame: 83
-  with dxc, and the three `Anime4K_Denoise_Bilateral_*` with glslang (dxc
-  rejects their array sizes).
-- The 31 effects with lookup textures read their `.dds` files and compile
-  with dxc (without running them yet).
-- Both engines give correct colors, checked in the running app with a
-  red/green/blue test image. Their output matches the reference
-  bit for bit.
-- Both engines were measured in the running app on their own branches, before
-  they were merged. Merging them changed none of the numbers above (measured
-  without a window).
-- Picking an engine turns the other one off. A parameter change applies in
-  about 0.02 ms without recompiling.
-- The built wheel of 1.2 contains the 86 effects, their license and the
-  Native shaders.
-
-**Not included**
-
-- Block-compressed `.dds` lookup textures (BC1-BC7). No Magpie effect uses
-  them.
-
-**Not tested yet**
-
-- The GUI and the engine selector in the running app on the merged branch
-  (only checked without a window).
-- GPUs other than AMD RADV (NVIDIA, Intel), and sources at odd sizes on
-  drivers that do not discard out-of-range writes.
-- How the MagpieFX engine behaves on a system without `glslangValidator` (the
-  three Denoise effects should fail with a clear error).
-- RAVU, SMAA and NIS on the GPU (output and timings), and FP16 effects in
-  FP16 compared with FP32.
-
-**Pending**
-
-- Enabling `robustImageAccess` so out-of-range writes are well defined on
-  every driver.
-- A "Measure on my GPU" button in the GUI, to replace the fixed reference
-  numbers.
-- More native ports, where the effort pays off.
-
-## Stats panel
-
-An experimental panel in the top-left corner of the overlay, in the spirit of
-mpv's stats page. Show or hide it with **Alt+Shift+I** (the `toggle_stats`
-hotkey), start with it visible with `--show-stats` or `show_stats: true`, or
-tick *Extras* > *Stats panel* in the GUI. It refreshes twice per second and
-shows:
-
-- **Game**: new frames per second from the target window, and how often the
-  window is polled.
-- **Shown**: frames presented per second, and the CPU time of a full render.
-- **Frame gen**: the lsfg-vk multiplier and an estimate of the output rate.
-  With the layer, the frames lsfg-vk adds are generated after the app
-  presents, so they are not counted here; MangoHud (`MANGOHUD=1`) measures
-  them. With the built-in engine it also shows the shader precision and the
-  pacing interval, and with *Auto* the multiplier it picked (or that lsfg is
-  restarting with another one).
-- **Latency**: average and maximum over the last second, from the capture of
-  a game frame to the moment the app presents a frame made from it, for the
-  real frames and (built-in engine) the generated ones. It does not include
-  the display, nor what the lsfg-vk layer adds after the app presents (the
-  row then ends in `+ lsfg-vk`). `--latency-log PATH` (`latency_log`) writes
-  every present to a CSV file: `capture_s`, `present_s`, `latency_ms`, `kind`
-  (`real` or `generated`) and `multiplier`.
-- **Source**, **Upscale**, **Effects** (each with its GPU time), **Output**,
-  **Post**, **Present** and **Profile**: the processing chain in order.
-- **GPU** (in red, only when it applies): the effects take longer on the GPU
-  than a game frame lasts, so they cannot keep up. It names the heaviest
-  effect, the one to make lighter. A frame lasts the game's interval, but
-  never more than 33 ms (30 fps): a lower measured rate cannot tell slow
-  content from a game the effects themselves slow down, so content under
-  30 fps may get a warning even when it keeps up.
-
-While the panel is visible, the Magpie effects are timed with GPU timestamp
-queries, which cost a little. With frame generation on, each panel refresh
-presents one extra frame.
-
 ## Frame generation
 
-LirtUp Forge presents through its own Vulkan swapchain, so the
-[lsfg-vk](https://lsfg-vk.dev) layer (Lossless Scaling Frame Generation on
-Linux) can generate frames on top of it, for any captured window: Vulkan,
-OpenGL, emulators or video. Turn it on in the GUI (*Presentation* tab >
-*Frame generation*), with `frame_gen_multiplier` in the config or with
-`--frame-gen N` on the CLI (1 is off, 2 to 5 the output frames per captured
-frame, or `auto` with the built-in engine, see below). It is read at startup,
-so changes need a restart.
+LirtUp Forge presents through its own Vulkan swapchain, so lsfg-vk can
+generate frames for any captured window: Vulkan, OpenGL, emulators or video.
+Two engines:
 
-What it needs:
+- **the lsfg-vk layer**: needs lsfg-vk 2.x and `lsfg-vk.dll` from the
+  `lsfg-vk` branch of Lossless Scaling on Steam;
+- **built in** (experimental): runs the lsfg core inside the app with
+  `Lossless.dll` from Lossless Scaling, paces the frames itself, and picks the
+  multiplier on its own with *Auto*.
 
-- lsfg-vk 2.x installed (its implicit Vulkan layer).
-- `lsfg-vk.dll`, which comes with the `lsfg-vk` branch of Lossless Scaling on
-  Steam (*Properties* > *Betas*). It is found in the Steam libraries, or in the
-  folder given by `frame_gen_dll`. The regular `Lossless.dll` does not work
-  with lsfg-vk 2.x.
-
-How it works: the app writes its own lsfg-vk profile to
-`~/.config/linux-rt-upscaler/lsfg-vk.toml` and points the layer to it before
-the first Vulkan call. Your `~/.config/lsfg-vk/conf.toml` is not touched. With
-frame generation on, the app presents only new frames of the target window
-(`present_on_change_only`), so lsfg-vk never interpolates between identical
-frames. If you set `LSFGVK_*` or `DISABLE_LSFGVK` yourself, the app leaves the
-layer alone.
-
-Trade-offs: smoother motion, at the cost of about one captured frame of
-latency (33 ms at 30 fps, 17 ms at 60 fps), and generated frames can smear HUD
-edges and fast motion.
-
-Two settings trade quality for GPU time, both next to the multiplier:
-
-- *Flow scale* (`frame_gen_flow_scale`, default 1.0): the share of the output
-  resolution at which lsfg estimates the motion. 1.0 is the most accurate and
-  the heaviest; 0.5 to 0.75 is usually enough at 1440p and 4K. The GUI
-  explains each range under the slider.
-- *Model* (`frame_gen_performance`): *Quality* (LSFG 3.1, default) or
-  *Performance* (LSFG 3.1P), lighter with more artifacts. These are the only
-  two models lsfg has.
-
-The multiplier can also be changed from the tray menu (*Frame generation*):
-the app saves it and restarts itself, upscaling the same window again.
-
-### Built-in engine (experimental)
-
-`frame_gen_engine: native` (`--frame-gen-engine native`, or *Engine* >
-*Built in* in the GUI) runs the lsfg core inside the app instead of the layer:
-
-- It needs `Lossless.dll` from Lossless Scaling (any Steam branch), found in
-  the Steam libraries or given by `frame_gen_dll`. lsfg-vk does not need to be
-  installed, and the layer is kept off.
-- lsfg runs on its own Vulkan device on the same GPU. Frames are shared with
-  it by fd (`VK_KHR_external_memory_fd`), so they never leave video memory.
-- The app paces the frames itself: it shows the generated ones and then the
-  real one, spread over the measured game frame interval.
-- The OSD and the stats panel are part of the frame, so they are
-  interpolated too.
-- If anything fails, frame generation turns off for the session and the
-  upscaled image keeps going; the stats panel says so.
-- It shares the GPU time of each frame with the effects. With heavy effects
-  the layer keeps more frames: on G-senjou no Maou with Anime4K UL
-  (Upscale_Denoise + Restore_Soft, about 34 ms) the built-in engine at ×2
-  showed 29.5 fps with flow scale 1.0 and 40 fps with flow scale 0.5 and the
-  Performance model, while the layer at ×4 kept the 22.4 real frames lirtup
-  draws without frame generation and multiplied them. With light effects
-  the built-in engine paces evenly up to ×5 (measured on video: 60, 90 and
-  120 fps from 30 fps at ×2, ×3 and ×4).
-- *Auto* (`frame_gen_multiplier: auto`, `--frame-gen auto`) picks the
-  multiplier while it runs: the largest from ×2 to ×5 whose output fits the
-  display refresh (at 144 Hz: ×5 for 24 fps, ×4 for 30 fps, ×2 for 60 fps).
-  It measures the game for half a second before starting lsfg, and changes
-  the multiplier only when the frame rate stays different for 2 seconds, at
-  most once every 5 seconds, with a margin so it does not flip between two
-  values. lsfg fixes the number of generated frames when it starts, so a
-  change restarts it in the background; meanwhile the real frames are shown
-  alone, without a black frame. With the layer, *Auto* runs at ×2: the layer
-  fixes its multiplier when it loads.
-- Presenting no longer holds Python's lock while it waits for the display, so
-  with `fifo` the pipeline keeps capturing and processing while a frame waits
-  for the vblank.
-
-Its code comes from Enigmata Temple (lsfg-vk core
-under MIT, the shader loader under GPL-3.0); see
-`src/upscaler/lsfg/third_party/README.md`. Not tested on real hardware yet.
-
-Status: checked by eye on an RX 9070 XT (RADV) with a 30 fps video, where ×2
-and ×4 looked much smoother. Not measured yet: latency, the frame rate that
-reaches the screen, real games and other GPUs. Analysis and test notes:
-[frame generation analysis](docs/developer/frame-generation-analysis.md).
-
-## Future plans
-
-- [ ] Broader model support. The upscaler currently uses [CuNNy](https://github.com/funnyplanter/CuNNy) models. Alternative SRCNN architectures are welcome if one offers a clear quality/performance advantage.
-- [ ] ~~Native Wayland upscaling~~ (not planned: see [Architecture Limitations](https://baronsmv.github.io/linux-rt-upscaler/developer/architecture/limitations/#native-wayland-is-not-supported))
+See [Scaling modes](docs/user/modes.md#frame-generation).
 
 ## Acknowledgments
 
-This project stands on the shoulders of several open-source works, mantained by amazing people:
+This project stands on the shoulders of several open-source works, maintained
+by amazing people:
 
 - **[baronsmv](https://github.com/baronsmv)**, author of [Linux Real-Time Upscaler](https://github.com/baronsmv/linux-rt-upscaler), the project LirtUp Forge is forked from.
 - **[Blinue](https://github.com/Blinue)** and the contributors of [Magpie](https://github.com/Blinue/Magpie), whose MagpieFX format and effects are bundled here (GPLv3), and the authors of each effect, credited in its source.
-
-- **[L65536](https://github.com/L65536)**, for the original [RealTimeSuperResolutionScreenUpscalerforLinux](https://github.com/L65536/RealTimeSuperResolutionScreenUpscalerforLinux), which demonstrated the feasibility of real-time SRCNN upscaling on Linux and served as a proof-of-concept for this project.
-- **[funnyplanter](https://github.com/funnyplanter)**, for the incredible [CuNNy](https://github.com/funnyplanter/CuNNy) neural network upscaling models.
-- **[Compushady](https://github.com/rdeioris/compushady)**, which served as an invaluable Vulkan foundation during early development.
-- **[PySide6](https://pypi.org/project/PySide6/)**, the Qt binding that powers the entire graphical interface and overlay window.
-- **[xcffib](https://github.com/tych0/xcffib)**, the XCB binding used for window management, monitor querying and event forwarding.
-- **[Pillow](https://python-pillow.github.io/)**, the Python Imaging Library, used for saving screenshots and rendering OSD messages.
-- **[PyYAML](https://github.com/yaml/pyyaml)**, the YAML parser used for configuration file operations.
+- **[funnyplanter](https://github.com/funnyplanter)**, for the [CuNNy](https://github.com/funnyplanter/CuNNy) neural network upscaling models.
+- **[PancakeTAS](https://github.com/PancakeTAS)** and the contributors of [lsfg-vk](https://github.com/PancakeTAS/lsfg-vk), and Enigmata Temple, whose lsfg core (MIT) and shader loader (GPL-3.0) the built-in frame generation uses.
+- **[L65536](https://github.com/L65536)**, for the original [RealTimeSuperResolutionScreenUpscalerforLinux](https://github.com/L65536/RealTimeSuperResolutionScreenUpscalerforLinux), the proof of concept of real-time SRCNN upscaling on Linux.
+- **[Compushady](https://github.com/rdeioris/compushady)**, the Vulkan foundation of the early versions.
+- **[Dioxus](https://dioxuslabs.com)**, the interface; **[ash](https://github.com/ash-rs/ash)** and **[x11rb](https://github.com/psychon/x11rb)**, Vulkan and X11 from Rust; **[Tailwind CSS](https://tailwindcss.com)**; and the Google Sans Flex, JetBrains Mono and Material Symbols fonts.

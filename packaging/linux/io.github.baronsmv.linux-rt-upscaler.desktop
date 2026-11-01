@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=LirtUp Forge
+GenericName=Real-Time Upscaler
+Comment=Upscale any X11 window in real time
+Comment[es]=Escala cualquier ventana X11 en tiempo real
+Exec=lirtup-gui
+Icon=io.github.baronsmv.linux-rt-upscaler
+Terminal=false
+Categories=Graphics;Viewer;
+Keywords=upscaler;upscale;srcnn;scaling;magpie;frame generation;lsfg;x11;
+Keywords[es]=escalador;escalar;srcnn;escalado;magpie;generación de cuadros;lsfg;x11;
+StartupNotify=true
+StartupWMClass=lirtup-gui
+SingleMainWindow=true
