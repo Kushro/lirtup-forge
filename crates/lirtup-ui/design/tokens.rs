@@ -110,90 +110,20 @@ pub struct TypeStyle {
     pub tracking: f32,
 }
 
-pub const TYPE_DISPLAY_LARGE: TypeStyle = TypeStyle {
-    size: 57.0,
-    line: 64.0,
-    weight: 500,
-    tracking: -0.50,
-};
-pub const TYPE_DISPLAY_MEDIUM: TypeStyle = TypeStyle {
-    size: 45.0,
-    line: 52.0,
-    weight: 500,
-    tracking: -0.30,
-};
-pub const TYPE_HEADLINE_LARGE: TypeStyle = TypeStyle {
-    size: 32.0,
-    line: 40.0,
-    weight: 500,
-    tracking: 0.00,
-};
-pub const TYPE_HEADLINE_MEDIUM: TypeStyle = TypeStyle {
-    size: 28.0,
-    line: 36.0,
-    weight: 500,
-    tracking: 0.00,
-};
-pub const TYPE_HEADLINE_SMALL: TypeStyle = TypeStyle {
-    size: 24.0,
-    line: 32.0,
-    weight: 500,
-    tracking: 0.00,
-};
-pub const TYPE_TITLE_LARGE: TypeStyle = TypeStyle {
-    size: 22.0,
-    line: 28.0,
-    weight: 500,
-    tracking: 0.00,
-};
-pub const TYPE_TITLE_MEDIUM: TypeStyle = TypeStyle {
-    size: 16.0,
-    line: 24.0,
-    weight: 600,
-    tracking: 0.15,
-};
-pub const TYPE_TITLE_SMALL: TypeStyle = TypeStyle {
-    size: 14.0,
-    line: 20.0,
-    weight: 600,
-    tracking: 0.10,
-};
-pub const TYPE_BODY_LARGE: TypeStyle = TypeStyle {
-    size: 16.0,
-    line: 24.0,
-    weight: 400,
-    tracking: 0.00,
-};
-pub const TYPE_BODY_MEDIUM: TypeStyle = TypeStyle {
-    size: 14.0,
-    line: 20.0,
-    weight: 400,
-    tracking: 0.10,
-};
-pub const TYPE_BODY_SMALL: TypeStyle = TypeStyle {
-    size: 12.0,
-    line: 16.0,
-    weight: 400,
-    tracking: 0.20,
-};
-pub const TYPE_LABEL_LARGE: TypeStyle = TypeStyle {
-    size: 14.0,
-    line: 20.0,
-    weight: 600,
-    tracking: 0.10,
-};
-pub const TYPE_LABEL_MEDIUM: TypeStyle = TypeStyle {
-    size: 12.0,
-    line: 16.0,
-    weight: 600,
-    tracking: 0.40,
-};
-pub const TYPE_LABEL_SMALL: TypeStyle = TypeStyle {
-    size: 11.0,
-    line: 16.0,
-    weight: 600,
-    tracking: 0.50,
-};
+pub const TYPE_DISPLAY_LARGE: TypeStyle = TypeStyle { size: 57.0, line: 64.0, weight: 500, tracking: -0.50 };
+pub const TYPE_DISPLAY_MEDIUM: TypeStyle = TypeStyle { size: 45.0, line: 52.0, weight: 500, tracking: -0.30 };
+pub const TYPE_HEADLINE_LARGE: TypeStyle = TypeStyle { size: 32.0, line: 40.0, weight: 500, tracking: 0.00 };
+pub const TYPE_HEADLINE_MEDIUM: TypeStyle = TypeStyle { size: 28.0, line: 36.0, weight: 500, tracking: 0.00 };
+pub const TYPE_HEADLINE_SMALL: TypeStyle = TypeStyle { size: 24.0, line: 32.0, weight: 500, tracking: 0.00 };
+pub const TYPE_TITLE_LARGE: TypeStyle = TypeStyle { size: 22.0, line: 28.0, weight: 500, tracking: 0.00 };
+pub const TYPE_TITLE_MEDIUM: TypeStyle = TypeStyle { size: 16.0, line: 24.0, weight: 600, tracking: 0.15 };
+pub const TYPE_TITLE_SMALL: TypeStyle = TypeStyle { size: 14.0, line: 20.0, weight: 600, tracking: 0.10 };
+pub const TYPE_BODY_LARGE: TypeStyle = TypeStyle { size: 16.0, line: 24.0, weight: 400, tracking: 0.00 };
+pub const TYPE_BODY_MEDIUM: TypeStyle = TypeStyle { size: 14.0, line: 20.0, weight: 400, tracking: 0.10 };
+pub const TYPE_BODY_SMALL: TypeStyle = TypeStyle { size: 12.0, line: 16.0, weight: 400, tracking: 0.20 };
+pub const TYPE_LABEL_LARGE: TypeStyle = TypeStyle { size: 14.0, line: 20.0, weight: 600, tracking: 0.10 };
+pub const TYPE_LABEL_MEDIUM: TypeStyle = TypeStyle { size: 12.0, line: 16.0, weight: 600, tracking: 0.40 };
+pub const TYPE_LABEL_SMALL: TypeStyle = TypeStyle { size: 11.0, line: 16.0, weight: 600, tracking: 0.50 };
 
 /// A motion token: cubic Bézier control points and duration.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -202,26 +132,11 @@ pub struct Motion {
     pub ms: u32,
 }
 
-pub const MOTION_FAST_SPATIAL: Motion = Motion {
-    bezier: [0.42, 1.67, 0.21, 0.9],
-    ms: 350,
-};
-pub const MOTION_SPATIAL: Motion = Motion {
-    bezier: [0.38, 1.21, 0.22, 1.0],
-    ms: 500,
-};
-pub const MOTION_SLOW_SPATIAL: Motion = Motion {
-    bezier: [0.39, 1.29, 0.35, 0.98],
-    ms: 650,
-};
-pub const MOTION_EFFECTS: Motion = Motion {
-    bezier: [0.31, 0.94, 0.34, 1.0],
-    ms: 200,
-};
-pub const MOTION_FAST_EFFECTS: Motion = Motion {
-    bezier: [0.31, 0.94, 0.34, 1.0],
-    ms: 150,
-};
+pub const MOTION_FAST_SPATIAL: Motion = Motion { bezier: [0.42, 1.67, 0.21, 0.9], ms: 350 };
+pub const MOTION_SPATIAL: Motion = Motion { bezier: [0.38, 1.21, 0.22, 1.0], ms: 500 };
+pub const MOTION_SLOW_SPATIAL: Motion = Motion { bezier: [0.39, 1.29, 0.35, 0.98], ms: 650 };
+pub const MOTION_EFFECTS: Motion = Motion { bezier: [0.31, 0.94, 0.34, 1.0], ms: 200 };
+pub const MOTION_FAST_EFFECTS: Motion = Motion { bezier: [0.31, 0.94, 0.34, 1.0], ms: 150 };
 
 /// Material Symbols Rounded code points of the icons the GUI uses
 /// (`design/icons.json`): `ab_glyph` applies no ligatures.
