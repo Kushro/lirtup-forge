@@ -19,13 +19,12 @@
 //! This crate does not depend on `lirtup-gpu`: fds and `VkFormat` numbers
 //! cross the boundary as plain values.
 
-// Round 0 stubs: the bodies are `todo!()`. Front C removes this.
-#![allow(unused_variables)]
-
 pub mod dll;
 pub mod error;
 pub mod layer;
 pub mod multiplier;
+// The safe wrapper over `lsfg-sys`: every unsafe block carries its SAFETY.
+#[allow(unsafe_code)]
 pub mod native;
 pub mod status;
 
