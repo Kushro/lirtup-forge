@@ -1,6 +1,6 @@
 # Generación de cuadros (FG): análisis de posibilidad
 
-Estado: **análisis, sin código**. Fecha: 2026-10-31. Rama: `analysis/frame-generation`.
+Estado: **análisis; fase 0 empezada** (ver [resultados](#fase-0-resultados-2026-10-31)). Fecha: 2026-10-31. Rama: `analysis/frame-generation`.
 
 Convención: **verificado** = leído en el código o comprobado en esta máquina; **medido en otro
 proyecto** = cifra de Enigmata Temple, en otro pipeline; **estimado** = cuenta hecha aquí, sin
@@ -217,6 +217,45 @@ dos copias GPU↔CPU más por cuadro y la latencia de las colas.
 - **GPU sin probar**: Temple sólo se probó en AMD (RADV). Quedan NVIDIA, Intel y la ausencia de
   FP16.
 - **Wayland**: lirtup presenta en XCB/XWayland. Eso no cambia con FG.
+
+## Fase 0: resultados (2026-10-31)
+
+Prueba: mpv con un video de 30 fps (960×540, X11/XWayland) como ventana de origen; lirtup en
+`--overlay-mode windowed --vulkan-present-mode mailbox` con configuración vacía; MangoHud registra
+los fps de presentación de lirtup durante 8 s. Una corrida por caso, RX 9070 XT, RADV.
+
+| Caso | Fps presentados (media) | Resultado |
+| --- | --- | --- |
+| lirtup sin cambios | 892 | Presenta el mismo cuadro en cada vuelta: la capa interpolaría entre cuadros iguales |
+| `--present-on-change-only` (nuevo) | 33,3 | Presenta sólo los cuadros nuevos del juego (≈30), lo que necesita la capa |
+| `--present-on-change-only` + lsfg-vk ×2 | — | **Bloqueado**: la capa no arranca (ver abajo) y lirtup se cae |
+
+Hallazgos (verificado):
+
+1. **El ajuste nuevo funciona.** `present_on_change_only` (CLI `--present-on-change-only`) se
+   saltea `present_unchanged()` y espera 1 ms entre capturas cuando no hay cuadro nuevo.
+2. **lsfg-vk 2.0.0 no acepta `Lossless.dll`.**
+   - El nombre de archivo del ajuste `dll` (o `LSFGVK_DLL_PATH`) se ignora: la capa siempre carga
+     `lsfg-vk.dll` de esa carpeta. Con `dll = "/home/octavio/Lossless.dll"` busca
+     `/home/octavio/lsfg-vk.dll` y falla con «The specified shader DLL does not exist».
+   - Si se le pasa la `Lossless.dll` con ese nombre, falla con «Unable to find base shader
+     'mipmaps' in DLL». Pasó con las tres copias, que tienen el mismo SHA-256 (`626b196d…`):
+     `~/Lossless.dll`, `/media/octavio/Warehouse/Lossless.dll` y la de Steam.
+   - La guía de instalación de lsfg-vk 2.0 pide pasar Lossless Scaling, en Steam, a la rama
+     **`lsfg-vk`**. Esa rama trae la DLL que la capa espera.
+   - Con esta instalación la capa tampoco funciona con vkcube, así que tampoco anda en los juegos
+     que usan el `conf.toml` de la persona.
+3. **Error de lirtup encontrado:** si `vkCreateSwapchainKHR` falla (acá porque la capa no arrancó),
+   el proceso se cae con un abort o un segfault en `vk_Swapchain_dealloc`, llamado desde
+   `vk_Device_create_swapchain_impl` (`src/upscaler/vulkan/lib`). Debería lanzar `SwapchainError`.
+   Pendiente de arreglar.
+4. **El proceso de lirtup se llama `python3.14`** (venv) o como sea el intérprete de pipx. Para la
+   capa, un perfil con `active_in = "python3.14"` alcanza, pero toma cualquier script de Python que
+   use Vulkan. Por eso es mejor activar la capa con `LSFGVK_ENV=1` y `LSFGVK_MULTIPLIER` sólo en el
+   proceso de lirtup.
+
+Para seguir: cambiar Lossless Scaling a la rama `lsfg-vk` en Steam (Propiedades → Betas) y
+repetir el caso 3 con `LSFGVK_DLL_PATH` apuntando a la carpeta de esa instalación.
 
 ## Próximos pasos propuestos
 

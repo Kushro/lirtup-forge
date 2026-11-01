@@ -1124,6 +1124,18 @@ micro-stutters and 'immediate' may still present tearing.
 """,
     )
     vulkan_group.add_argument(
+        "--present-on-change-only",
+        action="store_true",
+        default=DEFAULT_CONFIG.present_on_change_only,
+        help="""Present only when the target window shows a new frame,
+instead of presenting the last frame again on every loop.
+
+Needed by frame generation layers such as lsfg-vk, which
+would otherwise interpolate between identical frames.
+
+""",
+    )
+    vulkan_group.add_argument(
         "--frame-timeout",
         type=int,
         default=DEFAULT_CONFIG.frame_timeout,
