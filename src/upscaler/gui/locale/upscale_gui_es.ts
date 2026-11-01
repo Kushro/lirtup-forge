@@ -1677,9 +1677,9 @@ Se lee al iniciar: reinicia para aplicarlo.</translation>
             <translation>Ajuste global: los perfiles no lo cambian</translation>
         </message>
         <message>
-            <source>Running at ×{0}. Flow scale and performance mode apply after a restart.</source>
+            <source>Running at ×{0}. Flow scale and model apply after a restart.</source>
             <comment>Frame generation status</comment>
-            <translation>Activo en ×{0}. La escala de flujo y el modo rendimiento se aplican tras reiniciar.</translation>
+            <translation>Activo en ×{0}. La escala de flujo y el modelo se aplican tras reiniciar.</translation>
         </message>
         <message>
             <source>Detect menu bar</source>
@@ -1691,6 +1691,93 @@ Se lee al iniciar: reinicia para aplicarlo.</translation>
             <comment>Description of a setting (tooltip)</comment>
             <translation>Experimental. Busca durante los primeros segundos la barra de menú que los programas de Windows dibujan debajo de la barra de título (con Wine) y la recorta, además del valor de Superior.</translation>
         </message>
+    <message>
+        <source>lsfg-vk layer</source>
+        <comment>Frame generation engine</comment>
+        <translation>Capa lsfg-vk</translation>
+    </message>
+    <message>
+        <source>Built in (experimental)</source>
+        <comment>Frame generation engine</comment>
+        <translation>Integrado (experimental)</translation>
+    </message>
+    <message>
+        <source>Engine</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation>Motor</translation>
+    </message>
+    <message>
+        <source>lsfg-vk layer: the installed lsfg-vk Vulkan layer generates frames over the upscaler's window (needs lsfg-vk.dll).
+Built in: the upscaler runs the lsfg core itself on the same GPU and paces the frames (needs Lossless.dll; no layer).
+Read at startup: restart to apply.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation>Capa lsfg-vk: la capa Vulkan de lsfg-vk instalada genera cuadros sobre la ventana del escalador (necesita lsfg-vk.dll).
+Integrado: el escalador ejecuta el núcleo de lsfg en la misma GPU y reparte los cuadros (necesita Lossless.dll; sin capa).
+Se lee al iniciar: reinicia para aplicarlo.</translation>
+    </message>
+    <message>
+        <source>The built-in engine is not part of this installation.</source>
+        <comment>Frame generation status</comment>
+        <translation>El motor integrado no está en esta instalación.</translation>
+    </message>
+    <message>
+        <source>Lossless.dll was not found. Install Lossless Scaling from Steam, or set the path of Lossless.dll.</source>
+        <comment>Frame generation status</comment>
+        <translation>No se encontró Lossless.dll. Instala Lossless Scaling desde Steam o indica la ruta de Lossless.dll.</translation>
+    </message>
+    <message>
+        <source>Resolution at which lsfg estimates the motion between two frames, as a share of the output resolution.
+1.00 (default): full resolution, the most accurate motion and the heaviest for the GPU.
+Lower values are lighter and less precise on small or fast details; 0.50 to 0.75 is usually enough at 1440p and 4K.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation>Resolución a la que lsfg estima el movimiento entre dos cuadros, como parte de la resolución de salida.
+1,00 (predeterminado): resolución completa, el movimiento más preciso y lo más pesado para la GPU.
+Los valores menores son más livianos y menos precisos en detalles chicos o rápidos; de 0,50 a 0,75 suele alcanzar en 1440p y 4K.</translation>
+    </message>
+    <message>
+        <source>Quality (LSFG 3.1)</source>
+        <comment>Frame generation model</comment>
+        <translation>Calidad (LSFG 3.1)</translation>
+    </message>
+    <message>
+        <source>Performance (LSFG 3.1P)</source>
+        <comment>Frame generation model</comment>
+        <translation>Rendimiento (LSFG 3.1P)</translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation>Modelo</translation>
+    </message>
+    <message>
+        <source>The two models lsfg has.
+Quality (default): the full model, smoother results.
+Performance: a lighter model, faster on the GPU, with more artifacts around edges and fast motion.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation>Los dos modelos que tiene lsfg.
+Calidad (predeterminado): el modelo completo, resultados más suaves.
+Rendimiento: un modelo más liviano, más rápido en la GPU, con más defectos en los bordes y el movimiento rápido.</translation>
+    </message>
+    <message>
+        <source>Maximum: motion estimated at {0}% of the output resolution. The most accurate and the heaviest for lsfg (default).</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation>Máximo: movimiento estimado al {0}% de la resolución de salida. Lo más preciso y lo más pesado para lsfg (predeterminado).</translation>
+    </message>
+    <message>
+        <source>High: motion estimated at {0}% of the output resolution. Close to the maximum, somewhat lighter.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation>Alto: movimiento estimado al {0}% de la resolución de salida. Cerca del máximo, algo más liviano.</translation>
+    </message>
+    <message>
+        <source>Balanced: motion estimated at {0}% of the output resolution. Much lighter; small details move a bit less precisely. Good at 1440p and 4K.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation>Equilibrado: movimiento estimado al {0}% de la resolución de salida. Mucho más liviano; los detalles chicos se mueven con algo menos de precisión. Bueno en 1440p y 4K.</translation>
+    </message>
+    <message>
+        <source>Low: motion estimated at {0}% of the output resolution. The lightest, with visible artifacts on fine or fast detail.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation>Bajo: movimiento estimado al {0}% de la resolución de salida. Lo más liviano, con defectos visibles en detalles finos o rápidos.</translation>
+    </message>
 </context>
 <context>
     <name>ProfileActions</name>
@@ -2929,6 +3016,46 @@ Utilice «Detener» en el menú de la bandeja para volver.</translation>
             <comment>Tray menu header; {0} is a window title</comment>
             <translation>Escalando: {0}</translation>
         </message>
+    <message>
+        <source>Frame generation</source>
+        <comment>Tray submenu (lsfg-vk)</comment>
+        <translation>Generación de cuadros</translation>
+    </message>
+    <message>
+        <source>Set by LSFGVK_* variables</source>
+        <comment>Tray menu: frame generation note</comment>
+        <translation>Definida por variables LSFGVK_*</translation>
+    </message>
+    <message>
+        <source>lsfg-vk is not installed</source>
+        <comment>Tray menu note</comment>
+        <translation>lsfg-vk no está instalado</translation>
+    </message>
+    <message>
+        <source>lsfg-vk.dll not found</source>
+        <comment>Tray menu note</comment>
+        <translation>No se encontró lsfg-vk.dll</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <comment>Tray menu: frame generation off</comment>
+        <translation>Apagada</translation>
+    </message>
+    <message>
+        <source>Choosing one restarts LirtUp Forge</source>
+        <comment>Tray menu note</comment>
+        <translation>Elegir una reinicia LirtUp Forge</translation>
+    </message>
+    <message>
+        <source>Built-in engine not installed</source>
+        <comment>Tray menu note</comment>
+        <translation>Motor integrado no instalado</translation>
+    </message>
+    <message>
+        <source>Lossless.dll not found</source>
+        <comment>Tray menu note</comment>
+        <translation>No se encontró Lossless.dll</translation>
+    </message>
 </context>
 <context>
     <name>WindowGridManager</name>

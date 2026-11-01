@@ -572,17 +572,28 @@ present_on_change_only: false
 # Default: 1
 frame_gen_multiplier: 1
 
-# Optical flow resolution, 0.25 to 1.0. Lower is faster and less accurate.
+# Share of the output resolution at which lsfg estimates the motion, 0.25 to
+# 1.0. 1.0 is the most accurate and the heaviest for the GPU; 0.5 to 0.75 is
+# usually enough at 1440p and 4K.
 # Default: 1.0
 frame_gen_flow_scale: 1.0
 
-# Use the lighter lsfg-vk model.
+# lsfg model: false uses Quality (LSFG 3.1), true uses Performance
+# (LSFG 3.1P), lighter on the GPU with more artifacts.
 # Default: false
 frame_gen_performance: false
 
-# Folder holding lsfg-vk.dll. null searches the Steam libraries.
+# Folder holding lsfg-vk.dll (layer engine), or the path of Lossless.dll
+# (native engine). null searches the Steam libraries.
 # Default: null
 frame_gen_dll: null
+
+# How frames are generated:
+#   layer  - the lsfg-vk Vulkan layer, over the upscaler's own window.
+#   native - (experimental) the lsfg core built into the upscaler, with the
+#            shaders read from Lossless.dll; no layer needed.
+# Default: layer
+frame_gen_engine: layer
 
 # Maximum time (in nanoseconds) to wait for the GPU to finish the previous frame
 # before starting the next capture. If the GPU is still busy after this timeout,

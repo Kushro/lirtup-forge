@@ -757,6 +757,11 @@ static PyMethodDef vk_Resource_methods[] = {
      "Clear the entire image to a solid RGBA color.\n\n"
      "Args: r, g, b, a (floats, 0.0-1.0)."},
 
+    {"export_memory_fd", (PyCFunction)vk_Resource_export_memory_fd,
+     METH_NOARGS,
+     "Return a new opaque fd for the memory of a texture made with "
+     "Device.create_texture2d_external."},
+
     {nullptr, nullptr, 0, nullptr}};
 
 PyTypeObject vk_Resource_Type = {

@@ -102,6 +102,9 @@ class DaemonController(QObject):
         self._session.pipeline.daemon_target_acquired.connect(self._on_target_acquired)
         self._session.pipeline.daemon_scan_start.connect(self._on_scan_start)
         self._session.pipeline.finished.connect(self._on_error)
+        self._session.pipeline.menu_bar_cropped.connect(
+            self._main_window.remember_menu_bar_crop
+        )
 
     def stop(self) -> None:
         """Stop the daemon pipeline, clean up, and restore the GUI."""

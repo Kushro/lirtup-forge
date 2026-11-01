@@ -154,5 +154,10 @@ opening the main window:
 - *Daemon mode*, and whether the app closes or minimizes to the tray, starts
   hidden, or keeps running after exit.
 
-Frame generation is set up when the app starts, so changing it still needs a
-restart of the whole app, not only of the session.
+- **Frame generation**: *Off* or ×2 to ×5. Frame generation is set up when
+  the app starts, so picking one saves it and restarts the whole app, which
+  upscales the same window again.
+
+When menu bar detection crops a menu bar, the new top crop is saved in the
+profile that matched the window, with detection turned off there, so the next
+session starts already cropped.

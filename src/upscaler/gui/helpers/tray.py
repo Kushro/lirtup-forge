@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QIcon, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from ..icons import load_icon
+from ... import framegen
 from ...identity import APP_NAME
 from ...window import get_window_icon, list_windows, WindowInfo
 
@@ -298,6 +299,7 @@ class TrayController(QObject):
         # Profile used for the next session (restarts a running one)
         # --------------------------------------------------------------
         self._add_profile_menu()
+        self._add_frame_gen_menu()
 
         # --------------------------------------------------------------
         # Daemon Mode toggle
@@ -447,6 +449,65 @@ class TrayController(QObject):
             action.triggered.connect(
                 lambda checked=False, n=name: self._select_profile(n)
             )
+
+    def _add_frame_gen_menu(self) -> None:
+        """
+        Radio list of frame generation multipliers. lsfg-vk is set up once
+        per process, so choosing one saves it and relaunches the app.
+        """
+        menu = self._menu.addMenu(
+            self.tr("Frame generation", "Tray submenu (lsfg-vk)")
+        )
+        self._submenus.append(menu)
+        status = framegen.status()
+        if status == framegen.FrameGenStatus.EXTERNAL:
+            note = menu.addAction(
+                self.tr(
+                    "Set by LSFGVK_* variables", "Tray menu: frame generation note"
+                )
+            )
+            note.setEnabled(False)
+            return
+        missing = None
+        dll = self._main_window.frame_gen_dll
+        if self._main_window.frame_gen_engine == "native":
+            if not framegen.native_available():
+                missing = self.tr("Built-in engine not installed", "Tray menu note")
+            elif framegen.find_dll(dll, native=True) is None:
+                missing = self.tr("Lossless.dll not found", "Tray menu note")
+        elif framegen.find_layer() is None:
+            missing = self.tr("lsfg-vk is not installed", "Tray menu note")
+        elif framegen.find_dll(dll) is None:
+            missing = self.tr("lsfg-vk.dll not found", "Tray menu note")
+
+        group = QActionGroup(menu)
+        running = framegen.active_multiplier()
+        for multiplier in range(1, 6):
+            label = (
+                self.tr("Off", "Tray menu: frame generation off")
+                if multiplier == 1
+                else f"×{multiplier}"
+            )
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(multiplier == running)
+            action.setEnabled(multiplier == 1 or missing is None)
+            group.addAction(action)
+            action.triggered.connect(
+                lambda checked=False, m=multiplier: self._set_frame_gen(m)
+            )
+        menu.addSeparator()
+        hint = menu.addAction(
+            missing
+            or self.tr("Choosing one restarts LirtUp Forge", "Tray menu note")
+        )
+        hint.setEnabled(False)
+
+    def _set_frame_gen(self, multiplier: int) -> None:
+        if multiplier == framegen.active_multiplier():
+            return
+        self._main_window.restart_with_frame_gen(multiplier)
+        self.refresh_menu()
 
     def _select_profile(self, name: Optional[str]) -> None:
         self._main_window.select_profile(name)

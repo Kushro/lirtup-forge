@@ -112,9 +112,18 @@ struct vk_Device {
   bool supports_bindless;
   bool supports_sparse;
   bool supports_timestamps;
+  bool supports_fp16;        // shaderFloat16 (used by the lsfg shaders)
+  bool supports_external_fd; // VK_KHR_external_{memory,semaphore}_fd
   float timestamp_period;
   VkQueryPool timestamp_pool;
   uint32_t timestamp_count;
+
+  // Sharing with another device by fd (vk_external.cpp)
+  PFN_vkGetMemoryFdKHR get_memory_fd;
+  PFN_vkGetSemaphoreFdKHR get_semaphore_fd;
+  VkCommandBuffer ext_cmd; // frame copy into a shared texture
+  VkFence ext_fence;       // signalled when that copy is done
+  bool ext_pending;
 
   // Staging buffer pool (mappable, coherent)
   struct {

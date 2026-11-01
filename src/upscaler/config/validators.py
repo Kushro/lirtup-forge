@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from PySide6.QtGui import QColor
 
-from .models import EFFECTS_ENGINES
+from .models import EFFECTS_ENGINES, FRAME_GEN_ENGINES
 from ..utils import ConfigError, list_monitors
 from ..vulkan import get_discovered_devices
 
@@ -204,6 +204,15 @@ def validate_monitor(identifier: str, _: str) -> None:
     )
 
 
+def validate_frame_gen_engine(value: Any, arg_name: str) -> None:
+    """Check that the frame generation engine is a known one."""
+    if value not in FRAME_GEN_ENGINES:
+        raise ConfigError(
+            f"Invalid '{arg_name}': {value!r} (expected one of: "
+            f"{', '.join(FRAME_GEN_ENGINES)})"
+        )
+
+
 def validate_effects_engine(value: Any, arg_name: str) -> None:
     """Check that the Magpie effects engine is a known one."""
     if value not in EFFECTS_ENGINES:
@@ -240,6 +249,7 @@ _VALIDATORS: Dict[str, Tuple] = {
     # Pre-processing
     "deband_strength": (validate_number, 0.0, 1.0),
     "effects_engine": (validate_effects_engine,),
+    "frame_gen_engine": (validate_frame_gen_engine,),
     "magpie_effects": (validate_magpie_effects,),
     # Post-processing
     "cas_strength": (validate_number, 0.0, 1.0),

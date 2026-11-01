@@ -4,7 +4,7 @@ import copy
 import gc
 import logging
 import os
-from typing import List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, Qt, QTimer, QSettings, QSize, QStandardPaths, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -36,7 +36,8 @@ from .utils import background_rule
 from .widgets import StyledSplitter
 from ..config import apply_overrides, find_matching_profile, parse_config
 from ..pipeline import create_pipeline_session
-from ..window import activate_window
+from ..window import activate_window, list_windows
+from .helpers.restart import RestartRequest
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ class MainWindow(QMainWindow):
         self._hide_gui_after_stop: bool = False
         # GUI visibility to restore after a session that replaced another one
         self._restart_hide_after: Optional[bool] = None
+        # Set when the app must relaunch itself after quitting (read by main())
+        self.restart_request: Optional[RestartRequest] = None
         self._start_hidden: bool = bool(
             self.settings.value("tray/enabled", False, type=bool)
         ) and bool(self.settings.value("tray/start_hidden", False, type=bool))
@@ -421,6 +424,9 @@ class MainWindow(QMainWindow):
             self.manual_session.pipeline.finished.connect(
                 lambda s=self.manual_session: self._on_manual_pipeline_finished(s)
             )
+            self.manual_session.pipeline.menu_bar_cropped.connect(
+                self.remember_menu_bar_crop
+            )
         except Exception as e:
             logger.exception("Failed to start pipeline")
             QMessageBox.critical(
@@ -741,9 +747,70 @@ class MainWindow(QMainWindow):
         if self.manual_session is not None:
             self.restart_manual_session()
 
+    def restart_with_frame_gen(self, multiplier: int) -> None:
+        """
+        Save *multiplier* as the frame generation setting and relaunch the
+        app, which is the only way to apply it (lsfg-vk is set up once per
+        process). A running session resumes on the same window.
+        """
+        if not confirm_pending_changes(
+            self,
+            self.gui_config,
+            self.has_pending_changes,
+            self.save_pending_changes,
+        ):
+            return
+        self._config_manager.set_global_option("frame_gen_multiplier", multiplier)
+        session = self.manual_session
+        target = session.window_info if session is not None else None
+        self.restart_request = RestartRequest(
+            window=target.handle if target is not None else None,
+            hide_after=self._hide_gui_after_stop
+            if session is not None
+            else not self._is_visible(),
+        )
+        logger.info("Restarting with frame generation x%d", multiplier)
+        self._force_quit()
+
+    def remember_menu_bar_crop(self, profile: str, crop: Dict[str, int]) -> None:
+        """
+        Save a detected menu bar crop (``crop_*`` options) in the session's
+        profile, and turn detection off there so the next session does not
+        crop twice. Without a profile it applies to this session only.
+        """
+        if not profile or profile not in self._config_manager.profiles:
+            logger.info("Menu bar crop not saved: the session has no profile")
+            return
+        self._config_manager.update_profile_options(
+            profile, {**crop, "auto_crop_menu_bar": False}
+        )
+        logger.info("Saved %s in profile '%s'", crop, profile)
+
+    def resume_session(self, handle: int, hide_after: bool) -> None:
+        """Upscale the window *handle* again after a relaunch, if it still exists."""
+        win = next((w for w in list_windows() if w.handle == handle), None)
+        if win is None:
+            logger.warning("Window to resume after the restart is gone")
+            if not hide_after:
+                self.show_gui()
+            return
+        self._restart_hide_after = hide_after
+        self._on_window_selected(win)
+
+    def _is_visible(self) -> bool:
+        return self.isVisible() and not self.isMinimized()
+
     @property
     def active_profile_name(self) -> Optional[str]:
         return self._config_manager.active_profile_name
+
+    @property
+    def frame_gen_dll(self) -> Optional[str]:
+        return self._config_manager.effective_config.frame_gen_dll
+
+    @property
+    def frame_gen_engine(self) -> str:
+        return self._config_manager.effective_config.frame_gen_engine
 
     @property
     def profile_names(self) -> List[str]:

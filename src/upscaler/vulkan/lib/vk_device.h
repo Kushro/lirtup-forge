@@ -43,4 +43,16 @@ PyObject *vk_Device_wait_idle(vk_Device *self, PyObject *ignored);
 // Wait for a list of native fence handles (used for frame-level sync).
 PyObject *vk_Device_wait_for_fences(vk_Device *self, PyObject *args);
 
+// ---------------------------------------------------------------------------
+// Sharing with another device by fd (vk_external.cpp)
+// ---------------------------------------------------------------------------
+
+PyObject *vk_Device_create_texture2d_external(vk_Device *self, PyObject *args);
+PyObject *vk_Device_create_external_semaphore(vk_Device *self,
+                                              PyObject *ignored);
+PyObject *vk_Device_destroy_semaphore(vk_Device *self, PyObject *args);
+PyObject *vk_Device_export_semaphore_fd(vk_Device *self, PyObject *args);
+PyObject *vk_Device_copy_texture_signal(vk_Device *self, PyObject *args);
+PyObject *vk_Device_wait_semaphore(vk_Device *self, PyObject *args);
+
 #endif // VK_DEVICE_H

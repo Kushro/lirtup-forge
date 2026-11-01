@@ -280,6 +280,46 @@ class ConfigManager(QObject):
         self.saved_persistent_config = copy.deepcopy(self.persistent_config)
         self.config_changed.emit()
 
+    def set_global_option(self, name: str, value: Any) -> None:
+        """
+        Save one top-level option to the YAML file right away, without
+        saving other pending edits. The live configs take the new value
+        unless the active profile overrides it.
+        """
+        general, _ = load_yaml_config(self._config_path)
+        general[name] = value
+        save_yaml_config(general, dict(self.profiles), self._config_path)
+        self._general_opts = general
+        self.global_baseline = self._build_global_baseline()
+
+        profile_opts: Dict[str, Any] = {}
+        if self.active_profile_name is not None:
+            profile = self.profiles.get(self.active_profile_name, {})
+            profile_opts = profile.get("options", {})
+        if name not in profile_opts:
+            new_value = getattr(self.global_baseline, name)
+            setattr(self.persistent_config, name, copy.deepcopy(new_value))
+            setattr(self.saved_persistent_config, name, copy.deepcopy(new_value))
+        logger.debug("Saved global option %s=%r", name, value)
+        self.config_changed.emit()
+
+    def update_profile_options(self, name: str, options: Dict[str, Any]) -> None:
+        """
+        Merge *options* into profile *name* and save the file right away,
+        without saving other pending edits.
+        """
+        profile = self.profiles.get(name)
+        if profile is None:
+            return
+        profile.setdefault("options", {}).update(options)
+        save_yaml_config(self._general_opts, dict(self.profiles), self._config_path)
+        if name == self.active_profile_name:
+            for key, value in options.items():
+                setattr(self.persistent_config, key, copy.deepcopy(value))
+                setattr(self.saved_persistent_config, key, copy.deepcopy(value))
+        logger.debug("Saved %s in profile '%s'", sorted(options), name)
+        self.config_changed.emit()
+
     def reset_to_saved(self) -> None:
         """
         Discard any unsaved changes and revert the persistent config to the

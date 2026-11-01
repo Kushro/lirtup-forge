@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "linux-rt-upscaler"
-version = "1.1.4"
+version = "1.2.0"
 description = "LirtUp Forge: a real-time SRCNN upscaler for any X-Window (fork of linux-rt-upscaler)."
 readme = "README.md"
 authors = [
@@ -43,6 +43,9 @@ dependencies = [
     "xcffib",
 ]
 
+[project.optional-dependencies]
+test = ["pytest"]
+
 [project.urls]
 Homepage = "https://github.com/Kushro/lirtup-forge"
 Repository = "https://github.com/Kushro/lirtup-forge.git"
@@ -62,6 +65,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "upscaler.capture" = ["lib/*.c", "lib/*.h"]
 "upscaler.gui.icons" = ["*.svg", "**/*.svg"]
+"upscaler.gui" = ["locale/*.qm"]
 "upscaler.magpiefx" = [
     "effects/**/*.hlsl",
     "effects/**/*.hlsli",
@@ -72,3 +76,8 @@ where = ["src"]
 "upscaler.shaders" = ["**/*.spv"]
 "upscaler.srcnn" = ["**/*.json", "**/*.spv"]
 "upscaler.vulkan" = ["lib/*.cpp", "lib/*.h"]
+"upscaler.lsfg" = ["lib/*.cpp", "lib/*.h", "third_party/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

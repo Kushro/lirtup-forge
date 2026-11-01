@@ -38,8 +38,57 @@ vulkan_extension = Extension(
     language="c++",
 )
 
+_lsfg = Path("src/upscaler/lsfg")
+_lsfg_vk = _lsfg / "third_party/lsfg-vk"
+_lsfg_sources = (
+    sorted((_lsfg / "lib").glob("*.cpp"))
+    + sorted((_lsfg / "third_party/pe-parse/src").glob("*.cpp"))
+    + [
+        f
+        for folder in (
+            "src/common",
+            "src/core",
+            "src/pool",
+            "v3.1_src",
+            "v3.1_src/shaders",
+            "v3.1p_src",
+            "v3.1p_src/shaders",
+        )
+        for f in sorted((_lsfg_vk / folder).glob("*.cpp"))
+        # Enigmata Temple's staging-buffer API, not used here (images by fd)
+        if f.name != "temple_local.cpp"
+    ]
+)
+
+# Frame generation core (lsfg-vk, MIT) with the shader loader from Enigmata
+# Temple (GPL-3.0). It loads Vulkan itself through volk.
+lsfg_extension = Extension(
+    "upscaler.lsfg.lsfg",
+    sources=[str(f) for f in _lsfg_sources],
+    include_dirs=[
+        str(_lsfg / "lib"),
+        str(_lsfg / "third_party/volk"),
+        str(_lsfg / "third_party/pe-parse/include"),
+        str(_lsfg_vk / "include"),
+        str(_lsfg_vk / "public"),
+        str(_lsfg_vk / "v3.1_include"),
+        str(_lsfg_vk / "v3.1p_include"),
+    ],
+    define_macros=[("VK_NO_PROTOTYPES", None)],
+    libraries=["dl", "pthread"],
+    extra_compile_args=[
+        "-std=c++20",
+        "-O2",
+        "-mtune=generic",
+        "-fvisibility=hidden",
+        "-w",  # vendored sources, not warning-clean
+    ],
+    extra_link_args=["-Wl,-Bsymbolic"],
+    language="c++",
+)
+
 setup(
     name="linux-rt-upscaler",
     version=_get_version_from_pyproject(),
-    ext_modules=[capture_extension, vulkan_extension],
+    ext_modules=[capture_extension, vulkan_extension, lsfg_extension],
 )

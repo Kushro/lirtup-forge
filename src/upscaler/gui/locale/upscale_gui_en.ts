@@ -1609,7 +1609,7 @@ Read at startup: restart to apply.</source>
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Running at ×{0}. Flow scale and performance mode apply after a restart.</source>
+        <source>Running at ×{0}. Flow scale and model apply after a restart.</source>
         <comment>Frame generation status</comment>
         <translation type="unfinished" />
     </message>
@@ -1623,7 +1623,88 @@ Read at startup: restart to apply.</source>
         <comment>Description of a setting (tooltip)</comment>
         <translation type="unfinished" />
     </message>
-  </context>
+      <message>
+        <source>lsfg-vk layer</source>
+        <comment>Frame generation engine</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Built in (experimental)</source>
+        <comment>Frame generation engine</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Engine</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk layer: the installed lsfg-vk Vulkan layer generates frames over the upscaler's window (needs lsfg-vk.dll).
+Built in: the upscaler runs the lsfg core itself on the same GPU and paces the frames (needs Lossless.dll; no layer).
+Read at startup: restart to apply.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The built-in engine is not part of this installation.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Lossless.dll was not found. Install Lossless Scaling from Steam, or set the path of Lossless.dll.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Resolution at which lsfg estimates the motion between two frames, as a share of the output resolution.
+1.00 (default): full resolution, the most accurate motion and the heaviest for the GPU.
+Lower values are lighter and less precise on small or fast details; 0.50 to 0.75 is usually enough at 1440p and 4K.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Quality (LSFG 3.1)</source>
+        <comment>Frame generation model</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Performance (LSFG 3.1P)</source>
+        <comment>Frame generation model</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Model</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The two models lsfg has.
+Quality (default): the full model, smoother results.
+Performance: a lighter model, faster on the GPU, with more artifacts around edges and fast motion.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Maximum: motion estimated at {0}% of the output resolution. The most accurate and the heaviest for lsfg (default).</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>High: motion estimated at {0}% of the output resolution. Close to the maximum, somewhat lighter.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Balanced: motion estimated at {0}% of the output resolution. Much lighter; small details move a bit less precisely. Good at 1440p and 4K.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Low: motion estimated at {0}% of the output resolution. The lightest, with visible artifacts on fine or fast detail.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation type="unfinished" />
+    </message>
+</context>
   <context>
     <name>ProfileActions</name>
     <message>
@@ -2831,7 +2912,47 @@ Use Stop from the tray menu to return.</source>
         <comment>Tray menu header; {0} is a window title</comment>
         <translation type="unfinished" />
     </message>
-  </context>
+      <message>
+        <source>Frame generation</source>
+        <comment>Tray submenu (lsfg-vk)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Set by LSFGVK_* variables</source>
+        <comment>Tray menu: frame generation note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk is not installed</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk.dll not found</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Off</source>
+        <comment>Tray menu: frame generation off</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Choosing one restarts LirtUp Forge</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Built-in engine not installed</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Lossless.dll not found</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+</context>
   <context>
     <name>WindowGridManager</name>
     <message>
