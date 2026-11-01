@@ -1,6 +1,6 @@
 # Generación de cuadros (FG): análisis de posibilidad
 
-Estado: **análisis; fase 0 empezada** (ver [resultados](#fase-0-resultados-2026-10-31)). Fecha: 2026-10-31. Rama: `analysis/frame-generation`.
+Estado: **análisis; fase 0 funciona a ojo** (ver [resultados](#fase-0-resultados-2026-10-31)). Fecha: 2026-10-31. Rama: `analysis/frame-generation`.
 
 Convención: **verificado** = leído en el código o comprobado en esta máquina; **medido en otro
 proyecto** = cifra de Enigmata Temple, en otro pipeline; **estimado** = cuenta hecha aquí, sin
@@ -266,7 +266,11 @@ Hallazgos (verificado):
    - **Sin medir:** los fps que llegan a la pantalla. MangoHud queda por encima de la capa y sólo
      ve lo que presenta lirtup (33,3 en todos los casos con `--present-on-change-only`). Hace
      falta mirarlo a ojo o con un contador que quede por debajo de lsfg-vk.
-   - Sin probar: calidad visual, estelas del OSD, latencia y un juego real.
+   - **Visto a ojo por la persona** (2026-10-31, monitor de 144 Hz): con el video de 30 fps,
+     ×2 y ×4 se ven «mucho más fluidos» que mpv detrás; ×4 más, porque 30 × 4 = 120 queda cerca
+     del refresco del monitor.
+   - Sin probar: estelas del OSD, latencia, un juego real y escenas difíciles (bordes de
+     interfaz, cortes de escena).
 
 ## Próximos pasos propuestos
 
