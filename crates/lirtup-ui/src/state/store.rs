@@ -701,6 +701,22 @@ fn toast(key: &'static str, args: Vec<(&'static str, String)>) -> Toast {
     }
 }
 
+/// Round 4, front M: on the first load, offer moving the loose 1.x mode
+/// fields to modes (`Dialog::Migrate`), unless it was declined
+/// (`gui.migration_declined`) or another dialog is open.
+fn offer_migration(store: &mut Store) {
+    if store.gui.migration_declined
+        || store.dialog.is_some()
+        || !lirtup_config::migrate::needs_migration(&store.config.file)
+    {
+        return;
+    }
+    let plan = lirtup_config::migrate::plan(&store.config.file, &store.modes.store);
+    if !plan.is_empty() {
+        store.dialog = Some(Dialog::Migrate(plan));
+    }
+}
+
 fn join(a: Option<Effect>, b: Option<Effect>) -> Option<Effect> {
     match (a, b) {
         (None, b) => b,
@@ -1452,6 +1468,8 @@ pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
             effect
         }
         Action::Loaded { config, modes, gui } => {
+            // The first read of the files (startup), not a reload.
+            let first = store.config.file.path.as_os_str().is_empty();
             let mut edits = std::mem::take(&mut store.config.edits);
             edits.retain(|(p, _), _| match p {
                 ProfileRef::Default => true,
@@ -1466,11 +1484,32 @@ pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
                 users: IndexMap::new(),
             };
             store.gui = gui;
+            if first {
+                offer_migration(store);
+            }
             None
         }
         Action::Written(result) => written(store, result),
-        // Round 4, front M.
-        Action::Migrate | Action::SkipMigration | Action::Migrated(_) => todo!(),
+        Action::Migrate => match store.dialog.take() {
+            Some(Dialog::Migrate(plan)) => Some(Effect::Migrate(plan)),
+            other => {
+                store.dialog = other;
+                None
+            }
+        },
+        Action::SkipMigration => {
+            if matches!(store.dialog, Some(Dialog::Migrate(_))) {
+                store.dialog = None;
+            }
+            store.gui.migration_declined = true;
+            Some(Effect::WriteGui(store.gui.clone()))
+        }
+        Action::Migrated(Ok(backup)) => {
+            // «Deshacer» would bring back the loose fields over the modes.
+            store.undo = None;
+            show(store, toast("migrate-done", vec![("backup", backup)]))
+        }
+        Action::Migrated(Err(error)) => show(store, toast("migrate-failed", vec![("error", error)])),
     };
 
     // A profile page whose profile is gone (deleted, a failed create, a
@@ -1543,7 +1582,12 @@ profiles:
             Action::Loaded {
                 config,
                 modes: ModeStore::default(),
-                gui: GuiConfig::default(),
+                // FILE_1X has loose mode fields: without this the migration
+                // dialog opens on load (its own tests are at the end).
+                gui: GuiConfig {
+                    migration_declined: true,
+                    ..GuiConfig::default()
+                },
             },
         );
         store
@@ -2802,5 +2846,112 @@ profiles:
         );
         assert!(store.modes.store.get(&id).is_none());
         assert_eq!(store.dialog, None);
+    }
+
+    // ---- round 4, front M: the migration to modes -------------------------
+
+    fn loaded(store: &mut Store, yaml: &str, gui: GuiConfig) -> Option<Effect> {
+        let config = store_with(yaml).config.file;
+        update(
+            store,
+            Action::Loaded {
+                config,
+                modes: ModeStore::default(),
+                gui,
+            },
+        )
+    }
+
+    #[test]
+    fn migration_is_offered_on_the_first_load() {
+        let mut store = Store::default();
+        loaded(&mut store, FILE_1X, GuiConfig::default());
+        let Some(Dialog::Migrate(plan)) = store.dialog.clone() else {
+            panic!("no migration dialog: {:?}", store.dialog);
+        };
+        assert_eq!(plan.top_mode.as_deref(), Some("predeterminado"));
+        assert_eq!(
+            plan.profiles,
+            [("Firefox".to_owned(), Some("modo-de-firefox".to_owned()))]
+        );
+
+        // A reload (another path saved the file) does not ask again.
+        update(&mut store, Action::CloseDialog);
+        loaded(&mut store, FILE_1X, GuiConfig::default());
+        assert_eq!(store.dialog, None);
+    }
+
+    #[test]
+    fn migration_is_not_offered_when_declined_or_not_needed() {
+        let mut store = Store::default();
+        let declined = GuiConfig {
+            migration_declined: true,
+            ..GuiConfig::default()
+        };
+        loaded(&mut store, FILE_1X, declined);
+        assert_eq!(store.dialog, None);
+
+        let mut store = Store::default();
+        loaded(&mut store, "mode: anime\nmax_fps: 60\n", GuiConfig::default());
+        assert_eq!(store.dialog, None);
+    }
+
+    #[test]
+    fn migrate_runs_the_plan() {
+        let mut store = Store::default();
+        loaded(&mut store, FILE_1X, GuiConfig::default());
+        let Some(Dialog::Migrate(plan)) = store.dialog.clone() else {
+            panic!("no migration dialog");
+        };
+        let effect = update(&mut store, Action::Migrate);
+        assert!(
+            matches!(&effect, Some(Effect::Migrate(p)) if *p == plan)
+                || matches!(&effect, Some(Effect::Many(e)) if e.contains(&Effect::Migrate(plan.clone()))),
+            "{effect:?}"
+        );
+        assert_eq!(store.dialog, None);
+        // Without the dialog there is nothing to run.
+        assert_eq!(update(&mut store, Action::Migrate), None);
+    }
+
+    #[test]
+    fn skip_migration_is_remembered() {
+        let mut store = Store::default();
+        loaded(&mut store, FILE_1X, GuiConfig::default());
+        let effect = update(&mut store, Action::SkipMigration);
+        assert_eq!(store.dialog, None);
+        assert!(store.gui.migration_declined);
+        let written = match effect {
+            Some(Effect::WriteGui(gui)) => gui,
+            Some(Effect::Many(e)) => e
+                .into_iter()
+                .find_map(|e| match e {
+                    Effect::WriteGui(gui) => Some(gui),
+                    _ => None,
+                })
+                .unwrap(),
+            other => panic!("{other:?}"),
+        };
+        assert!(written.migration_declined);
+    }
+
+    #[test]
+    fn migrated_shows_a_toast() {
+        let mut store = store_with(FILE_1X);
+        update(&mut store, Action::Migrated(Ok("/x/config.yaml.1x.bak".into())));
+        let toast = store.toast.clone().unwrap();
+        assert_eq!(
+            (toast.key, toast.args),
+            (
+                "migrate-done",
+                vec![("backup", "/x/config.yaml.1x.bak".to_string())]
+            )
+        );
+        update(&mut store, Action::Migrated(Err("disk full".into())));
+        let toast = store.toast.clone().unwrap();
+        assert_eq!(
+            (toast.key, toast.args),
+            ("migrate-failed", vec![("error", "disk full".to_string())])
+        );
     }
 }
