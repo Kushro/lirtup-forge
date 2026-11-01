@@ -213,6 +213,16 @@ def validate_frame_gen_engine(value: Any, arg_name: str) -> None:
         )
 
 
+def validate_frame_gen_multiplier(value: Any, arg_name: str) -> None:
+    """Check that the frame generation multiplier is 1 to 5, or "auto"."""
+    from ..framegen import parse_multiplier
+
+    try:
+        parse_multiplier(value)
+    except ValueError as e:
+        raise ConfigError(f"Invalid '{arg_name}': {e}") from None
+
+
 def validate_effects_engine(value: Any, arg_name: str) -> None:
     """Check that the Magpie effects engine is a known one."""
     if value not in EFFECTS_ENGINES:
@@ -305,7 +315,7 @@ _VALIDATORS: Dict[str, Tuple] = {
     # Vulkan
     "max_fps": (validate_number, 1),
     # Frame generation
-    "frame_gen_multiplier": (validate_number, 1, 5),
+    "frame_gen_multiplier": (validate_frame_gen_multiplier,),
     "frame_gen_flow_scale": (validate_number, 0.25, 1.0),
     "frame_timeout": (validate_number, 0),
     # Tile

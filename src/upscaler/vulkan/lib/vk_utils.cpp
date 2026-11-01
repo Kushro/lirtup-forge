@@ -116,6 +116,7 @@ VkResult vk_execute_command_buffer(vk_Device *dev, VkCommandBuffer cmd,
   submit.pWaitDstStageMask = wait_stages;
   submit.signalSemaphoreCount = signal_semaphore_count;
   submit.pSignalSemaphores = signal_semaphores;
+  vk_QueueLock lock(dev);
   return vkQueueSubmit(dev->queue, 1, &submit, fence);
 }
 
@@ -547,7 +548,11 @@ VkResult vk_queue_submit_and_wait(vk_Device *dev, VkCommandBuffer cmd,
   submit.commandBufferCount = 1;
   submit.pCommandBuffers = &cmd;
 
-  VkResult res = vkQueueSubmit(dev->queue, 1, &submit, fence);
+  VkResult res;
+  {
+    vk_QueueLock lock(dev);
+    res = vkQueueSubmit(dev->queue, 1, &submit, fence);
+  }
   if (res != VK_SUCCESS)
     return res;
 

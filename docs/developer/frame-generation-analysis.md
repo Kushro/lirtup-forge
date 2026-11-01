@@ -414,6 +414,42 @@ generados. RX 9070 XT, RADV. Una corrida por caso.
     marco se recorta en los cuatro lados.
 - **Sin probar todavía**: latencia medida, otras GPU.
 
+## Ronda 1.3: resultados (2026-11-01)
+
+Guion completo en [round-1.3-test-script.md](round-1.3-test-script.md) y resultados en
+[round-1.3-results.md](round-1.3-results.md). Lo que toca a la generación de cuadros:
+
+- **`fifo` con el hilo de presentación**: la cola de Vulkan tiene su propio mutex y la presentación
+  suelta el GIL mientras espera. Con video de 30 fps, ×2/×3/×4 dan 60,0/90,0/120,0 fps con
+  0,08 a 0,10 ms de desvío, igual que `mailbox`.
+- **Multiplicador automático**: a 144 Hz elige ×5, ×4 y ×2 con 24, 30 y 60 fps (120 fps en los
+  tres) y, si el video pasa de 30 a 60, cambia una sola vez unos 2 s después, sin huecos. Con la
+  imagen quieta al arrancar elegía ×5; ahora empieza en ×2 (corregido).
+- **Latencia** (de la captura a la presentación de lirtup, sin la pantalla), video de 30 fps:
+  sin FG 3,3 ms; capa ×2 3,4 ms más lo que agrega la capa; integrado ×2 32,4 ms para los reales y
+  15,7 ms para los generados.
+- **Costo de lsfg en reposo** («Medir en mi GPU», 2560×1440): ×2 1,6 ms con flujo 1,0 y Calidad;
+  flujo 0,5 cuesta un tercio; Rendimiento, menos que Calidad.
+- **Con el juego** (G-senjou no Maou, cadena UL de unos 34 ms, ×2, 60 s jugando por corrida):
+
+| Configuración | Reales/s | Mostrados/s | Latencia real |
+| --- | --- | --- | --- |
+| Sin FG (referencia) | ~22,5 | ~22,5 | ~31 ms |
+| Integrado, flujo 1,0, Calidad (FP32 o FP16, igual) | 14,8 | 29,5 | 118 ms |
+| Integrado, flujo 0,5, Calidad | 18,9 | 37,7 | 105 ms |
+| Integrado, flujo 0,5, Rendimiento | 20,0 | 40,1 | 99 ms |
+| Capa ×4 | 22,4 | ~90 (la capa multiplica después) | 29 ms + la capa |
+| Integrado *Auto* (eligió ×5), flujo 1,0, FP16 | 17 | ~85 | — |
+
+  Con efectos pesados el motor integrado le quita GPU a los efectos (de 22,5 a 14,8 cuadros reales
+  con flujo 1,0), aunque en reposo lsfg cueste solo 1,6 ms: los dos compiten por la GPU dentro del
+  mismo cuadro. Bajar el flujo y usar Rendimiento recupera buena parte. Con esta cadena conviene la
+  capa; la GUI y el README lo dicen.
+- **Aviso de GPU**: la ronda intentó darle a contenido de menos de 30 fps su presupuesto real. Se
+  revirtió: cuando los efectos saturan la GPU también frenan al juego, y ninguna regla basada en la
+  tasa medida distingue ese caso de un contenido lento que sí alcanza (el aviso dejó de salir con
+  video de 60 fps y la cadena UL). Vuelve el piso de 30 fps de la 1.2.
+
 ## Próximos pasos propuestos
 
 1. **Fase 0**: perfil de lsfg-vk para el proceso de lirtup más el ajuste "presentar sólo al

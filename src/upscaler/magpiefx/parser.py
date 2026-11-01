@@ -40,10 +40,10 @@ class EffectParameter:
 @dataclass
 class EffectTexture:
     name: str
-    format: str = "R8G8B8A8_UNORM"
+    format: str = "R8G8B8A8_UNORM"  # "" for a //!SOURCE texture without //!FORMAT
     width_expr: str = ""
     height_expr: str = ""
-    source: str = ""
+    source: str = ""  # lookup texture file, relative to the effect
 
 
 @dataclass
@@ -313,8 +313,11 @@ def _resolve_texture(desc: EffectDesc, lines: List[str], idx: int) -> None:
         desc.textures[1].height_expr = tex.height_expr
         return
 
-    if "FORMAT" not in seen and "SOURCE" not in seen:
-        raise MagpieFXError(f"Texture '{name}': missing '//!FORMAT'")
+    if "FORMAT" not in seen:
+        if "SOURCE" not in seen:
+            raise MagpieFXError(f"Texture '{name}': missing '//!FORMAT'")
+        # Taken from the file when the texture is loaded (Magpie's UNKNOWN)
+        tex.format = ""
     tex.name = name
     desc.textures.append(tex)
 

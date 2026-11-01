@@ -4,7 +4,8 @@ HLSL code generation for MagpieFX passes.
 For every pass a self-contained compute shader is generated, mirroring
 Magpie's ``GeneratePassSource``:
 
-    * ``MF*`` type macros (always FP32 here) and ``MP_*`` macros,
+    * ``MF*`` type macros (``min16float`` with FP16, ``float`` otherwise)
+      and ``MP_*`` macros,
     * the shared ``cbuffer`` with built-in sizes and the effect parameters,
     * SRV/UAV/sampler declarations with explicit registers,
     * the built-in helpers (``GetInputSize``, ``Rmp8x8``, ``MulAdd``...),
@@ -79,7 +80,7 @@ def constant_buffer_layout(desc: EffectDesc) -> List[tuple]:
     return members
 
 
-def _macros(desc: EffectDesc, p: EffectPass) -> List[str]:
+def _macros(desc: EffectDesc, p: EffectPass, fp16: bool = False) -> List[str]:
     lines = [
         f"#define MP_BLOCK_WIDTH {p.block_size[0]}",
         f"#define MP_BLOCK_HEIGHT {p.block_size[1]}",
@@ -98,13 +99,39 @@ def _macros(desc: EffectDesc, p: EffectPass) -> List[str]:
         "#define MP_IMAGE_FORMAT(f)",
         "#endif",
     ]
-    # FP16 is not implemented: MF types are always 32-bit floats
-    lines.append("#define MF float")
-    for i in _NUMBERS:
-        lines.append(f"#define MF{i} float{i}")
-        for j in _NUMBERS:
-            lines.append(f"#define MF{i}x{j} float{i}x{j}")
+    lines += mf_type_macros(fp16)
     return lines
+
+
+def mf_type_macros(fp16: bool) -> List[str]:
+    """
+    The ``MF`` type macros, as in Magpie: ``min16float`` when the effect
+    runs in FP16 (the compiler is then called with 16-bit types enabled, so
+    they are real 16-bit floats) and ``float`` otherwise.
+    """
+    base = "min16float" if fp16 else "float"
+    lines = ["#define MP_FP16"] if fp16 else []
+    lines.append(f"#define MF {base}")
+    for i in _NUMBERS:
+        lines.append(f"#define MF{i} {base}{i}")
+        for j in _NUMBERS:
+            lines.append(f"#define MF{i}x{j} {base}{i}x{j}")
+    return lines
+
+
+def srv_type(fmt: str) -> str:
+    """Texel type of a ``Texture2D``; ``float4`` when the format is unknown."""
+    return FORMATS[fmt].srv_type if fmt else "float4"
+
+
+def _resource_type(texel_type: str) -> str:
+    """
+    Texel type for a texture declaration: always 32-bit floats, because
+    SPIR-V for Vulkan cannot sample or store 16-bit texels (dxc rejects
+    ``Texture2D<min16float4>``). With FP16 the values are converted to
+    ``min16float`` where the effect stores them in ``MF`` variables.
+    """
+    return texel_type.replace("MF", "float")
 
 
 def _ps_entry(desc: EffectDesc, p: EffectPass) -> str:
@@ -117,7 +144,7 @@ def _ps_entry(desc: EffectDesc, p: EffectPass) -> str:
         call = f"{out_name}[gxy] = Pass{p.index}(pos);"
     else:
         decls = "".join(
-            f"\t{FORMATS[desc.textures[o].format].srv_type} c{i};\n"
+            f"\t{srv_type(desc.textures[o].format)} c{i};\n"
             for i, o in enumerate(p.outputs)
         )
         args = ", ".join(f"c{i}" for i in range(len(p.outputs)))
@@ -172,12 +199,17 @@ void __M(uint3 tid : SV_GroupThreadID, uint3 gid : SV_GroupID) {{
 """
 
 
-def generate_pass_source(desc: EffectDesc, pass_index: int) -> str:
-    """Return the full HLSL source of pass *pass_index* (1-based)."""
+def generate_pass_source(desc: EffectDesc, pass_index: int, fp16: bool = False) -> str:
+    """
+    Return the full HLSL source of pass *pass_index* (1-based).
+
+    *fp16* selects 16-bit ``MF`` types; callers only pass True for effects
+    with ``//!CAPABILITY FP16`` on a GPU that supports it.
+    """
     p = desc.passes[pass_index - 1]
     parts: List[str] = []
 
-    parts.append("\n".join(_macros(desc, p)) + "\n")
+    parts.append("\n".join(_macros(desc, p, fp16)) + "\n")
 
     cb = ["cbuffer __CB1 : register(b0) {"]
     cb += [f"\t{t} {n};" for t, n in constant_buffer_layout(desc)]
@@ -188,14 +220,14 @@ def generate_pass_source(desc: EffectDesc, pass_index: int) -> str:
     for i, t in enumerate(p.inputs):
         tex = desc.textures[t]
         decls.append(
-            f"Texture2D<{FORMATS[tex.format].srv_type}> {tex.name} : register(t{i});"
+            f"Texture2D<{_resource_type(srv_type(tex.format))}> {tex.name} : register(t{i});"
         )
     for i, t in enumerate(p.outputs):
         tex = desc.textures[t]
         fmt = FORMATS[tex.format]
         decls.append(
             f'MP_IMAGE_FORMAT("{fmt.spirv_format}") '
-            f"RWTexture2D<{fmt.uav_type}> {tex.name} : register(u{i});"
+            f"RWTexture2D<{_resource_type(fmt.uav_type)}> {tex.name} : register(u{i});"
         )
     for i, s in enumerate(desc.samplers):
         decls.append(f"SamplerState {s.name} : register(s{i});")

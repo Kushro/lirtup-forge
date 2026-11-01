@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import struct
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 from ..vulkan import (
     Buffer,
@@ -27,11 +27,14 @@ from ..vulkan import (
     SAMPLER_FILTER_POINT,
     Sampler,
     Texture2D,
+    get_current_device,
 )
 from .codegen import constant_buffer_layout, generate_pass_source
 from .compiler import compile_hlsl
+from .dds import DDSImage, load_image, resolve_source_path, source_format
 from .expr import evaluate_size
 from .formats import FORMATS
+from .lookup import upload_lookup_texture
 from .parser import EffectDesc, MagpieFXError, parse_effect
 from .swizzle import SwapUnsupported, rewrite
 
@@ -72,6 +75,28 @@ def find_effect(name_or_path: str) -> str:
     raise MagpieFXError(f"MagpieFX effect '{name_or_path}' not found")
 
 
+def fp16_wanted() -> bool:
+    """
+    Whether FP16 effects should run with 16-bit floats.
+
+    ``UPSCALER_MAGPIEFX_FP16`` decides: ``0``/``off`` always uses 32-bit
+    floats; ``auto`` (the default) and ``1``/``on`` use 16-bit floats when
+    the GPU supports them (``Device.supports_fp16``). Without GPU support
+    the effect falls back to 32-bit floats, like Magpie does.
+    """
+    mode = os.environ.get("UPSCALER_MAGPIEFX_FP16", "auto").strip().lower()
+    if mode in ("0", "off", "false", "no"):
+        return False
+    try:
+        supported = get_current_device().supports_fp16
+    except Exception as e:  # no device: compile-only use
+        logger.debug("MagpieFX: cannot query FP16 support: %s", e)
+        return False
+    if not supported and mode in ("1", "on", "true", "yes"):
+        logger.info("MagpieFX: the GPU has no FP16 support, using 32-bit floats")
+    return bool(supported)
+
+
 def list_effects() -> List[str]:
     """Names of the bundled and user effects."""
     xdg = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
@@ -92,6 +117,7 @@ class MagpieEffect:
         last_gpu_ms: Per-pass GPU times (ms) of the last profiled run.
         swap_passes: Number of separate SwapRB passes this instance needs
             (0 when the red/blue swap is folded into the shaders).
+        fp16: The passes were compiled with 16-bit ``MF`` types.
     """
 
     def __init__(
@@ -101,8 +127,15 @@ class MagpieEffect:
         params: Optional[Mapping[str, float]] = None,
         pre: Optional["MagpieEffect"] = None,
         post: Optional["MagpieEffect"] = None,
+        sources: Optional[Mapping[int, DDSImage]] = None,
+        fp16: bool = False,
+        use_cache: bool = True,
     ) -> None:
         self.desc = desc
+        self.fp16 = fp16
+        self._sources: Dict[int, DDSImage] = dict(sources or {})
+        self._source_textures: Dict[int, Texture2D] = {}
+        self._use_cache = use_cache
         self._pre = pre
         self._post = post
         self.swap_passes = int(pre is not None) + int(post is not None)
@@ -142,6 +175,7 @@ class MagpieEffect:
         use_cache: bool = True,
         swap_input: bool = False,
         swap_output: bool = False,
+        fp16: Optional[bool] = None,
     ) -> "MagpieEffect":
         """
         Load and compile an effect.
@@ -149,15 +183,26 @@ class MagpieEffect:
         Args:
             swap_input: Read INPUT as BGRA (swap red/blue on every read).
             swap_output: Store OUTPUT as BGRA (swap red/blue on every write).
+            fp16: Use 16-bit ``MF`` types if the effect declares
+                ``//!CAPABILITY FP16``; None asks :func:`fp16_wanted`.
 
         The swaps are folded into the generated shaders. When an effect uses
         INPUT/OUTPUT in a way that cannot be rewritten, that side falls back
-        to a separate SwapRB pass.
+        to a separate SwapRB pass. ``//!SOURCE`` textures are read here and
+        uploaded when the effect first runs.
         """
         path = find_effect(name_or_path)
-        desc, spirv, done_in, done_out = compile_effect(
-            path, use_cache=use_cache, swap_input=swap_input, swap_output=swap_output
+        if fp16 is None:
+            fp16 = fp16_wanted()
+        compiled = compile_effect(
+            path,
+            use_cache=use_cache,
+            swap_input=swap_input,
+            swap_output=swap_output,
+            fp16=fp16,
         )
+        desc = compiled.desc
+        done_in, done_out = compiled.input_swapped, compiled.output_swapped
         for w in desc.warnings:
             logger.warning("MagpieFX %s: %s", desc.name, w)
         pre = post = None
@@ -167,7 +212,18 @@ class MagpieEffect:
         if swap_output and not done_out:
             logger.info("MagpieFX %s: OUTPUT swap needs a separate pass", desc.name)
             post = cls.load(SWAP_RB_EFFECT, use_cache=use_cache)
-        return cls(desc, spirv, params, pre=pre, post=post)
+        if compiled.fp16:
+            logger.info("MagpieFX %s: using FP16", desc.name)
+        return cls(
+            desc,
+            compiled.spirv,
+            params,
+            pre=pre,
+            post=post,
+            sources=compiled.sources,
+            fp16=compiled.fp16,
+            use_cache=use_cache,
+        )
 
     @staticmethod
     def _address(mode: str) -> int:
@@ -235,10 +291,8 @@ class MagpieEffect:
 
         for i, tex in enumerate(desc.textures[2:], start=2):
             if tex.source:
-                raise MagpieFXError(
-                    f"{desc.name}: texture '{tex.name}' uses //!SOURCE "
-                    f"('{tex.source}'), which is not supported yet"
-                )
+                textures.append(self._source_texture(i))
+                continue
             if tex.width_expr:
                 w = evaluate_size(tex.width_expr, consts)
                 h = evaluate_size(tex.height_expr, consts)
@@ -278,6 +332,20 @@ class MagpieEffect:
             "MagpieFX %s: %dx%d -> %dx%d, %d passes",
             desc.name, in_w, in_h, out_w, out_h, len(computes),
         )
+
+    def _source_texture(self, index: int) -> Texture2D:
+        """The uploaded ``//!SOURCE`` texture *index* (uploaded once)."""
+        texture = self._source_textures.get(index)
+        if texture is None:
+            image = self._sources.get(index)
+            if image is None:
+                tex = self.desc.textures[index]
+                raise MagpieFXError(
+                    f"{self.desc.name}: texture '{tex.name}' ('{tex.source}') was not loaded"
+                )
+            texture = upload_lookup_texture(image, use_cache=self._use_cache)
+            self._source_textures[index] = texture
+        return texture
 
     def _pack_constants(self, frame_count: int) -> bytes:
         in_w, in_h = self._input.width, self._input.height
@@ -354,27 +422,93 @@ class MagpieEffect:
         return self.output
 
 
+class CompiledEffect(NamedTuple):
+    """Result of :func:`compile_effect`."""
+
+    desc: EffectDesc
+    spirv: List[bytes]
+    input_swapped: bool  # the requested INPUT swap is folded into the shaders
+    output_swapped: bool  # same for OUTPUT
+    fp16: bool  # compiled with 16-bit MF types
+    sources: Dict[int, DDSImage]  # //!SOURCE textures by texture index
+
+
+def load_sources(desc: EffectDesc, effect_dir: str) -> Dict[int, DDSImage]:
+    """
+    Read the ``//!SOURCE`` files of *desc* (relative to *effect_dir*).
+
+    A texture without ``//!FORMAT`` takes the file's format; one with
+    ``//!FORMAT`` must match it, as in Magpie.
+    """
+    sources: Dict[int, DDSImage] = {}
+    for i, tex in enumerate(desc.textures):
+        if not tex.source:
+            continue
+        path = resolve_source_path(effect_dir, tex.source)
+        if not os.path.isfile(path):
+            raise MagpieFXError(
+                f"{desc.name}: lookup texture '{tex.source}' of '{tex.name}' not found"
+            )
+        try:
+            image = load_image(path)
+            fmt = source_format(tex.format, image, tex.name)
+        except MagpieFXError as e:
+            raise MagpieFXError(f"{desc.name}: {e}") from None
+        if fmt not in FORMATS:
+            raise MagpieFXError(f"{desc.name}: unsupported lookup texture format {fmt}")
+        sources[i] = image
+    return sources
+
+
 def compile_effect(
     path: str,
     use_cache: bool = True,
     swap_input: bool = False,
     swap_output: bool = False,
-) -> Tuple[EffectDesc, List[bytes], bool, bool]:
+    fp16: bool = False,
+) -> CompiledEffect:
     """
-    Parse *path* and compile all of its passes.
+    Parse *path*, read its ``//!SOURCE`` textures and compile all passes.
 
-    Returns ``(desc, spirv, input_swapped, output_swapped)``; the flags say
-    which requested red/blue swaps were folded into the shaders.
+    *fp16* asks for 16-bit ``MF`` types; it only applies to effects with
+    ``//!CAPABILITY FP16``, and if a pass does not compile that way the whole
+    effect is compiled again with 32-bit floats.
     """
     with open(path, "r", encoding="utf-8-sig") as f:
         source = f.read()
     name = os.path.splitext(os.path.basename(path))[0]
     desc = parse_effect(source, name)
-    if any(t.source for t in desc.textures):
-        names = ", ".join(t.source for t in desc.textures if t.source)
-        raise MagpieFXError(f"{name}: //!SOURCE textures are not supported ({names})")
     include_dir = os.path.dirname(path)
+    sources = load_sources(desc, include_dir)
 
+    use_fp16 = fp16 and desc.supports_fp16
+    if use_fp16:
+        try:
+            result = _compile_passes(
+                desc, name, include_dir, use_cache, swap_input, swap_output, True
+            )
+            return CompiledEffect(desc, *result, True, sources)
+        except MagpieFXError as e:
+            logger.warning(
+                "MagpieFX %s: FP16 compilation failed, using 32-bit floats:\n%s", name, e
+            )
+    result = _compile_passes(desc, name, include_dir, use_cache, swap_input, swap_output, False)
+    return CompiledEffect(desc, *result, False, sources)
+
+
+def _compile_passes(
+    desc: EffectDesc,
+    name: str,
+    include_dir: str,
+    use_cache: bool,
+    swap_input: bool,
+    swap_output: bool,
+    fp16: bool,
+) -> Tuple[List[bytes], bool, bool]:
+    """
+    Compile every pass; returns ``(spirv, input_swapped, output_swapped)``,
+    the flags saying which requested red/blue swaps were folded in.
+    """
     # Try the requested swaps, dropping a side whose rewrite is unsupported
     attempts = [(swap_input, swap_output)]
     if swap_input and swap_output:
@@ -386,7 +520,7 @@ def compile_effect(
     for sin, sout in attempts:
         try:
             spirv = [
-                _compile_pass(desc, p, name, include_dir, use_cache, sin, sout)
+                _compile_pass(desc, p, name, include_dir, use_cache, sin, sout, fp16)
                 for p in desc.passes
             ]
         except SwapUnsupported as e:
@@ -394,21 +528,24 @@ def compile_effect(
             continue
         if last_error is not None:
             logger.debug("MagpieFX %s: swap rewrite limited: %s", name, last_error)
-        return desc, spirv, sin, sout
+        return spirv, sin, sout
     raise AssertionError("unreachable")
 
 
-def _compile_pass(desc, p, name, include_dir, use_cache, swap_input, swap_output) -> bytes:
+def _compile_pass(
+    desc, p, name, include_dir, use_cache, swap_input, swap_output, fp16=False
+) -> bytes:
     sin = swap_input and 0 in p.inputs
     sout = swap_output and 1 in p.outputs
     transform = None
     if sin or sout:
         transform = lambda text: rewrite(text, sin, sout)[0]  # noqa: E731
     return compile_hlsl(
-        generate_pass_source(desc, p.index),
+        generate_pass_source(desc, p.index, fp16),
         f"{name}_Pass{p.index}",
         include_dir=include_dir,
         use_cache=use_cache,
         transform=transform,
         transform_key=f"swaprb:{int(sin)}{int(sout)}" if transform else "",
+        fp16=fp16,
     )

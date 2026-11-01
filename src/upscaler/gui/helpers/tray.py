@@ -481,17 +481,23 @@ class TrayController(QObject):
             missing = self.tr("lsfg-vk.dll not found", "Tray menu note")
 
         group = QActionGroup(menu)
-        running = framegen.active_multiplier()
-        for multiplier in range(1, 6):
-            label = (
-                self.tr("Off", "Tray menu: frame generation off")
-                if multiplier == 1
-                else f"×{multiplier}"
-            )
+        running = framegen.active_setting()
+        native = self._main_window.frame_gen_engine == "native"
+        for multiplier in [*range(1, 6), framegen.AUTO]:
+            if multiplier == 1:
+                label = self.tr("Off", "Tray menu: frame generation off")
+            elif multiplier == framegen.AUTO:
+                label = self.tr("Auto", "Tray menu: automatic frame generation")
+            else:
+                label = f"×{multiplier}"
             action = menu.addAction(label)
             action.setCheckable(True)
             action.setChecked(multiplier == running)
-            action.setEnabled(multiplier == 1 or missing is None)
+            # The layer fixes its multiplier at startup: auto is built-in only
+            action.setEnabled(
+                multiplier == 1
+                or (missing is None and (multiplier != framegen.AUTO or native))
+            )
             group.addAction(action)
             action.triggered.connect(
                 lambda checked=False, m=multiplier: self._set_frame_gen(m)
@@ -502,9 +508,14 @@ class TrayController(QObject):
             or self.tr("Choosing one restarts LirtUp Forge", "Tray menu note")
         )
         hint.setEnabled(False)
+        if missing is None and not native:
+            note = menu.addAction(
+                self.tr("Auto needs the built-in engine", "Tray menu note")
+            )
+            note.setEnabled(False)
 
-    def _set_frame_gen(self, multiplier: int) -> None:
-        if multiplier == framegen.active_multiplier():
+    def _set_frame_gen(self, multiplier: "framegen.Multiplier") -> None:
+        if multiplier == framegen.active_setting():
             return
         self._main_window.restart_with_frame_gen(multiplier)
         self.refresh_menu()

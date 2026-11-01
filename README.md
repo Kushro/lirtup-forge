@@ -89,7 +89,7 @@ selected engine runs.
 | | Native | MagpieFX |
 |---|---|---|
 | How | Each effect ported by hand to a fixed shader class | Magpie's `.hlsl` files run unmodified by a generic loader |
-| Effects | 3 | 86 bundled, plus any you add to `~/.config/linux-rt-upscaler/effects` |
+| Effects | 3 | All 117 of Magpie bundled, plus any you add to `~/.config/linux-rt-upscaler/effects` |
 | Loading | Precompiled, instant | Compiled on first load (dxc, or glslangValidator as fallback), then cached |
 | Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
 | Settings | Tuned controls | Controls generated from each effect's parameters |
@@ -125,8 +125,15 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
   intermediate textures.
 - The red/blue swap is built into the generated shaders, at no measurable
   cost. Only the 3 FXAA effects still need a separate swap pass.
-- 86 effects from Magpie's `src/Effects` (commit `241e0a44`) are bundled
-  unmodified under GPLv3.
+- `//!SOURCE` lookup textures: uncompressed `.dds` files (and PNG/BMP/JPEG/
+  TIFF images) are read when the effect loads and uploaded once. This
+  enables the 26 `RAVU` effects, the 4 `SMAA` effects and `NIS`.
+- FP16 (`//!CAPABILITY FP16`): on GPUs with `shaderFloat16` those effects
+  are compiled with 16-bit `MF` types, with a fallback to 32-bit floats
+  (no GPU support, `UPSCALER_MAGPIEFX_FP16=0`, or a pass that does not
+  compile in FP16).
+- All 117 effects from Magpie's `src/Effects` (commit `241e0a44`) are
+  bundled unmodified under GPLv3, with their `.dds` files.
 - Changing a parameter in the GUI updates the running effect without
   recompiling it.
 
@@ -141,9 +148,11 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
 
 **Verified**
 
-- All 86 bundled effects compile and run once on a 1280x720 frame: 83 with
-  dxc, and the three `Anime4K_Denoise_Bilateral_*` with glslang (dxc rejects
-  their array sizes).
+- The first 86 bundled effects compile and run once on a 1280x720 frame: 83
+  with dxc, and the three `Anime4K_Denoise_Bilateral_*` with glslang (dxc
+  rejects their array sizes).
+- The 31 effects with lookup textures read their `.dds` files and compile
+  with dxc (without running them yet).
 - Both engines give correct colors, checked in the running app with a
   red/green/blue test image. Their output matches the reference
   bit for bit.
@@ -152,13 +161,13 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
   without a window).
 - Picking an engine turns the other one off. A parameter change applies in
   about 0.02 ms without recompiling.
-- The built wheel contains the 86 effects, their license and the Native
-  shaders.
+- The built wheel of 1.2 contains the 86 effects, their license and the
+  Native shaders.
 
 **Not included**
 
-- The 31 Magpie effects that need `.dds` lookup textures: the 26 `RAVU`
-  effects, the 4 `SMAA` effects and `NIS`.
+- Block-compressed `.dds` lookup textures (BC1-BC7). No Magpie effect uses
+  them.
 
 **Not tested yet**
 
@@ -168,15 +177,15 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
   drivers that do not discard out-of-range writes.
 - How the MagpieFX engine behaves on a system without `glslangValidator` (the
   three Denoise effects should fail with a clear error).
+- RAVU, SMAA and NIS on the GPU (output and timings), and FP16 effects in
+  FP16 compared with FP32.
 
 **Pending**
 
-- Reading `.dds` textures, to support RAVU, SMAA and NIS.
 - Enabling `robustImageAccess` so out-of-range writes are well defined on
   every driver.
 - A "Measure on my GPU" button in the GUI, to replace the fixed reference
   numbers.
-- FP16 (`//!CAPABILITY FP16`), which is currently ignored.
 - More native ports, where the effort pays off.
 
 ## Stats panel
@@ -194,12 +203,23 @@ shows:
   With the layer, the frames lsfg-vk adds are generated after the app
   presents, so they are not counted here; MangoHud (`MANGOHUD=1`) measures
   them. With the built-in engine it also shows the shader precision and the
-  pacing interval.
+  pacing interval, and with *Auto* the multiplier it picked (or that lsfg is
+  restarting with another one).
+- **Latency**: average and maximum over the last second, from the capture of
+  a game frame to the moment the app presents a frame made from it, for the
+  real frames and (built-in engine) the generated ones. It does not include
+  the display, nor what the lsfg-vk layer adds after the app presents (the
+  row then ends in `+ lsfg-vk`). `--latency-log PATH` (`latency_log`) writes
+  every present to a CSV file: `capture_s`, `present_s`, `latency_ms`, `kind`
+  (`real` or `generated`) and `multiplier`.
 - **Source**, **Upscale**, **Effects** (each with its GPU time), **Output**,
   **Post**, **Present** and **Profile**: the processing chain in order.
 - **GPU** (in red, only when it applies): the effects take longer on the GPU
-  than a game frame lasts (at most 33 ms, as for 30 fps), so they cannot keep
-  up. It names the heaviest effect, the one to make lighter.
+  than a game frame lasts, so they cannot keep up. It names the heaviest
+  effect, the one to make lighter. A frame lasts the game's interval, but
+  never more than 33 ms (30 fps): a lower measured rate cannot tell slow
+  content from a game the effects themselves slow down, so content under
+  30 fps may get a warning even when it keeps up.
 
 While the panel is visible, the Magpie effects are timed with GPU timestamp
 queries, which cost a little. With frame generation on, each panel refresh
@@ -212,7 +232,9 @@ LirtUp Forge presents through its own Vulkan swapchain, so the
 Linux) can generate frames on top of it, for any captured window: Vulkan,
 OpenGL, emulators or video. Turn it on in the GUI (*Presentation* tab >
 *Frame generation*), with `frame_gen_multiplier` in the config or with
-`--frame-gen N` on the CLI. It is read at startup, so changes need a restart.
+`--frame-gen N` on the CLI (1 is off, 2 to 5 the output frames per captured
+frame, or `auto` with the built-in engine, see below). It is read at startup,
+so changes need a restart.
 
 What it needs:
 
@@ -263,6 +285,27 @@ the app saves it and restarts itself, upscaling the same window again.
   interpolated too.
 - If anything fails, frame generation turns off for the session and the
   upscaled image keeps going; the stats panel says so.
+- It shares the GPU time of each frame with the effects. With heavy effects
+  the layer keeps more frames: on G-senjou no Maou with Anime4K UL
+  (Upscale_Denoise + Restore_Soft, about 34 ms) the built-in engine at ×2
+  showed 29.5 fps with flow scale 1.0 and 40 fps with flow scale 0.5 and the
+  Performance model, while the layer at ×4 kept the 22.4 real frames lirtup
+  draws without frame generation and multiplied them. With light effects
+  the built-in engine paces evenly up to ×5 (measured on video: 60, 90 and
+  120 fps from 30 fps at ×2, ×3 and ×4).
+- *Auto* (`frame_gen_multiplier: auto`, `--frame-gen auto`) picks the
+  multiplier while it runs: the largest from ×2 to ×5 whose output fits the
+  display refresh (at 144 Hz: ×5 for 24 fps, ×4 for 30 fps, ×2 for 60 fps).
+  It measures the game for half a second before starting lsfg, and changes
+  the multiplier only when the frame rate stays different for 2 seconds, at
+  most once every 5 seconds, with a margin so it does not flip between two
+  values. lsfg fixes the number of generated frames when it starts, so a
+  change restarts it in the background; meanwhile the real frames are shown
+  alone, without a black frame. With the layer, *Auto* runs at ×2: the layer
+  fixes its multiplier when it loads.
+- Presenting no longer holds Python's lock while it waits for the display, so
+  with `fifo` the pipeline keeps capturing and processing while a frame waits
+  for the vblank.
 
 Its code comes from Enigmata Temple (lsfg-vk core
 under MIT, the shader loader under GPL-3.0); see
