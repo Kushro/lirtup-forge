@@ -13,16 +13,15 @@
 //! `src/upscaler/srcnn/cunny/**`) until the Python app is retired in round 4
 //! ([`assets`]).
 
-// Round 0 stubs: the bodies are `todo!()`. Front E removes this.
-#![allow(unused_variables)]
-
 pub mod assets;
 pub mod convert;
 pub mod effects;
 pub mod error;
+mod lut;
 pub mod osd;
 pub mod scalers;
 pub mod srcnn;
+pub mod util;
 
 pub use error::{EffectError, Result};
 
