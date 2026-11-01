@@ -291,6 +291,7 @@ fn select_window() -> anyhow::Result<u32> {
 
 fn serve(socket: Option<PathBuf>, daemon: bool) -> anyhow::Result<ExitCode> {
     let socket = socket.unwrap_or_else(socket_path);
+    lirtup_core::server::ensure_not_running(&socket)?;
     // The engine first (it runs `layer::prepare`), the runtime after.
     let engine = Arc::new(Engine::new(EngineOptions {
         daemon,
@@ -323,9 +324,15 @@ fn answer_timeout(command: &Command) -> Option<Duration> {
 /// Whether `event` answers `command` (`ctl` stops there unless `--follow`).
 fn answers(command: &Command, event: &Event) -> bool {
     match command {
-        Command::Start { .. } | Command::Restart => {
-            matches!(event, Event::SessionStarted(_) | Event::SessionStopped { .. })
-        }
+        Command::Start { .. } => matches!(event, Event::SessionStarted(_) | Event::SessionStopped { .. }),
+        // Restart stops first (`Restart`), then starts again.
+        Command::Restart => matches!(
+            event,
+            Event::SessionStarted(_)
+                | Event::SessionStopped {
+                    reason: StopReason::Error
+                }
+        ),
         Command::Stop => matches!(event, Event::SessionStopped { .. }),
         Command::PickWindow => matches!(event, Event::WindowPicked { .. }),
         Command::ListEffects => matches!(event, Event::Effects { .. }),

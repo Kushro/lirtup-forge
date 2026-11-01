@@ -83,26 +83,32 @@ pub fn run(engine: Arc<Engine>, socket: &Path) -> Result<()> {
     result
 }
 
+/// [`CoreError::AlreadyRunning`] if a server answers on `socket`. `lirtup
+/// serve` checks it before building the [`Engine`] (which grabs the hotkeys
+/// and writes the lsfg-vk configuration).
+pub fn ensure_not_running(socket: &Path) -> Result<()> {
+    if socket.exists() && std::os::unix::net::UnixStream::connect(socket).is_ok() {
+        return Err(CoreError::AlreadyRunning(socket.to_path_buf()));
+    }
+    Ok(())
+}
+
 /// Create the folder (0700), refuse a live socket, remove a stale one, bind.
 fn bind(socket: &Path) -> Result<UnixListener> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 
-    if let Some(dir) = socket.parent().filter(|d| !d.as_os_str().is_empty()) {
-        if !dir.exists() {
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(dir)?;
-        }
+    if let Some(dir) = socket.parent().filter(|d| !d.as_os_str().is_empty())
+        && !dir.exists()
+    {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
     }
+    ensure_not_running(socket)?;
     if socket.exists() {
-        match std::os::unix::net::UnixStream::connect(socket) {
-            Ok(_) => return Err(CoreError::AlreadyRunning(socket.to_path_buf())),
-            Err(_) => {
-                tracing::debug!("removing stale socket {}", socket.display());
-                std::fs::remove_file(socket)?;
-            }
-        }
+        tracing::debug!("removing stale socket {}", socket.display());
+        std::fs::remove_file(socket)?;
     }
     let listener = UnixListener::bind(socket)?;
     std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
