@@ -46,7 +46,9 @@
 //!   `Diagnostics` and `Bench` run on threads of their own. It does wait
 //!   for a running session to stop (`Stop`, `Quit`, a replacing `Start`).
 //! - A `Start` while another is still looking for its window replaces it;
-//!   `Stop` cancels it.
+//!   `Stop` cancels it. A `Start` that fails before its session runs (no
+//!   window, a bad profile, no device) sends `SessionError` and then
+//!   `SessionStopped { reason: Error }`, as a failing session does.
 //! - `StartFullscreen` and `StartWindowed` stop the running session instead
 //!   of starting another (the overlay has the focus by then).
 //! - Events of the session thread go through one relay thread, which keeps
@@ -245,14 +247,18 @@ fn top_level(files: &Files, options: &EngineOptions) -> Result<Config> {
     Ok(resolve(&files.file, &files.modes, &choice, &options.cli_overrides)?.config)
 }
 
-/// Read the configuration and run `lirtup_fg::layer::prepare`, as
-/// [`Engine::new`] does first. For subcommands that open Vulkan without an
-/// engine (`lirtup list gpus`, `lirtup bench`): call it before any thread
-/// and any `Instance::new`.
-pub fn prepare_process(options: &EngineOptions) -> Result<(Config, LayerSetup)> {
+/// For a process that opens Vulkan but never presents (`lirtup bench`,
+/// `lirtup list gpus`): read the configuration and run
+/// `lirtup_fg::layer::prepare` with frame generation off, so the lsfg-vk
+/// layer stays out of this process (`DISABLE_LSFGVK=1`, unless the user set
+/// `LSFGVK_*` themselves). Call it before any thread and any
+/// `Instance::new`. Returns the configuration as configured.
+pub fn prepare_headless(options: &EngineOptions) -> Result<Config> {
     let config = top_level(&load_files(options)?, options)?;
-    let layer = layer::prepare(&config)?;
-    Ok((config, layer))
+    let mut off = config.clone();
+    off.frame_gen_multiplier = FrameGenMultiplier::Fixed(1);
+    layer::prepare(&off)?;
+    Ok(config)
 }
 
 /// `LIRTUP_VULKAN_DEBUG=1` turns the validation layer on.
@@ -436,6 +442,8 @@ impl Inner {
         self.publish(Event::Log { level, message });
     }
 
+    /// A `Start` failed: `SessionError`, then `SessionStopped { Error }`, the
+    /// same pair a failing session sends.
     fn fail(&self, stage: Stage, message: impl Into<String>, retry: bool) {
         let message = message.into();
         tracing::error!("session {stage:?}: {message}");
@@ -443,6 +451,9 @@ impl Inner {
             stage,
             message,
             retry,
+        });
+        self.publish(Event::SessionStopped {
+            reason: StopReason::Error,
         });
     }
 
@@ -721,12 +732,7 @@ impl Inner {
                     profile: request.profile,
                 });
             }
-            Err(e) => {
-                self.fail(e.stage(), e.to_string(), false);
-                self.publish(Event::SessionStopped {
-                    reason: StopReason::Error,
-                });
-            }
+            Err(e) => self.fail(e.stage(), e.to_string(), false),
         }
     }
 

@@ -27,6 +27,17 @@ pub fn windows() -> Result<Vec<WindowInfo>> {
     Ok(X11::connect()?.list_windows()?)
 }
 
+/// The first window whose title contains `title` (case-insensitive) or
+/// matches `regex` (`target_title`, `target_title_regex`).
+pub fn find_window(title: Option<&str>, regex: Option<&str>) -> Result<Option<WindowInfo>> {
+    Ok(X11::connect()?.find_by_title(title, regex)?)
+}
+
+/// The monitors, on a connection of its own.
+pub fn monitors_now() -> Result<Vec<MonitorInfo>> {
+    monitors(&X11::connect()?)
+}
+
 /// The monitors (RandR).
 pub fn monitors(x11: &X11) -> Result<Vec<MonitorInfo>> {
     Ok(x11

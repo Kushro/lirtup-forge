@@ -13,6 +13,9 @@
 //! - [`daemon`]: matching windows against profiles (round 4, front Y).
 
 pub use lirtup_proto as proto;
+/// The channel of [`Engine::subscribe`] (its `Receiver` and errors), for
+/// callers without a tokio dependency of their own.
+pub use tokio::sync::broadcast;
 
 pub mod client;
 pub mod daemon;
@@ -23,5 +26,5 @@ pub mod server;
 pub mod signals;
 
 pub use client::Client;
-pub use engine::{Engine, EngineOptions, prepare_process};
+pub use engine::{Engine, EngineOptions, prepare_headless};
 pub use error::{CoreError, Result};
