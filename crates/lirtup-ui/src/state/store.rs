@@ -581,6 +581,10 @@ impl Store {
         let mode = |id: &str| self.effective(&Scope::Mode(id.to_owned()), key);
         let is_mode_key = MODE_KEYS.contains(&key);
         match scope {
+            // A mode file without `name` shows its id (`Mode::from_mapping`).
+            Scope::Mode(id) if key == "name" => {
+                self.modes.store.get(id).map(|m| Value::String(m.name.clone()))
+            }
             Scope::Mode(_) => system(),
             Scope::Profile(ProfileRef::Default) => {
                 let named = self.mode_named_by(&ProfileRef::Default);
@@ -868,10 +872,12 @@ fn core(store: &mut Store, event: Event) -> Option<Effect> {
         Event::Snapshot(snapshot) => {
             store.session = match (snapshot.session, snapshot.last_error) {
                 (Some(view), _) => SessionState::Running(view),
+                // An error from before this connection: the GUI does not know
+                // what was being scaled, so there is nothing to retry.
                 (None, Some((stage, message))) => SessionState::Failed {
                     stage,
                     message,
-                    retry: true,
+                    retry: false,
                 },
                 (None, None) => SessionState::Idle,
             };
@@ -1350,7 +1356,13 @@ pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
             delay_s,
             profile,
         }),
-        Action::StopScaling => send(Command::Stop),
+        Action::StopScaling => {
+            // Detener also closes the error card (there is nothing to stop).
+            if matches!(store.session, SessionState::Failed { .. }) {
+                store.session = SessionState::Idle;
+            }
+            send(Command::Stop)
+        }
         Action::RestartScaling => send(Command::Restart),
         Action::SetDaemon { on } => send(Command::SetDaemon {
             on,
@@ -2528,6 +2540,51 @@ profiles:
             Some(Effect::WriteGui(gui))
         );
         assert_eq!(update(&mut store, Action::Written(Ok(Written::Gui))), None);
+    }
+
+    #[test]
+    fn stop_closes_the_error_card() {
+        let mut store = Store {
+            session: SessionState::Failed {
+                stage: lirtup_proto::Stage::Window,
+                message: "gone".into(),
+                retry: true,
+            },
+            ..Store::default()
+        };
+        assert!(sends(&update(&mut store, Action::StopScaling), &Command::Stop));
+        assert_eq!(store.session, SessionState::Idle);
+    }
+
+    #[test]
+    fn a_mode_is_renamed_with_its_name_key() {
+        let mut store = Store::default();
+        // A file without `name`: the row shows the id.
+        let raw: Mapping = serde_yaml_ng::from_str("model: 4x24\n").unwrap();
+        store
+            .modes
+            .store
+            .modes
+            .insert("anime".into(), Mode::from_mapping("anime", &raw).0);
+        store.modes.store.raw.insert("anime".into(), raw);
+        let scope = Scope::Mode("anime".into());
+        let name: Field<String> = store.field(&scope, "name");
+        assert_eq!((name.value().as_str(), name.profile.as_deref()), ("anime", None));
+        update(
+            &mut store,
+            Action::SetField {
+                scope: scope.clone(),
+                key: "name".into(),
+                value: "Anime nítido".into(),
+            },
+        );
+        assert_eq!(store.field::<String>(&scope, "name").value(), "Anime nítido");
+        let list = effects(update(&mut store, Action::Save));
+        let [Effect::WriteMode { mode, .. }] = list.as_slice() else {
+            panic!("{list:?}")
+        };
+        assert_eq!(mode.name, "Anime nítido");
+        assert_eq!(mode.settings.model, lirtup_config::Model::M4x24);
     }
 
     // ---- WatchGpuTimes -------------------------------------------------------------
