@@ -73,6 +73,10 @@ enum CliCommand {
         /// Start with the daemon on.
         #[arg(long)]
         daemon: bool,
+
+        /// Config file (default: ~/.config/linux-rt-upscaler/config.yaml).
+        #[arg(short, long)]
+        config: Option<PathBuf>,
     },
     /// Send a command to a running `lirtup serve` (JSON of a `Command`, or a
     /// bare name such as `Stop`).
@@ -110,13 +114,26 @@ fn main() -> ExitCode {
     init_logging(cli.verbose, cli.quiet);
     let result = match cli.command {
         CliCommand::Run { config, program } => run(config, program),
-        CliCommand::Serve { socket, daemon } => serve(socket, daemon),
+        CliCommand::Serve {
+            socket,
+            daemon,
+            config,
+        } => serve(socket, daemon, config),
         CliCommand::Ctl { command, follow } => ctl(&command, follow),
         CliCommand::Bench { request, json, gpu } => bench(&request, json, gpu.as_deref()),
         CliCommand::List { what } => list(&what),
     };
     match result {
         Ok(code) => code,
+        // The reader of stdout went away (`lirtup ctl --follow hello | head`).
+        Err(e)
+            if e.chain().any(|c| {
+                c.downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe)
+            }) =>
+        {
+            ExitCode::SUCCESS
+        }
         Err(e) => {
             tracing::error!("{e:#}");
             eprintln!("lirtup: {e:#}");
@@ -289,12 +306,13 @@ fn select_window() -> anyhow::Result<u32> {
 
 // ---- serve -----------------------------------------------------------------
 
-fn serve(socket: Option<PathBuf>, daemon: bool) -> anyhow::Result<ExitCode> {
+fn serve(socket: Option<PathBuf>, daemon: bool, config: Option<PathBuf>) -> anyhow::Result<ExitCode> {
     let socket = socket.unwrap_or_else(socket_path);
     lirtup_core::server::ensure_not_running(&socket)?;
     // The engine first (it runs `layer::prepare`), the runtime after.
     let engine = Arc::new(Engine::new(EngineOptions {
         daemon,
+        config_path: config,
         ..EngineOptions::default()
     })?);
     lirtup_core::server::run(engine, &socket)?;
