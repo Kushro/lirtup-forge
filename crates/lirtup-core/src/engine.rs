@@ -1023,8 +1023,10 @@ impl Inner {
                     Err(e) => tracing::debug!("bench: {e}: {line}"),
                 }
             }
-            let status = child.wait();
+            // Cleared before reaping, so `cancel_bench` never signals a pid
+            // the system may already have reused.
             *lock(&inner.bench) = None;
+            let status = child.wait();
             if !finished {
                 let why = match status {
                     Ok(s) => s.to_string(),
@@ -1045,15 +1047,15 @@ impl Inner {
     }
 
     /// SIGTERM to the bench child, which then prints its partial result.
+    #[allow(unsafe_code)]
     fn cancel_bench(&self) {
         let Some(pid) = *lock(&self.bench) else { return };
-        // `kill(1)` until `libc` is a dependency of this crate (see the
-        // round 2 note).
-        let sent = std::process::Command::new("kill")
-            .arg("-TERM")
-            .arg(pid.to_string())
-            .status();
-        if let Err(e) = sent {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return };
+        // SAFETY: `kill` takes plain integers and touches no memory of ours.
+        // The pid is our own child, still unreaped while `self.bench` holds
+        // it (the relay thread clears it after `wait`).
+        if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+            let e = std::io::Error::last_os_error();
             self.log(Level::Error, format!("cannot stop the measurement: {e}"));
         }
     }
