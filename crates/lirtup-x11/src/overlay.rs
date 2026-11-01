@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::os::fd::AsRawFd;
 use std::ptr::NonNull;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use lirtup_config::OverlayMode;
@@ -94,14 +95,15 @@ pub enum OverlayEvent {
     Close,
 }
 
-/// The overlay window. `Send`; owns an `XCBConnection`.
+/// The overlay window. `Send`; owns an `XCBConnection` (shared with the
+/// [`OverlaySurface`]s made from it, so a swapchain keeps it alive).
 ///
 /// `always-on-top` and `top-transparent` are override-redirect windows (the
 /// 1.x `X11BypassWindowManagerHint`): the window manager neither decorates
 /// nor moves them. `fullscreen` asks the window manager for
 /// `_NET_WM_STATE_FULLSCREEN`; `windowed` is a normal window of fixed size.
 pub struct OverlayWindow {
-    conn: XCBConnection,
+    conn: Arc<XCBConnection>,
     window: Window,
     root: Window,
     atoms: Atoms,
@@ -121,6 +123,40 @@ pub struct OverlayWindow {
 const _: fn() = || {
     fn assert_send<T: Send>() {}
     assert_send::<OverlayWindow>();
+};
+
+/// The connection and window id of an [`OverlayWindow`], for a Vulkan
+/// surface (`VK_KHR_xcb_surface`). `Send + Sync`; cheap to clone.
+#[derive(Clone)]
+pub struct OverlaySurface {
+    conn: Arc<XCBConnection>,
+    window: Window,
+}
+
+impl OverlaySurface {
+    /// The `xcb_connection_t*`. Valid as long as this value (or a clone)
+    /// lives.
+    pub fn xcb_connection(&self) -> NonNull<c_void> {
+        NonNull::new(self.conn.get_raw_xcb_connection()).expect("XCBConnection has a connection pointer")
+    }
+
+    /// The overlay window id.
+    pub fn window(&self) -> u32 {
+        self.window
+    }
+}
+
+impl std::fmt::Debug for OverlaySurface {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OverlaySurface")
+            .field("window", &self.window)
+            .finish_non_exhaustive()
+    }
+}
+
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<OverlaySurface>();
 };
 
 /// Event mask of the overlay window.
@@ -144,6 +180,7 @@ impl OverlayWindow {
     /// Create and map the window.
     pub fn create(options: &OverlayOptions) -> Result<OverlayWindow> {
         let (conn, screen_num) = XCBConnection::connect(None)?;
+        let conn = Arc::new(conn);
         let screen = conn.setup().roots[screen_num].clone();
         let atoms = Atoms::new(&conn)?.reply()?;
 
@@ -284,9 +321,23 @@ impl OverlayWindow {
     }
 
     /// The `xcb_connection_t*` for `lirtup_gpu::XcbTarget` (lives as long as
-    /// this window).
+    /// this window). Prefer [`OverlayWindow::surface`], which keeps the
+    /// connection alive by itself.
     pub fn xcb_connection(&self) -> NonNull<c_void> {
         NonNull::new(self.conn.get_raw_xcb_connection()).expect("XCBConnection has a connection pointer")
+    }
+
+    /// What a swapchain needs to present to this window. It holds a
+    /// reference to the connection, so the pointer stays valid while the
+    /// surface lives, even after the window is dropped (presenting then
+    /// fails with `OutOfDate` or a surface-lost error, never a dangling
+    /// pointer). Round 2: `lirtup_pipeline::surface` turns it into a
+    /// `lirtup_gpu::XcbTarget`.
+    pub fn surface(&self) -> OverlaySurface {
+        OverlaySurface {
+            conn: Arc::clone(&self.conn),
+            window: self.window,
+        }
     }
 
     /// Current geometry.

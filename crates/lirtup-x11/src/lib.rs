@@ -44,7 +44,7 @@ pub use hotkeys::Hotkeys;
 pub use image::RgbaImage;
 pub use input::{CoordinateMapper, InputForwarder};
 pub use monitor::MonitorInfo;
-pub use overlay::{OverlayEvent, OverlayOptions, OverlayWindow};
+pub use overlay::{OverlayEvent, OverlayOptions, OverlaySurface, OverlayWindow};
 pub use window::{Rect, WindowClass, WindowInfo};
 
 /// Pixel layout of captured frames: 4 bytes per pixel, B, G, R, X (alpha
