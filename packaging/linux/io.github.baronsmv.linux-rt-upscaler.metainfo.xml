@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata of LirtUp Forge. The id and the desktop file keep
+     the 1.x name, so the 2.0 replaces the 1.x in software centers. -->
+<component type="desktop-application">
+  <id>io.github.baronsmv.linux-rt-upscaler</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>LirtUp Forge</name>
+  <summary>Upscale any X11 window in real time</summary>
+  <summary xml:lang="es">Escala cualquier ventana X11 en tiempo real</summary>
+  <developer id="io.github.kushro">
+    <name>Luis Coronado</name>
+  </developer>
+  <description>
+    <p>
+      LirtUp Forge upscales any X11 or XWayland window to full screen in real
+      time, with CuNNy neural networks running on Vulkan compute. Mouse clicks
+      and motion are forwarded to the original window.
+    </p>
+    <ul>
+      <li>9 SRCNN models, from the fastest to the sharpest, and 4x with two passes</li>
+      <li>Scaling modes: model, sampling, Magpie effects and finishing touches, shared by profiles</li>
+      <li>The 117 effects of Magpie, run unmodified</li>
+      <li>Frame generation with lsfg-vk, through its layer or built in</li>
+      <li>A toolbar over the game, a stats panel, a tray icon and a daemon that scales matching windows</li>
+    </ul>
+    <p>
+      Version 2.0 is a rewrite in Rust that replaces the Python 1.x and reads
+      its configuration.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.baronsmv.linux-rt-upscaler.desktop</launchable>
+  <url type="homepage">https://github.com/Kushro/lirtup-forge</url>
+  <url type="bugtracker">https://github.com/Kushro/lirtup-forge/issues</url>
+  <url type="vcs-browser">https://github.com/Kushro/lirtup-forge</url>
+  <provides>
+    <binary>lirtup</binary>
+    <binary>lirtup-gui</binary>
+  </provides>
+  <categories>
+    <category>Graphics</category>
+    <category>Viewer</category>
+  </categories>
+  <keywords>
+    <keyword>upscaler</keyword>
+    <keyword>SRCNN</keyword>
+    <keyword>Magpie</keyword>
+    <keyword>frame generation</keyword>
+  </keywords>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <!-- The reviewer sets the date when 2.0.0 is tagged. -->
+    <release version="2.0.0" date="2026-11-01">
+      <description>
+        <p>Rewrite in Rust with a new interface. It reads the 1.x configuration and offers to move it to scaling modes.</p>
+      </description>
+    </release>
+  </releases>
+</component>
