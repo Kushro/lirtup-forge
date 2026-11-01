@@ -1,0 +1,50 @@
+name: Release build
+
+# Builds the tarball and the AppImage of scripts/build-release-linux.sh and
+# keeps them as workflow artifacts. Publishing a GitHub release, and the AUR
+# package, are done by hand.
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: System packages
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git rustup npm patchelf \
+            vulkan-headers vulkan-icd-loader libxcb \
+            gtk3 webkit2gtk-4.1 xdotool libayatana-appindicator \
+            dioxus-cli
+
+      - uses: actions/checkout@v5
+
+      - name: Toolchain of rust-toolchain.toml
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          rustup toolchain install
+
+      - name: dx of the dioxus in Cargo.lock
+        run: |
+          want=$(sed -n '/^name = "dioxus"$/{n;s/^version = "\(.*\)"$/\1/p;q}' Cargo.lock)
+          have=$(dx --version | awk '{print $2}')
+          if [ "$have" != "$want" ]; then
+            cargo install --locked dioxus-cli --version "$want"
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Build
+        run: scripts/build-release-linux.sh --out dist --fetch-tools
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: lirtup-forge-linux-x86_64
+          path: dist/*
