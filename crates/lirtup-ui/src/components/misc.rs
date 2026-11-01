@@ -1,6 +1,4 @@
 //! Small pieces: badges, chips, icons and the loading indicator.
-// Front A: remove when the bodies are written.
-#![allow(unused_variables)]
 
 use dioxus::prelude::*;
 
@@ -23,7 +21,21 @@ pub enum BadgeVariant {
 /// A small label (`h-[22px] rounded-full`).
 #[component]
 pub fn Badge(label: String, #[props(default)] variant: BadgeVariant, icon: Option<&'static str>) -> Element {
-    todo!()
+    let class = match variant {
+        BadgeVariant::Neutral => "",
+        BadgeVariant::Primary => "pri",
+        BadgeVariant::Tertiary => "ter",
+        BadgeVariant::Success => "ok",
+        BadgeVariant::Error => "err",
+    };
+    rsx! {
+        span { class: "lf-badge {class}",
+            if let Some(icon) = icon {
+                Icon { name: icon, size: 14 }
+            }
+            "{label}"
+        }
+    }
 }
 
 /// A filter or rule chip (`.chip`); selectable when `onclick` is set.
@@ -36,7 +48,46 @@ pub fn Chip(
     on_remove: Option<EventHandler<()>>,
     onclick: Option<EventHandler<MouseEvent>>,
 ) -> Element {
-    todo!()
+    let on = if selected { "on" } else { "" };
+    // A selected filter chip shows a check when it has no icon of its own.
+    let icon = icon.or(selected.then_some("check"));
+    let content = rsx! {
+        if let Some(icon) = icon {
+            Icon { name: icon, size: 18 }
+        }
+        "{label}"
+    };
+    let remove = on_remove.map(|on_remove| {
+        rsx! {
+            button {
+                r#type: "button",
+                class: "lf-chip-x lf-state",
+                "aria-label": t!("cmp-chip-remove", label = label.clone()),
+                onclick: move |e| {
+                    e.stop_propagation();
+                    on_remove(());
+                },
+                Icon { name: "close", size: 18 }
+            }
+        }
+    });
+    match onclick {
+        Some(onclick) => rsx! {
+            span { class: "lf-chip click {on}",
+                button {
+                    r#type: "button",
+                    class: "lf-chip-main lf-state",
+                    "aria-pressed": "{selected}",
+                    onclick,
+                    {content}
+                }
+                {remove}
+            }
+        },
+        None => rsx! {
+            span { class: "lf-chip {on}", {content} {remove} }
+        },
+    }
 }
 
 /// A Material Symbols Rounded icon (the bundled subset, by ligature name).
@@ -52,7 +103,16 @@ pub fn Icon(
     size: u8,
     label: Option<String>,
 ) -> Element {
-    todo!()
+    let fill = if fill { "fill" } else { "" };
+    let style = format!("font-size: {size}px");
+    match label {
+        Some(label) => rsx! {
+            span { class: "lf-ms {fill}", style, role: "img", "aria-label": label, translate: "no", {name} }
+        },
+        None => rsx! {
+            span { class: "lf-ms {fill}", style, "aria-hidden": "true", translate: "no", {name} }
+        },
+    }
 }
 
 /// The M3 Expressive loading indicator (a morphing shape); a plain spinner
@@ -65,5 +125,15 @@ pub fn LoadingIndicator(
     /// `aria-label` (translated).
     label: String,
 ) -> Element {
-    todo!()
+    rsx! {
+        span {
+            class: "lf-load",
+            style: "width: {size}px; height: {size}px",
+            role: "progressbar",
+            "aria-label": label,
+            "aria-busy": "true",
+            span { class: "shape" }
+            span { class: "ring" }
+        }
+    }
 }

@@ -1,3 +1,476 @@
-/* Front A: @font-face of the bundled fonts (assets/fonts/), the Material
-   Symbols subset with ligatures, and the component classes that are not
-   plain utilities. Imported by tailwind.css. */
+/* lirtup-gui (front A): the bundled fonts and the component classes that are
+   not utilities. Ported from the design's lf.css (docs/design/lf.css) with an
+   `lf-` prefix, so nothing clashes with Tailwind (`group`, `row`…). Colors
+   are always role variables (assets/tokens.css, theme.rs). Imported by
+   tailwind.css; the components (src/components) are the only users. */
+
+/* Fonts: bundled, no network. Absolute URLs: dx copies assets/fonts as is
+   (theme.rs), and without dx the desktop renderer serves /assets/ from the
+   crate. Google Sans Flex goes unmodified (its name is a Google trademark). */
+@font-face {
+  font-family: "Google Sans Flex";
+  src: url("/assets/fonts/GoogleSansFlex.ttf") format("truetype");
+  font-weight: 100 1000;
+  font-stretch: 25% 151%;
+  font-style: oblique 0deg 10deg;
+  font-display: block;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/assets/fonts/JetBrainsMono.ttf") format("truetype");
+  font-weight: 100 800;
+  font-display: block;
+}
+@font-face {
+  font-family: "Material Symbols Rounded";
+  src: url("/assets/fonts/MaterialSymbolsRounded-subset.woff2") format("woff2");
+  font-weight: 400 500;
+  font-display: block;
+}
+
+@layer base {
+  .lf-root {
+    font-family: var(--font-brand);
+    color: var(--on-surface);
+    -webkit-font-smoothing: antialiased;
+    font-synthesis: none;
+  }
+  .lf-root button, .lf-root input, .lf-root select { font: inherit; color: inherit; }
+}
+
+@layer components {
+  /* Icons: Material Symbols Rounded by ligature. */
+  .lf-ms {
+    font-family: "Material Symbols Rounded"; font-weight: 400; font-style: normal; font-size: 24px; line-height: 1;
+    display: inline-block; flex: none; white-space: nowrap; direction: ltr; letter-spacing: normal; text-transform: none;
+    font-feature-settings: "liga"; font-variation-settings: "FILL" 0, "wght" 400; user-select: none;
+    width: 1em; height: 1em; overflow: hidden;
+  }
+  .lf-ms.fill { font-variation-settings: "FILL" 1, "wght" 500; }
+
+  /* State layer: on-surface at 8 % (hover) or 10 % (pressed, focus) over any
+     container, without touching its color. */
+  .lf-state { background-image: none; }
+  .lf-state:not(:disabled):hover { background-image: linear-gradient(var(--state-hover), var(--state-hover)); }
+  .lf-state:not(:disabled):active { background-image: linear-gradient(var(--state-pressed), var(--state-pressed)); }
+
+  /* Buttons: round at rest, squared while pressed (M3E shape morph). */
+  .lf-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 20px;
+    border-radius: var(--shape-full); border: 0; font-size: 14px; font-weight: 600; letter-spacing: .1px;
+    cursor: pointer; white-space: nowrap; box-sizing: border-box; flex: none; text-decoration: none;
+    background-color: transparent; color: var(--primary);
+    transition: border-radius var(--dur-fast-spatial) var(--ease-fast-spatial), background-color var(--dur-effects) var(--ease-effects);
+  }
+  .lf-btn:not(:disabled):active { border-radius: var(--shape-sm); }
+  .lf-btn .lf-ms { font-size: 20px; }
+  .lf-btn.filled { background-color: var(--primary); color: var(--on-primary); }
+  .lf-btn.tonal { background-color: var(--secondary-container); color: var(--on-secondary-container); }
+  .lf-btn.outlined { box-shadow: inset 0 0 0 1px var(--outline-variant); color: var(--on-surface-variant); }
+  .lf-btn.text { padding: 0 12px; }
+  .lf-btn.tertiary { background-color: var(--tertiary-container); color: var(--on-tertiary-container); }
+  .lf-btn.danger { background-color: var(--error-container); color: var(--on-error-container); }
+  .lf-btn.xs { height: 32px; padding: 0 12px; font-size: 13px; }
+  .lf-btn.xs .lf-ms { font-size: 18px; }
+  .lf-btn.m { height: 56px; padding: 0 24px; font-size: 16px; }
+  .lf-btn.m .lf-ms { font-size: 24px; }
+  .lf-btn.l { height: 96px; padding: 0 48px; font-size: 24px; font-weight: 500; gap: 12px; }
+  .lf-btn.l .lf-ms { font-size: 32px; }
+  .lf-btn.l:not(:disabled):active { border-radius: var(--shape-xl); }
+  .lf-btn:disabled { background-color: color-mix(in srgb, var(--on-surface) 10%, transparent); color: color-mix(in srgb, var(--on-surface) 38%, transparent); box-shadow: none; cursor: default; }
+  .lf-btn.text:disabled { background-color: transparent; }
+
+  .lf-ibtn {
+    width: 40px; height: 40px; border-radius: var(--shape-full); display: inline-flex; align-items: center; justify-content: center;
+    border: 0; padding: 0; background-color: transparent; color: var(--on-surface-variant); cursor: pointer; flex: none;
+    transition: border-radius var(--dur-fast-spatial) var(--ease-fast-spatial), background-color var(--dur-effects) var(--ease-effects);
+  }
+  .lf-ibtn:not(:disabled):active { border-radius: var(--shape-md); }
+  .lf-ibtn.tonal { background-color: var(--secondary-container); color: var(--on-secondary-container); }
+  .lf-ibtn.filled { background-color: var(--primary); color: var(--on-primary); }
+  .lf-ibtn.outlined { box-shadow: inset 0 0 0 1px var(--outline-variant); }
+  .lf-ibtn.sel { background-color: var(--primary); color: var(--on-primary); border-radius: var(--shape-md); box-shadow: none; }
+  .lf-ibtn.s32 { width: 32px; height: 32px; }
+  .lf-ibtn.s32 .lf-ms { font-size: 20px; }
+  .lf-ibtn.s56 { width: 56px; height: 56px; }
+  .lf-ibtn:disabled { color: color-mix(in srgb, var(--on-surface) 38%, transparent); cursor: default; }
+  .lf-ibtn.tonal:disabled, .lf-ibtn.filled:disabled { background-color: color-mix(in srgb, var(--on-surface) 10%, transparent); }
+
+  .lf-split { display: inline-flex; gap: 2px; position: relative; }
+  .lf-split > .lf-btn:first-child { border-radius: var(--shape-full) var(--shape-xs) var(--shape-xs) var(--shape-full); }
+  .lf-split > .lf-btn.menu-half { border-radius: var(--shape-xs) var(--shape-full) var(--shape-full) var(--shape-xs); padding: 0 10px; }
+  .lf-split > .lf-btn.menu-half[aria-expanded="true"] { border-radius: var(--shape-full); }
+  .lf-split > .lf-btn.menu-half .lf-ms { transition: rotate var(--dur-fast-spatial) var(--ease-fast-spatial); }
+  .lf-split > .lf-btn.menu-half[aria-expanded="true"] .lf-ms { rotate: 180deg; }
+  /* Inside a colored bar (the save bar), outlined halves take its color. */
+  .lf-ftb .lf-btn.outlined { color: inherit; }
+
+  /* Connected button group (M3E segmented). */
+  .lf-seg { display: inline-flex; gap: 2px; flex-wrap: wrap; }
+  .lf-seg > .lf-btn { background-color: var(--surface-container-highest); color: var(--on-surface-variant); border-radius: var(--shape-sm); padding: 0 16px; }
+  .lf-seg > .lf-btn:first-child { border-radius: var(--shape-full) var(--shape-sm) var(--shape-sm) var(--shape-full); }
+  .lf-seg > .lf-btn:last-child { border-radius: var(--shape-sm) var(--shape-full) var(--shape-full) var(--shape-sm); }
+  .lf-seg > .lf-btn.on { background-color: var(--secondary-container); color: var(--on-secondary-container); border-radius: var(--shape-full); }
+  .lf-seg > .lf-btn.on.pri { background-color: var(--primary); color: var(--on-primary); }
+  .lf-seg > .lf-btn:disabled { background-color: color-mix(in srgb, var(--on-surface) 10%, transparent); }
+
+  /* Chips, badges, keycaps. */
+  .lf-chip {
+    display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: var(--shape-sm); box-sizing: border-box;
+    box-shadow: inset 0 0 0 1px var(--outline-variant); color: var(--on-surface-variant); font-size: 13px; font-weight: 600;
+    background-color: transparent; border: 0; white-space: nowrap; flex: none;
+  }
+  .lf-chip .lf-ms { font-size: 18px; }
+  .lf-chip.on { background-color: var(--secondary-container); color: var(--on-secondary-container); box-shadow: none; }
+  .lf-chip.click { padding: 0; }
+  .lf-chip > .lf-chip-main { display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0 12px; border: 0; border-radius: inherit; background: none; cursor: pointer; }
+  .lf-chip > .lf-chip-x { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0 4px 0 -6px; border: 0; padding: 0; border-radius: var(--shape-full); background: none; color: inherit; cursor: pointer; }
+  .lf-chip:not(.click) > .lf-chip-x { margin-right: -8px; margin-left: -2px; }
+
+  .lf-badge {
+    display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--shape-full); box-sizing: border-box;
+    font-size: 11px; font-weight: 700; letter-spacing: .4px; white-space: nowrap; flex: none;
+    background-color: var(--surface-container-highest); color: var(--on-surface-variant);
+  }
+  .lf-badge .lf-ms { font-size: 14px; }
+  .lf-badge.pri { background-color: var(--primary-container); color: var(--on-primary-container); }
+  .lf-badge.ter { background-color: var(--tertiary-container); color: var(--on-tertiary-container); }
+  .lf-badge.ok { background-color: var(--success-container); color: var(--on-success-container); }
+  .lf-badge.err { background-color: var(--error-container); color: var(--on-error-container); }
+
+  .lf-kbd {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 36px; padding: 0 10px; box-sizing: border-box;
+    border-radius: var(--shape-md); background-color: var(--primary); color: var(--on-primary); font-size: 14px; font-weight: 700; flex: none; white-space: nowrap;
+  }
+  .lf-kbd.soft { background-color: var(--surface-container-highest); color: var(--on-surface); }
+  .lf-kbd.hint { height: 28px; min-width: 28px; padding: 0 8px; font-size: 12px; border-radius: var(--shape-sm); }
+
+  /* Switch, checkbox. */
+  .lf-sw {
+    width: 52px; height: 32px; border-radius: var(--shape-full); box-sizing: border-box; border: 2px solid var(--outline); padding: 0;
+    background-color: var(--surface-container-highest); position: relative; flex: none; display: inline-block; cursor: pointer;
+    transition: background-color var(--dur-effects) var(--ease-effects), border-color var(--dur-effects) var(--ease-effects);
+  }
+  .lf-sw::after {
+    content: ""; position: absolute; left: 6px; top: 6px; width: 16px; height: 16px; border-radius: 50%; background: var(--outline);
+    transition: all var(--dur-fast-spatial) var(--ease-fast-spatial);
+  }
+  .lf-sw:not(:disabled):active::after { left: 2px; top: 2px; width: 24px; height: 24px; }
+  .lf-sw.on { background-color: var(--primary); border-color: var(--primary); }
+  .lf-sw.on::after { left: 22px; top: 2px; width: 24px; height: 24px; background: var(--on-primary); }
+  .lf-sw.on:not(:disabled):active::after { left: 20px; top: 0; width: 28px; height: 28px; }
+  .lf-sw:disabled { opacity: .38; cursor: default; }
+
+  .lf-cb {
+    width: 40px; height: 40px; border: 0; padding: 0; background: none; border-radius: var(--shape-full); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+  }
+  .lf-cb > .box {
+    width: 18px; height: 18px; border-radius: 2px; box-sizing: border-box; border: 2px solid var(--on-surface-variant);
+    display: inline-flex; align-items: center; justify-content: center; transition: background-color var(--dur-effects) var(--ease-effects);
+  }
+  .lf-cb > .box .lf-ms { font-size: 16px; font-variation-settings: "FILL" 1, "wght" 500; }
+  .lf-cb.on > .box { background-color: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+  .lf-cb:disabled { opacity: .38; cursor: default; }
+
+  /* Slider: active track, 4 px handle, inactive track; a transparent native
+     range on top does the pointer, the keyboard and the a11y. */
+  .lf-sl { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 160px; }
+  .lf-sl-track { position: relative; flex: 1; height: 44px; display: flex; align-items: center; gap: 6px; min-width: 120px; }
+  .lf-sl-a { height: 16px; border-radius: var(--shape-full) 4px 4px var(--shape-full); background-color: var(--primary); flex: none; min-width: 0; }
+  .lf-sl-h { width: 4px; height: 44px; border-radius: 2px; background-color: var(--primary); flex: none; transition: width var(--dur-fast-spatial) var(--ease-fast-spatial); }
+  .lf-sl-i { height: 16px; flex: 1; border-radius: 4px var(--shape-full) var(--shape-full) 4px; background-color: var(--secondary-container); min-width: 0; }
+  .lf-sl-stops { position: absolute; inset: 0 0; display: flex; justify-content: space-between; align-items: center; pointer-events: none; padding: 0 6px; }
+  .lf-sl-stops > i { width: 4px; height: 4px; border-radius: 50%; background: var(--on-secondary-container); }
+  .lf-sl-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .lf-sl-range:disabled { cursor: default; }
+  .lf-sl-track:has(.lf-sl-range:focus-visible) .lf-sl-h { outline: 3px solid var(--primary); outline-offset: 2px; }
+  .lf-sl-track:has(.lf-sl-range:active) .lf-sl-h { width: 2px; }
+  .lf-sl.off { opacity: .38; }
+  .lf-sl-v {
+    width: 72px; min-width: 56px; height: 40px; padding: 0 10px; box-sizing: border-box; border-radius: var(--shape-md); border: 0;
+    background-color: var(--surface-container-highest); color: var(--on-surface); text-align: center; flex: none;
+    font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums;
+  }
+  .lf-sl-v.stop { width: auto; min-width: 72px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-brand); font-weight: 600; }
+
+  /* Text fields and dropdowns. */
+  .lf-fld {
+    display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 16px; box-sizing: border-box; border-radius: var(--shape-md);
+    background-color: var(--surface-container-highest); color: var(--on-surface); font-size: 15px; position: relative; cursor: text;
+    box-shadow: inset 0 -1px 0 transparent; transition: box-shadow var(--dur-effects) var(--ease-effects);
+  }
+  .lf-fld.lbl { height: 56px; }
+  .lf-fld > .lf-ms { color: var(--on-surface-variant); }
+  .lf-fld input { flex: 1; min-width: 0; height: 100%; border: 0; padding: 0; background: none; outline: none; font-size: 15px; }
+  .lf-fld input::placeholder { color: var(--on-surface-variant); opacity: 1; }
+  .lf-fld:focus-within { box-shadow: inset 0 0 0 2px var(--primary); }
+  .lf-fld:has(input:focus-visible) { outline: 3px solid var(--primary); outline-offset: 2px; }
+  .lf-fld input:focus-visible { outline: none; }
+  .lf-fld.err { box-shadow: inset 0 0 0 2px var(--error); }
+  .lf-fld.off { opacity: .38; cursor: default; }
+  .lf-fld-in { flex: 1; min-width: 0; height: 100%; position: relative; display: flex; flex-direction: column; justify-content: center; }
+  .lf-fld.lbl input { height: auto; padding-top: 16px; }
+  .lf-fld-label {
+    position: absolute; left: 0; top: 50%; translate: 0 -50%; color: var(--on-surface-variant); pointer-events: none; font-size: 15px;
+    transition: top var(--dur-effects) var(--ease-effects), font-size var(--dur-effects) var(--ease-effects), color var(--dur-effects) var(--ease-effects);
+  }
+  .lf-fld:focus-within .lf-fld-label, .lf-fld-in:has(input:not(:placeholder-shown)) .lf-fld-label { top: 14px; font-size: 12px; }
+  .lf-fld:focus-within .lf-fld-label { color: var(--primary); }
+  .lf-fld.err .lf-fld-label { color: var(--error); }
+  .lf-fld-msg { font-size: 12px; line-height: 16px; padding: 4px 16px 0; color: var(--on-surface-variant); }
+  .lf-fld-msg.err { color: var(--error); }
+
+  .lf-dd {
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 40px; min-width: 160px; max-width: 100%;
+    padding: 0 8px 0 16px; box-sizing: border-box; border: 0; border-radius: var(--shape-md); cursor: pointer;
+    background-color: var(--surface-container-highest); color: var(--on-surface); font-size: 14px; font-weight: 500; text-align: left;
+  }
+  .lf-dd > .val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lf-dd > .lf-ms { color: var(--on-surface-variant); transition: rotate var(--dur-fast-spatial) var(--ease-fast-spatial); }
+  .lf-dd[aria-expanded="true"] > .lf-ms { rotate: 180deg; }
+  .lf-dd:disabled { opacity: .38; cursor: default; }
+
+  .lf-swatch { width: 28px; height: 28px; border-radius: var(--shape-full); border: 0; padding: 0; cursor: pointer; flex: none; box-shadow: inset 0 0 0 1px rgba(127,127,127,.4); transition: border-radius var(--dur-fast-spatial) var(--ease-fast-spatial); }
+  .lf-swatch.on { border-radius: var(--shape-sm); box-shadow: 0 0 0 2px var(--surface-container), 0 0 0 4px var(--on-surface); }
+  .lf-color-input { width: 40px; height: 40px; border: 0; padding: 0; background: none; cursor: pointer; flex: none; }
+  .lf-color-input::-webkit-color-swatch-wrapper { padding: 4px; }
+  .lf-color-input::-webkit-color-swatch { border: 0; border-radius: var(--shape-md); box-shadow: inset 0 0 0 1px rgba(127,127,127,.4); }
+
+  .lf-file { position: relative; }
+  .lf-file > input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
+  .lf-file:has(input:focus-visible) { outline: 3px solid var(--primary); outline-offset: 2px; }
+  .lf-file:has(input:disabled) { opacity: .38; }
+
+  /* Setting rows (segmented list) and groups. */
+  .lf-group { display: flex; flex-direction: column; gap: 2px; }
+  .lf-group-h { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 600; letter-spacing: .1px; color: var(--primary); margin: 0; padding: 8px 4px; border: 0; background: none; text-align: left; }
+  button.lf-group-h { cursor: pointer; width: 100%; border-radius: var(--shape-md); padding: 8px 12px 8px 4px; }
+  button.lf-group-h .lf-ms { margin-left: auto; transition: rotate var(--dur-fast-spatial) var(--ease-fast-spatial); }
+  button.lf-group-h[aria-expanded="false"] .lf-ms { rotate: -90deg; }
+  .lf-row {
+    display: flex; align-items: center; gap: 16px; min-height: 72px; padding: 12px 20px; box-sizing: border-box; flex-wrap: wrap;
+    background-color: var(--surface-container); border-radius: var(--shape-xs);
+    transition: background-color var(--dur-effects) var(--ease-effects), box-shadow var(--dur-effects) var(--ease-effects);
+  }
+  .lf-group-rows > .lf-row:first-child { border-top-left-radius: var(--shape-lg-inc); border-top-right-radius: var(--shape-lg-inc); }
+  .lf-group-rows > .lf-row:last-child { border-bottom-left-radius: var(--shape-lg-inc); border-bottom-right-radius: var(--shape-lg-inc); }
+  .lf-group-rows { display: flex; flex-direction: column; gap: 2px; }
+  .lf-row > .grow { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 2px; }
+  .lf-row > .lead {
+    width: 40px; height: 40px; border-radius: var(--shape-md); background-color: var(--surface-container-highest); color: var(--on-surface-variant);
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+  }
+  .lf-row > .ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; max-width: 100%; }
+  .lf-row > .detail { flex-basis: 100%; min-width: 0; padding-left: 56px; }
+  .lf-row.ovr { box-shadow: inset 3px 0 0 var(--primary); }
+  .lf-row.dirty { box-shadow: inset 3px 0 0 var(--tertiary); }
+  .lf-row.dirty > .lead { background-color: var(--tertiary-container); color: var(--on-tertiary-container); }
+  .lf-row .note { font-size: 12px; line-height: 16px; letter-spacing: .2px; color: var(--on-surface-variant); }
+  .lf-row.ovr .note { color: var(--primary); }
+  .lf-row.dirty .note { color: var(--tertiary); }
+  /* A hotkey being captured turns its row primary. */
+  .lf-row:has(.lf-hk.cap) { background-color: var(--primary-container); color: var(--on-primary-container); }
+  .lf-row:has(.lf-hk.cap) > .lead { background-color: var(--primary); color: var(--on-primary); }
+  .lf-row:has(.lf-hk.cap) .note { color: var(--on-primary-container); }
+
+  /* Navigation. */
+  .lf-nav {
+    width: 288px; flex: 0 0 288px; box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+    background-color: var(--surface-container-low); min-height: 0; overflow: hidden;
+    transition: width var(--dur-spatial) var(--ease-spatial), flex-basis var(--dur-spatial) var(--ease-spatial);
+  }
+  .lf-nav > .top { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; }
+  .lf-nav > .bottom { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-top: 1px solid var(--outline-variant); }
+  .lf-nav.rail { width: 80px; flex-basis: 80px; padding: 12px 8px; }
+  .lf-nav-i {
+    display: flex; align-items: center; gap: 14px; height: 52px; padding: 0 16px; border-radius: var(--shape-full); color: var(--on-surface-variant);
+    font-size: 15px; font-weight: 500; box-sizing: border-box; border: 0; background-color: transparent; width: 100%; text-align: left; cursor: pointer; flex: none;
+    position: relative; transition: background-color var(--dur-effects) var(--ease-effects);
+  }
+  .lf-nav-i > .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lf-nav-i.on { background-color: var(--secondary-container); color: var(--on-secondary-container); font-weight: 700; }
+  .lf-nav-i > .tail { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+  .lf-nav-i > .tail .run { color: var(--tertiary); font-size: 20px; }
+  .lf-nav-i.on > .tail .run { color: inherit; }
+  .lf-nav.rail .lf-nav-i { justify-content: center; padding: 0; width: 56px; margin: 0 auto; }
+  .lf-nav.rail .lf-nav-i > .lbl, .lf-nav.rail .lf-nav-i > .tail { display: none; }
+  .lf-nav.rail .lf-nav-i > .rail-mark { display: block; }
+  .lf-nav-i > .rail-mark { display: none; position: absolute; top: 8px; right: 8px; }
+  .lf-nav-h { font-size: 13px; font-weight: 700; color: var(--on-surface-variant); padding: 16px 16px 6px; letter-spacing: .3px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lf-nav.rail .lf-nav-h { height: 1px; padding: 0; margin: 12px 8px; background: var(--outline-variant); color: transparent; }
+  .lf-pico {
+    width: 28px; height: 28px; border-radius: var(--shape-sm); display: inline-flex; align-items: center; justify-content: center; overflow: hidden;
+    font-size: 12px; font-weight: 800; flex: none; color: #fff; object-fit: cover;
+  }
+
+  .lf-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--outline-variant); flex-wrap: wrap; }
+  .lf-tab {
+    height: 48px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; color: var(--on-surface-variant); font-weight: 600; font-size: 14px;
+    position: relative; border: 0; background-color: transparent; cursor: pointer; border-radius: var(--shape-md) var(--shape-md) 0 0;
+  }
+  .lf-tab .lf-ms { font-size: 20px; }
+  .lf-tab.on { color: var(--primary); }
+  .lf-tab::after {
+    content: ""; position: absolute; left: 50%; right: 50%; bottom: -1px; height: 3px; border-radius: 3px 3px 0 0; background: var(--primary);
+    transition: left var(--dur-fast-spatial) var(--ease-fast-spatial), right var(--dur-fast-spatial) var(--ease-fast-spatial);
+  }
+  .lf-tab.on::after { left: 12px; right: 12px; }
+
+  /* Window tile. */
+  .lf-tile {
+    border-radius: var(--shape-xl); background-color: var(--surface-container); padding: 8px; display: flex; flex-direction: column; gap: 8px;
+    box-sizing: border-box; position: relative; cursor: pointer; outline-offset: 0; border: 0; text-align: left; width: 100%;
+    transition: background-color var(--dur-effects) var(--ease-effects), outline-color var(--dur-effects) var(--ease-effects);
+  }
+  .lf-tile.hov, .lf-tile:hover { background-color: var(--surface-container-high); outline: 2px solid var(--outline); }
+  .lf-tile.foc, .lf-tile:focus-visible { outline: 3px solid var(--primary); outline-offset: 0; background-color: var(--surface-container-high); }
+  .lf-tile.run, .lf-tile.run:hover { outline: 3px solid var(--tertiary); }
+  .lf-tile.run:focus-visible { outline: 3px solid var(--primary); }
+  .lf-shot {
+    aspect-ratio: 4 / 3; border-radius: var(--shape-lg-inc); position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    background-color: var(--surface-container-highest); color: var(--on-surface-variant);
+  }
+  .lf-shot > img.prev { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .lf-shot > .act {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.28);
+    opacity: 0; transition: opacity var(--dur-effects) var(--ease-effects); pointer-events: none;
+  }
+  .lf-tile.hov .lf-shot > .act, .lf-tile:hover .lf-shot > .act, .lf-tile:focus-visible .lf-shot > .act { opacity: 1; }
+  .lf-tile.run .lf-shot > .act { display: none; }
+  .lf-shot > .run-badge { position: absolute; top: 12px; left: 12px; }
+  .lf-tile-t { display: flex; align-items: center; gap: 10px; padding: 0 6px 4px; min-height: 32px; }
+  .lf-tile-t > .ttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lf-tile-t > img.ico { width: 28px; height: 28px; border-radius: var(--shape-sm); flex: none; object-fit: contain; }
+
+  /* Floating toolbar, menus, dialogs, snackbar, tooltip. */
+  /* No transform on the wrapper: a fixed menu inside (the save bar's split
+     button) must stay relative to the window. */
+  .lf-ftb-wrap {
+    position: fixed; bottom: 24px; left: 0; right: 0; z-index: 40; width: fit-content; max-width: calc(100% - 32px); margin: 0 auto;
+    transition: bottom var(--dur-spatial) var(--ease-spatial), opacity var(--dur-effects) var(--ease-effects);
+  }
+  /* Centered on the page, not the window: the drawer is on the left. */
+  .lf-root:has(.lf-nav:not(.rail)) .lf-ftb-wrap { left: 288px; max-width: calc(100% - 320px); }
+  .lf-root:has(.lf-nav.rail) .lf-ftb-wrap { left: 80px; max-width: calc(100% - 112px); }
+  .lf-ftb-wrap.shut { bottom: -96px; opacity: 0; pointer-events: none; }
+  .lf-ftb {
+    display: inline-flex; align-items: center; gap: 8px; height: 64px; padding: 0 8px 0 20px; border-radius: var(--shape-full); box-sizing: border-box;
+    background-color: var(--primary-container); color: var(--on-primary-container); box-shadow: 0 6px 18px rgba(0,0,0,.28); white-space: nowrap;
+  }
+
+  .lf-menu-anchor { position: relative; display: inline-flex; }
+  .lf-menu-scrim { position: fixed; inset: 0; z-index: 59; }
+  .lf-menu {
+    background-color: var(--surface-container); border-radius: var(--shape-lg); padding: 4px; box-shadow: 0 6px 18px rgba(0,0,0,.3);
+    min-width: 260px; max-width: min(420px, calc(100vw - 16px)); max-height: min(480px, calc(100vh - 16px)); overflow-y: auto;
+    display: flex; flex-direction: column; gap: 2px; z-index: 60; box-sizing: border-box;
+    animation: lf-menu-in var(--dur-fast-spatial) var(--ease-fast-spatial);
+    transform-origin: top;
+  }
+  .lf-menu.below { position: absolute; top: calc(100% + 4px); right: 0; }
+  .lf-menu-anchor.start > .lf-menu.below, .lf-menu-anchor.start > .lf-menu.above { right: auto; left: 0; }
+  .lf-menu.above { position: absolute; bottom: calc(100% + 4px); right: 0; transform-origin: bottom; }
+  .lf-menu.at { position: fixed; }
+  @keyframes lf-menu-in { from { opacity: 0; scale: 1 .85; } to { opacity: 1; scale: 1 1; } }
+  .lf-mi {
+    display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 12px; border-radius: var(--shape-md); font-size: 14px; color: var(--on-surface);
+    border: 0; background-color: transparent; text-align: left; cursor: pointer; flex: none; width: 100%; box-sizing: border-box; white-space: nowrap;
+  }
+  .lf-mi > .lf-ms { color: var(--on-surface-variant); font-size: 20px; }
+  .lf-mi > .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .lf-mi:focus-visible { outline-offset: -3px; }
+  .lf-mi.on { background-color: var(--secondary-container); color: var(--on-secondary-container); }
+  .lf-mi.on > .lf-ms { color: inherit; }
+  .lf-mi.danger, .lf-mi.danger > .lf-ms { color: var(--error); }
+  .lf-mi:disabled { color: color-mix(in srgb, var(--on-surface) 38%, transparent); cursor: default; }
+  .lf-mi:disabled > .lf-ms { color: inherit; }
+  .lf-hr { height: 1px; background: var(--outline-variant); margin: 4px 8px; flex: none; }
+
+  .lf-scrim {
+    position: fixed; inset: 0; z-index: 50; background-color: var(--scrim); display: flex; align-items: center; justify-content: center; padding: 24px;
+    box-sizing: border-box; animation: lf-fade-in var(--dur-effects) var(--ease-effects);
+  }
+  .lf-dlg {
+    background-color: var(--surface-container-high); color: var(--on-surface); border-radius: var(--shape-xl); padding: 24px; box-sizing: border-box;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35); display: flex; flex-direction: column; gap: 16px;
+    width: min(560px, 100%); max-height: calc(100vh - 48px); overflow: hidden;
+    animation: lf-dlg-in var(--dur-spatial) var(--ease-spatial);
+  }
+  .lf-dlg.wide { width: min(960px, 100%); }
+  .lf-dlg:focus-visible { outline: none; }
+  .lf-dlg > .body { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 12px; color: var(--on-surface-variant); }
+  .lf-dlg > .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  @keyframes lf-fade-in { from { opacity: 0; } }
+  @keyframes lf-dlg-in { from { opacity: 0; scale: .9; } }
+
+  .lf-snack {
+    position: fixed; left: 24px; bottom: 104px; z-index: 45; max-width: min(560px, calc(100vw - 48px));
+    display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 4px 4px 16px; border-radius: var(--shape-sm); box-sizing: border-box;
+    background-color: var(--inverse-surface); color: var(--inverse-on-surface); font-size: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.3);
+    animation: lf-snack-in var(--dur-spatial) var(--ease-spatial);
+  }
+  .lf-root:has(.lf-nav:not(.rail)) .lf-snack { left: 312px; }
+  .lf-root:has(.lf-nav.rail) .lf-snack { left: 104px; }
+  .lf-snack > .msg { flex: 1; padding: 10px 0; }
+  .lf-snack .lf-btn { color: var(--inverse-primary); }
+  .lf-snack .lf-ibtn { color: var(--inverse-on-surface); }
+  @keyframes lf-snack-in { from { opacity: 0; translate: 0 24px; } }
+
+  .lf-tipw { position: relative; display: inline-flex; }
+  .lf-tip {
+    position: absolute; top: calc(100% + 6px); left: 50%; translate: -50% 0; z-index: 70; pointer-events: none; white-space: nowrap;
+    padding: 6px 10px; border-radius: var(--shape-xs); background-color: var(--inverse-surface); color: var(--inverse-on-surface);
+    font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .2px;
+    opacity: 0; visibility: hidden; transition: opacity var(--dur-fast-effects) var(--ease-effects) 0ms, visibility 0ms linear var(--dur-fast-effects);
+  }
+  .lf-tipw:hover > .lf-tip, .lf-tipw:has(:focus-visible) > .lf-tip {
+    opacity: 1; visibility: visible; transition: opacity var(--dur-fast-effects) var(--ease-effects) 500ms, visibility 0ms linear 500ms;
+  }
+  .lf-tipw.left > .lf-tip { left: 0; translate: 0 0; }
+  .lf-tipw.right > .lf-tip { left: auto; right: 0; translate: 0 0; }
+  .lf-tipw.side > .lf-tip { top: 50%; left: calc(100% + 8px); translate: 0 -50%; }
+
+  /* Loading indicator: a shape that morphs and turns (M3 Expressive). */
+  .lf-load { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .lf-load > .shape {
+    width: 76%; height: 76%; background-color: var(--primary);
+    animation: lf-morph 2.4s var(--ease-spatial) infinite, lf-turn 4.8s linear infinite;
+  }
+  .lf-load > .ring { display: none; width: 70%; height: 70%; border-radius: 50%; box-sizing: border-box; border: 3px solid var(--secondary-container); border-top-color: var(--primary); }
+  @keyframes lf-turn { to { rotate: 360deg; } }
+  @keyframes lf-morph {
+    0%, 100% { border-radius: 42% 58% 38% 62% / 45% 40% 60% 55%; scale: 1; }
+    25% { border-radius: 30%; scale: .86; }
+    50% { border-radius: 50% 50% 22% 50% / 50% 50% 22% 50%; scale: 1; }
+    75% { border-radius: 18% 50% 18% 50%; scale: .9; }
+  }
+
+  /* The window-preview placeholder of the gallery (no real capture). */
+  .lf-ph { position: absolute; inset: 0; }
+}
+
+/* Reduced motion: tailwind.css already shortens every transition; here the
+   shape morphs keep their resting shape and the loader becomes a plain
+   spinner (progress is the one motion that stays). */
+@media (prefers-reduced-motion: reduce) {
+  .lf-btn:not(:disabled):active { border-radius: var(--shape-full); }
+  .lf-btn.l:not(:disabled):active { border-radius: var(--shape-full); }
+  .lf-ibtn:not(:disabled):active { border-radius: var(--shape-full); }
+  .lf-ibtn.sel:not(:disabled):active { border-radius: var(--shape-md); }
+  .lf-sw:not(:disabled):active::after { left: 6px; top: 6px; width: 16px; height: 16px; }
+  .lf-sw.on:not(:disabled):active::after { left: 22px; top: 2px; width: 24px; height: 24px; }
+  .lf-load > .shape { display: none; }
+  .lf-load > .ring { display: block; animation: lf-turn 1.2s linear infinite !important; animation-duration: 1.2s !important; animation-iteration-count: infinite !important; }
+}
+/* The gallery's reduced-motion preview forces the same rules. */
+.lf-reduce .lf-btn:not(:disabled):active, .lf-reduce .lf-btn.l:not(:disabled):active, .lf-reduce .lf-ibtn:not(:disabled):active { border-radius: var(--shape-full); }
+.lf-reduce *, .lf-reduce *::before, .lf-reduce *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+.lf-reduce .lf-load > .shape { display: none; }
+.lf-reduce .lf-load > .ring { display: block; animation: lf-turn 1.2s linear infinite !important; }
+
+@layer components {
+  /* The rail's tooltips wrap each item: keep them full width. */
+  .lf-nav .lf-tipw { display: flex; }
+  .lf-nav .lf-tipw > .lf-nav-i { flex: 1; }
+}

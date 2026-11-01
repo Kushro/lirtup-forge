@@ -1,10 +1,9 @@
 //! Settings rows: the inheritance of a value made visible (decision 4 of
 //! the design).
-// Front A: remove when the bodies are written.
-#![allow(unused_variables)]
 
 use dioxus::prelude::*;
 
+use super::{Badge, Icon, IconButton};
 use crate::state::Origin;
 
 /// One setting: icon, title, subtitle and the control (`children`).
@@ -31,8 +30,48 @@ pub fn SettingRow(
     /// The control (switch, select, slider…), and any expanded detail
     /// (`Disclosure` content goes under the row).
     children: Element,
+    /// Content under the row, full width (a `Disclosure`'s body, an
+    /// effect's parameters).
+    detail: Option<Element>,
 ) -> Element {
-    todo!()
+    // A global setting has no layer to inherit from: only «unsaved» shows.
+    let origin = if global && origin == Origin::Overridden { Origin::Inherited } else { origin };
+    let (class, note) = match &origin {
+        Origin::Inherited => ("", subtitle.clone().or_else(|| (!global).then(|| t!("cmp-row-inherited")))),
+        Origin::Overridden => ("ovr", Some(t!("cmp-row-overridden"))),
+        Origin::Dirty { before } => ("dirty", Some(t!("cmp-row-dirty", before = before.clone()))),
+    };
+    // With a change, the help text still shows, over the origin note.
+    let help = match origin {
+        Origin::Inherited => None,
+        _ => subtitle,
+    };
+    rsx! {
+        div { class: "lf-row {class}",
+            span { class: "lead", Icon { name: icon } }
+            div { class: "grow",
+                span { class: "t-bl", "{title}" }
+                if let Some(help) = help {
+                    span { class: "t-bs text-on-surface-variant", "{help}" }
+                }
+                if let Some(note) = note {
+                    span { class: "note", "{note}" }
+                }
+            }
+            div { class: "ctl",
+                if global {
+                    Badge { label: t!("cmp-row-global"), icon: "public" }
+                }
+                if let (Origin::Overridden, Some(on_inherit)) = (&origin, on_inherit) {
+                    IconButton { icon: "layers_clear", label: t!("cmp-row-inherit"), size: 32, onclick: move |_| on_inherit(()) }
+                }
+                {children}
+            }
+            if let Some(detail) = detail {
+                div { class: "detail", {detail} }
+            }
+        }
+    }
 }
 
 /// A group of rows (`.group`): 2 px gaps, the first and last rows rounded.
@@ -46,5 +85,30 @@ pub fn SettingGroup(
     #[props(default)] collapsed: bool,
     children: Element,
 ) -> Element {
-    todo!()
+    let mut shut = use_signal(|| collapsible && collapsed);
+    let rows_id = super::overlays::use_dom_id();
+    rsx! {
+        section { class: "lf-group",
+            match (title, collapsible) {
+                (Some(title), true) => rsx! {
+                    button {
+                        r#type: "button",
+                        class: "lf-group-h lf-state",
+                        "aria-expanded": "{!shut()}",
+                        "aria-controls": "{rows_id}",
+                        onclick: move |_| shut.toggle(),
+                        "{title}"
+                        Icon { name: "expand_more", size: 20 }
+                    }
+                },
+                (Some(title), false) => rsx! {
+                    h3 { class: "lf-group-h", "{title}" }
+                },
+                (None, _) => rsx! {},
+            }
+            if !shut() {
+                div { id: "{rows_id}", class: "lf-group-rows", {children} }
+            }
+        }
+    }
 }
