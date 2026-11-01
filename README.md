@@ -203,12 +203,24 @@ shows:
   With the layer, the frames lsfg-vk adds are generated after the app
   presents, so they are not counted here; MangoHud (`MANGOHUD=1`) measures
   them. With the built-in engine it also shows the shader precision and the
-  pacing interval.
+  pacing interval, and with *Auto* the multiplier it picked (or that lsfg is
+  restarting with another one).
+- **Latency**: average and maximum over the last second, from the capture of
+  a game frame to the moment the app presents a frame made from it, for the
+  real frames and (built-in engine) the generated ones. It does not include
+  the display, nor what the lsfg-vk layer adds after the app presents (the
+  row then ends in `+ lsfg-vk`). `--latency-log PATH` (`latency_log`) writes
+  every present to a CSV file: `capture_s`, `present_s`, `latency_ms`, `kind`
+  (`real` or `generated`) and `multiplier`.
 - **Source**, **Upscale**, **Effects** (each with its GPU time), **Output**,
   **Post**, **Present** and **Profile**: the processing chain in order.
 - **GPU** (in red, only when it applies): the effects take longer on the GPU
-  than a game frame lasts (at most 33 ms, as for 30 fps), so they cannot keep
-  up. It names the heaviest effect, the one to make lighter.
+  than a game frame lasts, so they cannot keep up. It names the heaviest
+  effect, the one to make lighter. While the app keeps up with the game (it
+  polls the window between frames without finding a new one), a frame lasts
+  the game's real interval, so a 24 fps video gets 41.7 ms. When frames are
+  lost the measured rate is the app's own, so a frame lasts at most 33 ms, as
+  for 30 fps.
 
 While the panel is visible, the Magpie effects are timed with GPU timestamp
 queries, which cost a little. With frame generation on, each panel refresh
@@ -221,7 +233,9 @@ LirtUp Forge presents through its own Vulkan swapchain, so the
 Linux) can generate frames on top of it, for any captured window: Vulkan,
 OpenGL, emulators or video. Turn it on in the GUI (*Presentation* tab >
 *Frame generation*), with `frame_gen_multiplier` in the config or with
-`--frame-gen N` on the CLI. It is read at startup, so changes need a restart.
+`--frame-gen N` on the CLI (1 is off, 2 to 5 the output frames per captured
+frame, or `auto` with the built-in engine, see below). It is read at startup,
+so changes need a restart.
 
 What it needs:
 
@@ -272,6 +286,19 @@ the app saves it and restarts itself, upscaling the same window again.
   interpolated too.
 - If anything fails, frame generation turns off for the session and the
   upscaled image keeps going; the stats panel says so.
+- *Auto* (`frame_gen_multiplier: auto`, `--frame-gen auto`) picks the
+  multiplier while it runs: the largest from ×2 to ×5 whose output fits the
+  display refresh (at 144 Hz: ×5 for 24 fps, ×4 for 30 fps, ×2 for 60 fps).
+  It measures the game for half a second before starting lsfg, and changes
+  the multiplier only when the frame rate stays different for 2 seconds, at
+  most once every 5 seconds, with a margin so it does not flip between two
+  values. lsfg fixes the number of generated frames when it starts, so a
+  change restarts it in the background; meanwhile the real frames are shown
+  alone, without a black frame. With the layer, *Auto* runs at ×2: the layer
+  fixes its multiplier when it loads.
+- Presenting no longer holds Python's lock while it waits for the display, so
+  with `fifo` the pipeline keeps capturing and processing while a frame waits
+  for the vblank.
 
 Its code comes from Enigmata Temple (lsfg-vk core
 under MIT, the shader loader under GPL-3.0); see

@@ -149,10 +149,14 @@ class Config:
         show_osd: If True, show on-screen display messages.
         osd_duration: How long OSD messages stay visible.
         show_stats: If True, start with the stats panel visible (experimental).
+        latency_log: CSV file for the latency of every presented frame
+            (None = no log).
         max_fps: Maximum pipeline frames per second.
         present_on_change_only: If True, skip presents while the target
             window has no new frame (for frame generation layers).
-        frame_gen_multiplier: lsfg-vk frames per captured frame (1 = off).
+        frame_gen_multiplier: lsfg-vk frames per captured frame (1 = off,
+            2 to 5), or "auto" (built-in engine: chosen from the game's frame
+            rate and the display refresh).
         frame_gen_flow_scale: lsfg-vk optical flow resolution (0.25-1.0).
         frame_gen_performance: If True, use the lighter lsfg-vk model.
         frame_gen_dll: Folder holding lsfg-vk.dll, or Lossless.dll for the
@@ -318,13 +322,14 @@ class Config:
     show_osd: bool = True
     osd_duration: float = 1.5
     show_stats: bool = False
+    latency_log: Optional[str] = None
 
     # Vulkan
     max_fps: Optional[int] = None
     present_on_change_only: bool = False
 
     # Frame generation (lsfg-vk), read once at startup
-    frame_gen_multiplier: int = 1
+    frame_gen_multiplier: Union[int, str] = 1  # 1 to 5, or "auto"
     frame_gen_flow_scale: float = 1.0
     frame_gen_performance: bool = False
     frame_gen_dll: Optional[str] = None

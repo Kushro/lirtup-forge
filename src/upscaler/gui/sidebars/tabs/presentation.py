@@ -235,6 +235,9 @@ class PresentationTab(SettingsTab):
         self._fg_labels = {1: self.tr("Off", "Frame generation multiplier")}
         for m in range(2, 6):
             self._fg_labels[m] = f"\u00d7{m}"
+        self._fg_labels[framegen.AUTO] = self.tr(
+            "Auto", "Frame generation multiplier"
+        )
         self._add_combo(
             self.tr("Multiplier", "Label of setting (must be short)"),
             list(self._fg_labels.values()),
@@ -246,6 +249,10 @@ class PresentationTab(SettingsTab):
                 "Generate frames between the captured ones with lsfg-vk "
                 "(Lossless Scaling Frame Generation).\n"
                 "×4 turns 30 captured fps into 120 shown fps.\n"
+                "Auto (built-in engine only) picks ×2 to ×5 from the game's "
+                "frame rate so the output fits the display refresh, and "
+                "changes it when the frame rate stays different for a few "
+                "seconds.\n"
                 "Read at startup: restart to apply.",
                 "Description of a setting (tooltip)",
             ),
@@ -439,7 +446,7 @@ class PresentationTab(SettingsTab):
         return text.format(int(round(scale * 100)))
 
     def _update_fg_ui(self) -> None:
-        on = self._config.frame_gen_multiplier > 1
+        on = framegen.multiplier_on(self._config.frame_gen_multiplier)
         self._fg_engine.setEnabled(on)
         self._fg_flow.setEnabled(on)
         self._fg_flow_note.setEnabled(on)
@@ -486,11 +493,24 @@ class PresentationTab(SettingsTab):
                 "to the 'lsfg-vk' branch (Properties, Betas).",
                 "Frame generation status",
             )
+        auto = self._config.frame_gen_multiplier == framegen.AUTO
+        auto_note = ""
+        if on and auto and not native:
+            auto_note = self.tr(
+                "Auto needs the built-in engine; the lsfg-vk layer runs at ×{0}.",
+                "Frame generation status",
+            ).format(framegen.AUTO_START_MULTIPLIER)
+        running_setting = framegen.active_setting()
         running = framegen.active_multiplier()
-        if running != self._config.frame_gen_multiplier or (
+        if running_setting != self._config.frame_gen_multiplier or (
             on and running > 1 and framegen.engine() != self._config.frame_gen_engine
         ):
-            if running > 1:
+            if running_setting == framegen.AUTO:
+                now = self.tr(
+                    "Running with the automatic multiplier.",
+                    "Frame generation status",
+                )
+            elif running > 1:
                 now = self.tr("Running at ×{0}.", "Frame generation status")
                 now = now.format(running)
             else:
@@ -499,7 +519,14 @@ class PresentationTab(SettingsTab):
                 "Save and restart LirtUp Forge to apply.",
                 "Frame generation status",
             )
-            return f"{now} {restart}"
+            return " ".join(t for t in (now, restart, auto_note) if t)
+        if running_setting == framegen.AUTO:
+            text = self.tr(
+                "Running with the automatic multiplier. Flow scale and model "
+                "apply after a restart.",
+                "Frame generation status",
+            )
+            return " ".join(t for t in (text, auto_note) if t)
         if running > 1:
             return self.tr(
                 "Running at ×{0}. Flow scale and model apply after a "

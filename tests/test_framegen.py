@@ -163,3 +163,71 @@ def test_native_extension_rejects_a_bad_dll(tmp_path):
     fake.write_bytes(b"not a PE file")
     assert lsfg.probe(str(fake)) == "dll_unreadable"
     assert lsfg.probe(str(tmp_path / "missing.dll")) == "dll_unreadable"
+
+
+# ----------------------------------------------------------------------
+# Automatic multiplier setting
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "value, expected",
+    [(1, 1), (5, 5), ("3", 3), (" Auto ", "auto"), ("auto", "auto"), (2.0, 2)],
+)
+def test_parse_multiplier(value, expected):
+    assert framegen.parse_multiplier(value) == expected
+
+
+@pytest.mark.parametrize("value", [0, 6, "lots", "2.5", 2.5, None, True, ""])
+def test_parse_multiplier_rejects(value):
+    with pytest.raises(ValueError):
+        framegen.parse_multiplier(value)
+
+
+def test_multiplier_on():
+    assert not framegen.multiplier_on(1)
+    assert framegen.multiplier_on(2)
+    assert framegen.multiplier_on(framegen.AUTO)
+
+
+def test_native_auto_starts_at_x2(monkeypatch, isolated_home):
+    monkeypatch.setattr(framegen, "native_available", lambda: True)
+    dll = _native_dll(isolated_home / ".local/share/Steam")
+    status = framegen.prepare(framegen.AUTO, engine="native")
+    assert status == FrameGenStatus.ACTIVE
+    settings = framegen.native_settings()
+    assert settings == framegen.NativeSettings(dll, 2, 1.0, False, True)
+    assert framegen.active_setting() == framegen.AUTO
+    assert framegen.active_multiplier() == 2
+
+
+def test_layer_auto_runs_at_x2(layer, isolated_home):
+    _steam_library(isolated_home / ".local/share/Steam")
+    assert framegen.prepare(framegen.AUTO) == FrameGenStatus.ACTIVE
+    text = open(os.environ["LSFGVK_CONFIG"], encoding="utf-8").read()
+    assert "multiplier = 2" in text
+    assert framegen.active_setting() == framegen.AUTO
+    assert framegen.active_multiplier() == 2
+
+
+def test_auto_from_options(monkeypatch, isolated_home):
+    monkeypatch.setattr(framegen, "native_available", lambda: True)
+    _native_dll(isolated_home / ".local/share/Steam")
+    status = framegen.prepare_from_options(
+        {"frame_gen_multiplier": "auto", "frame_gen_engine": "native"}
+    )
+    assert status == FrameGenStatus.ACTIVE
+    assert framegen.native_settings().auto
+
+
+def test_active_setting_when_off():
+    framegen.prepare(1)
+    assert framegen.active_setting() == 1
+
+
+def test_validator_accepts_auto():
+    from upscaler.config.validators import validate_overrides
+    from upscaler.utils import ConfigError
+
+    validate_overrides({"frame_gen_multiplier": "auto"})
+    validate_overrides({"frame_gen_multiplier": 4})
+    with pytest.raises(ConfigError):
+        validate_overrides({"frame_gen_multiplier": 7})
