@@ -474,3 +474,11 @@
   .lf-nav .lf-tipw { display: flex; }
   .lf-nav .lf-tipw > .lf-nav-i { flex: 1; }
 }
+
+@layer components {
+  /* In the scrolling part of the drawer nothing shrinks (the header did). */
+  .lf-nav > .top > *, .lf-nav > .bottom > * { flex-shrink: 0; }
+  /* A long profile badge in a tile gives way to the title. */
+  .lf-tile-t > .lf-badge { max-width: 45%; min-width: 0; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 22px; }
+  .lf-tile-t > .ttl { min-width: 48px; }
+}
