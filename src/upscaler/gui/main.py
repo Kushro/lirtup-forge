@@ -4,7 +4,7 @@ import copy
 import gc
 import logging
 import os
-from typing import Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, Qt, QTimer, QSettings, QSize, QStandardPaths, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -74,6 +74,8 @@ class MainWindow(QMainWindow):
         self._session_starting = False
         self._stopping_manual_session: bool = False
         self._hide_gui_after_stop: bool = False
+        # GUI visibility to restore after a session that replaced another one
+        self._restart_hide_after: Optional[bool] = None
         self._start_hidden: bool = bool(
             self.settings.value("tray/enabled", False, type=bool)
         ) and bool(self.settings.value("tray/start_hidden", False, type=bool))
@@ -373,7 +375,13 @@ class MainWindow(QMainWindow):
             return
 
         logger.info("Starting upscale for: '%s'", win_info.title)
-        self._hide_gui_after_stop = not (self.isVisible() and not self.isMinimized())
+        if self._restart_hide_after is not None:
+            self._hide_gui_after_stop = self._restart_hide_after
+            self._restart_hide_after = None
+        else:
+            self._hide_gui_after_stop = not (
+                self.isVisible() and not self.isMinimized()
+            )
         self.grid_mgr.stop()
         activate_window(win_info.handle)
         self.hide()
@@ -701,6 +709,45 @@ class MainWindow(QMainWindow):
             self._hide_gui_after_stop = False
         finally:
             self._stopping_manual_session = False
+
+    def restart_manual_session(self, win_info: Optional[WindowInfo] = None) -> None:
+        """
+        Stop the active session and start a new one, with the current
+        settings and profile, on *win_info* (or on the same window).
+        """
+        session = self.manual_session
+        if session is None or self._session_starting:
+            return
+        target = win_info or session.window_info
+        if target is None:
+            return
+        # Keep the GUI hidden in between and restore its state afterwards
+        hide_after = self._hide_gui_after_stop
+        self._hide_gui_after_stop = True
+        self.stop_manual_session()
+        self._restart_hide_after = hide_after
+        QTimer.singleShot(0, lambda w=target: self._on_window_selected(w))
+
+    def select_profile(self, name: Optional[str]) -> None:
+        """
+        Activate a profile (None = Global, auto-match) from outside the
+        profile list, e.g. the tray menu. A running session restarts with it.
+        """
+        self.profile_act.select_profile(name or "")
+        if (self._config_manager.active_profile_name or "") != (name or ""):
+            return  # pending changes were not resolved
+        # Chosen by hand: do not revert it to Global when the session stops
+        self._auto_applied_profile = None
+        if self.manual_session is not None:
+            self.restart_manual_session()
+
+    @property
+    def active_profile_name(self) -> Optional[str]:
+        return self._config_manager.active_profile_name
+
+    @property
+    def profile_names(self) -> List[str]:
+        return list(self._config_manager.profiles)
 
     def set_daemon_mode(self, enabled: bool) -> None:
         """Enable or disable daemon mode, updating config and GUI."""

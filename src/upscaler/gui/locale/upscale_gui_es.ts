@@ -2899,6 +2899,36 @@ Use Stop from the tray menu to return.</source>
         <translation>Escalado en curso.
 Utilice «Detener» en el menú de la bandeja para volver.</translation>
     </message>
+        <message>
+            <source>Profile</source>
+            <comment>Tray submenu</comment>
+            <translation>Perfil</translation>
+        </message>
+        <message>
+            <source>Restart</source>
+            <comment>Tray menu: restart upscaling with current settings</comment>
+            <translation>Reiniciar</translation>
+        </message>
+        <message>
+            <source>Upscale the same window again with the current settings.</source>
+            <comment>Tray menu tooltip</comment>
+            <translation>Vuelve a escalar la misma ventana con los ajustes actuales.</translation>
+        </message>
+        <message>
+            <source>Global (auto-match)</source>
+            <comment>Tray menu: global settings, no profile</comment>
+            <translation>Global (perfil automático)</translation>
+        </message>
+        <message>
+            <source>Switch to</source>
+            <comment>Tray submenu: upscale another window</comment>
+            <translation>Cambiar a</translation>
+        </message>
+        <message>
+            <source>Upscaling: {0}</source>
+            <comment>Tray menu header; {0} is a window title</comment>
+            <translation>Escalando: {0}</translation>
+        </message>
 </context>
 <context>
     <name>WindowGridManager</name>
