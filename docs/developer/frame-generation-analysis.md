@@ -390,8 +390,11 @@ generados. RX 9070 XT, RADV. Una corrida por caso.
     no pasa: genera después de que lirtup presenta y no frena el bucle. El motor integrado comparte
     el hilo (y la GPU) con los efectos; el hilo de presentación aparte y un `flow_scale` menor son
     lo siguiente a probar.
-  - La detección de la barra recortó 21 filas, cuando en otra corrida fueron 23 (las correctas):
-    quedan 2 filas. Probablemente detectó durante una transición. Pendiente de revisar.
+  - La detección de la barra dio 21 filas en esta corrida y 23 en otra. Revisado después con
+    cuadros reales: 21 era lo correcto. Debajo de la barra hay un marco hundido de 2 px (Win32
+    client edge) alrededor de la imagen de 1280×720, y con una escena lisa arriba el detector
+    tomaba 2 filas de la imagen como separador. Arreglado: separador gris de 1 o 2 filas, y el
+    marco se recorta en los cuatro lados.
 - **Sin probar todavía**: latencia medida, otras GPU.
 
 ## Próximos pasos propuestos

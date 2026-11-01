@@ -4,7 +4,7 @@ import copy
 import gc
 import logging
 import os
-from typing import List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, Qt, QTimer, QSettings, QSize, QStandardPaths, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -772,19 +772,19 @@ class MainWindow(QMainWindow):
         logger.info("Restarting with frame generation x%d", multiplier)
         self._force_quit()
 
-    def remember_menu_bar_crop(self, profile: str, crop_top: int) -> None:
+    def remember_menu_bar_crop(self, profile: str, crop: Dict[str, int]) -> None:
         """
-        Save a detected menu bar crop in the session's profile, and turn
-        detection off there so the next session does not crop twice.
-        Without a profile it applies to this session only.
+        Save a detected menu bar crop (``crop_*`` options) in the session's
+        profile, and turn detection off there so the next session does not
+        crop twice. Without a profile it applies to this session only.
         """
         if not profile or profile not in self._config_manager.profiles:
             logger.info("Menu bar crop not saved: the session has no profile")
             return
         self._config_manager.update_profile_options(
-            profile, {"crop_top": crop_top, "auto_crop_menu_bar": False}
+            profile, {**crop, "auto_crop_menu_bar": False}
         )
-        logger.info("Saved crop_top=%d in profile '%s'", crop_top, profile)
+        logger.info("Saved %s in profile '%s'", crop, profile)
 
     def resume_session(self, handle: int, hide_after: bool) -> None:
         """Upscale the window *handle* again after a relaunch, if it still exists."""

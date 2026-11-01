@@ -21,8 +21,9 @@ First release of the LirtUp Forge fork with its own features.
   the frame generation multiplier (the app restarts itself to apply it and
   upscales the same window again).
 - **Menu bar detection** (experimental, `auto_crop_menu_bar`): crops the menu
-  bar of Windows programs under Wine. In the GUI the crop is saved in the
-  window's profile.
+  bar of Windows programs under Wine, and the sunken frame around their
+  image when there is one. In the GUI the crop is saved in the window's
+  profile.
 - **Magpie effects** with a choice of engine: a few ported by hand, or 86
   effects run unmodified by the MagpieFX loader.
 - Unit tests (`pytest`, `pip install .[test]`).

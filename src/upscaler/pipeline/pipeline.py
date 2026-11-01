@@ -14,7 +14,7 @@ from PySide6.QtCore import QObject, Signal
 from .controller import PipelineController
 from .osd import OSDManager
 from .presenter import Presenter
-from .menubar import detect_menu_bar
+from .menubar import MenuBarCrop, detect_menu_bar
 from .stats import StatsHUD, StatsRow, gpu_budget_warning
 from .swapchain import SwapchainManager
 from .upscale import UpscalerLike, create_upscaler_like
@@ -110,8 +110,8 @@ class Pipeline(QObject):
     daemon_scan_start = Signal()
     daemon_target_acquired = Signal()
     finished = Signal()
-    # A menu bar was cropped: (profile name or "", new crop_top)
-    menu_bar_cropped = Signal(str, int)
+    # A menu bar was cropped: (profile name or "", {"crop_top": ..., ...})
+    menu_bar_cropped = Signal(str, object)
 
     def __init__(
         self,
@@ -790,7 +790,7 @@ class Pipeline(QObject):
     def _reset_menu_bar_detection(self) -> None:
         """Look for a menu bar again (new window or configuration)."""
         self._menu_bar_pending = self.config.auto_crop_menu_bar
-        self._menu_bar_samples: List[int] = []
+        self._menu_bar_samples: List[MenuBarCrop] = []
         self._menu_bar_next_check = 0.0
 
     def _check_menu_bar(self, frame: memoryview) -> bool:
@@ -804,29 +804,46 @@ class Pipeline(QObject):
         if now < self._menu_bar_next_check:
             return False
         self._menu_bar_next_check = now + _MENU_BAR_INTERVAL
-        rows = detect_menu_bar(frame, self.crop_width, self.crop_height)
+        crop = detect_menu_bar(frame, self.crop_width, self.crop_height)
         samples = self._menu_bar_samples
-        samples.append(rows)
+        samples.append(crop)
         last = samples[-_MENU_BAR_AGREE:]
-        if len(last) == _MENU_BAR_AGREE and last[0] > 0 and len(set(last)) == 1:
+        if len(last) == _MENU_BAR_AGREE and last[0].top > 0 and len(set(last)) == 1:
             self._menu_bar_pending = False
-            self._apply_menu_bar_crop(rows)
+            self._apply_menu_bar_crop(crop)
             return True
         if len(samples) >= _MENU_BAR_MAX_SAMPLES:
             self._menu_bar_pending = False
             logger.info("No menu bar found at the top of the window")
         return False
 
-    def _apply_menu_bar_crop(self, rows: int) -> None:
-        """Add *rows* to the top crop and rebuild what depends on it."""
-        logger.info("Menu bar detected: cropping %d more rows at the top", rows)
+    def _apply_menu_bar_crop(self, crop: MenuBarCrop) -> None:
+        """Add *crop* to the configured crop and rebuild what depends on it."""
+        logger.info(
+            "Menu bar detected: cropping %d more rows at the top%s",
+            crop.top,
+            f" and a {crop.left} px frame" if crop.left else "",
+        )
         # The overlay maps clicks with the config's crop, so change it there
-        self.config.crop_top += rows
-        self._crop_top = self.config.crop_top
-        self.overlay.update_config.emit(self.config)
+        c = self.config
+        c.crop_top += crop.top
+        c.crop_left += crop.left
+        c.crop_right += crop.right
+        c.crop_bottom += crop.bottom
+        self._crop_top, self._crop_left = c.crop_top, c.crop_left
+        self._crop_right, self._crop_bottom = c.crop_right, c.crop_bottom
+        self.overlay.update_config.emit(c)
         self._handle_window_change()
-        self.osd_queue.put(("Menu bar cropped", self.config.osd_duration))
-        self.menu_bar_cropped.emit(self.profile_name or "", self.config.crop_top)
+        self.osd_queue.put(("Menu bar cropped", c.osd_duration))
+        self.menu_bar_cropped.emit(
+            self.profile_name or "",
+            {
+                "crop_top": c.crop_top,
+                "crop_left": c.crop_left,
+                "crop_right": c.crop_right,
+                "crop_bottom": c.crop_bottom,
+            },
+        )
 
     def _stats_rows(self) -> List[StatsRow]:
         """Rows of the stats panel: rates, then the processing chain."""

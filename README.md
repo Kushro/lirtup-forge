@@ -35,7 +35,7 @@ A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It u
 - **Customizable output geometry**: scaling mode (fit, stretch, cover), offset, crop and zoom.
 - **Input forwarding** as if interacting directly with the original window.
 - **System tray** controls: restart, switch the upscaled window or change its profile without opening the main window ([GUI guide](docs/user/gui.md#system-tray)).
-- **Menu bar detection** (experimental): crops the menu bar that Windows programs draw below the title bar under Wine (`--auto-crop-menu-bar`, or *Presentation* > *Crop* > *Detect menu bar*). In the GUI the crop is saved in the window's profile.
+- **Menu bar detection** (experimental): crops the menu bar that Windows programs draw below the title bar under Wine (`--auto-crop-menu-bar`, or *Presentation* > *Crop* > *Detect menu bar*), and the 2 px frame many programs draw around their image. In the GUI the crop is saved in the window's profile.
 - **Stats panel** (experimental), like mpv's stats page: frame rates, GPU times and the active processing chain, toggled with Alt+Shift+I. It warns when the effects are too slow for the game.
 - **Frame generation** with [lsfg-vk](https://lsfg-vk.dev) (×2 to ×5), through its Vulkan layer or built in (experimental), see [below](#frame-generation).
 - **Magpie effects** with a choice of engine: a few effects ported by hand, or 86 effects from [Magpie](https://github.com/Blinue/Magpie) run unmodified by a MagpieFX loader (see below).
