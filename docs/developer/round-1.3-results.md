@@ -54,5 +54,5 @@
 | T3.7 | Depende de T3.8: con el piso, contenido de 24 fps con ~35 ms avisa por diseño | Guion actualizado; cubierto por test unitario | OK (por diseño) |
 | T4.2 | No era un error: el diálogo usa su imagen de prueba (con detalle) y el script recibió barras lisas; SMAA y NIS cuestan más con más bordes. Upscale_Denoise_UL -16 % fue una corrida con otro reloj de GPU | Ninguna | OK: con la misma imagen difieren < 1,5 % (NIS 0,191/0,190, SMAA 0,091/0,092, RAVU 0,148/0,146, UL 1,603/1,598) |
 | T5.5 | El error solo mostraba los diagnósticos de dxc | Avisa primero que hace falta glslangValidator (`d6f0c576`) | OK |
-| T6.6 | La primera elección de Auto no respetaba el mínimo de 5 fps | Con imagen quieta arranca en x2 (`abee4a55`) | Pendiente: repetir con el juego |
+| T6.6 | La primera elección de Auto no respetaba el mínimo de 5 fps | Con imagen quieta arranca en x2 (`abee4a55`) | OK con el juego en movimiento: elige x5 (15-18 reales/s a 144 Hz) y no cambia en 60 s, aunque el juego alterna texto quieto y animación; ~85 mostrados/s (17 reales + 68 generados) |
 | Obs. | El integrado le quita GPU a efectos pesados | Nota en la ayuda del motor, README y análisis | — |

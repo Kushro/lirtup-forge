@@ -439,6 +439,7 @@ Guion completo en [round-1.3-test-script.md](round-1.3-test-script.md) y resulta
 | Integrado, flujo 0,5, Calidad | 18,9 | 37,7 | 105 ms |
 | Integrado, flujo 0,5, Rendimiento | 20,0 | 40,1 | 99 ms |
 | Capa ×4 | 22,4 | ~90 (la capa multiplica después) | 29 ms + la capa |
+| Integrado *Auto* (eligió ×5), flujo 1,0, FP16 | 17 | ~85 | — |
 
   Con efectos pesados el motor integrado le quita GPU a los efectos (de 22,5 a 14,8 cuadros reales
   con flujo 1,0), aunque en reposo lsfg cueste solo 1,6 ms: los dos compiten por la GPU dentro del
