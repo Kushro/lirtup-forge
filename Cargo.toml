@@ -99,7 +99,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 # Build and tests
-cc = "1.10.0"
+cc = { version = "1.10.0", features = ["parallel"] }
 tempfile = "3.27.0"
 
 [workspace.lints.rust]

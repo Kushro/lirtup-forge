@@ -2560,6 +2560,7 @@ dependencies = [
  "lirtup-config",
  "lsfg-sys",
  "serde",
+ "tempfile",
  "thiserror 2.0.21",
  "tracing",
 ]
@@ -2571,7 +2572,6 @@ dependencies = [
  "ash",
  "bitflags 2.13.2",
  "gpu-allocator",
- "libc",
  "thiserror 2.0.21",
  "tracing",
 ]
@@ -2586,6 +2586,7 @@ dependencies = [
  "lirtup-gpu",
  "regex",
  "serde",
+ "tempfile",
  "thiserror 2.0.21",
  "tracing",
  "xxhash-rust",

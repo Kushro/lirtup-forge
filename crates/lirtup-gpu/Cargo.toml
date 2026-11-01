@@ -13,7 +13,6 @@ ash.workspace = true
 gpu-allocator.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-libc.workspace = true
 bitflags.workspace = true
 
 [lints]
