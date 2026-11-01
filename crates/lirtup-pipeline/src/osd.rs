@@ -21,7 +21,11 @@ use lirtup_proto::Stage;
 use crate::{PipelineError, Result};
 
 /// Fonts of the OSD, in order (1.x: `DejaVuSans.ttf`).
-const OSD_FONTS: &[&str] = &["DejaVuSans.ttf", "LiberationSans-Regular.ttf", "NotoSans-Regular.ttf"];
+const OSD_FONTS: &[&str] = &[
+    "DejaVuSans.ttf",
+    "LiberationSans-Regular.ttf",
+    "NotoSans-Regular.ttf",
+];
 
 /// Cached message images; more than this and the cache starts over.
 const CACHE_LIMIT: usize = 64;
@@ -164,7 +168,10 @@ fn render_message(renderer: &TextRenderer, text: &str, size: f32) -> TextImage {
     };
     let shadow = renderer.render(text, &plain([0.0, 0.0, 0.0, 180.0 / 255.0]));
     let glyphs = renderer.render(text, &plain([1.0; 4]));
-    let mut canvas = Canvas::new(glyphs.width + 2 * padding + offset, glyphs.height + 2 * padding + offset);
+    let mut canvas = Canvas::new(
+        glyphs.width + 2 * padding + offset,
+        glyphs.height + 2 * padding + offset,
+    );
     canvas.rounded_rect(padding as f32, [0.0, 0.0, 0.0, 180.0 / 255.0]);
     canvas.draw(&shadow, padding + offset, padding + offset);
     canvas.draw(&glyphs, padding, padding);
@@ -202,7 +209,11 @@ impl Canvas {
                 let cx = px.clamp(r, w - r);
                 let cy = py.clamp(r, h - r);
                 let d = ((px - cx).powi(2) + (py - cy).powi(2)).sqrt();
-                let coverage = if r == 0.0 { 1.0 } else { (r - d + 0.5).clamp(0.0, 1.0) };
+                let coverage = if r == 0.0 {
+                    1.0
+                } else {
+                    (r - d + 0.5).clamp(0.0, 1.0)
+                };
                 let a = color[3] * coverage;
                 let src = [color[0] * a, color[1] * a, color[2] * a, a];
                 let dst = &mut self.pixels[(y * self.width + x) as usize];
@@ -243,9 +254,17 @@ impl Canvas {
     }
 
     /// The premultiplied RGBA8 image.
+    /// The image, premultiplied, **in B, G, R, A byte order**: the screen
+    /// texture holds the captured frame's BGRA bytes as they are (1.x does
+    /// the same; the swapchain copy and `screenshot` reorder), so what is
+    /// blended onto it must be BGRA too.
     pub(crate) fn finish(self) -> TextImage {
         let to8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-        let data = self.pixels.iter().flat_map(|p| p.map(to8)).collect();
+        let data = self
+            .pixels
+            .iter()
+            .flat_map(|p| [p[2], p[1], p[0], p[3]].map(to8))
+            .collect();
         TextImage {
             width: self.width,
             height: self.height,
@@ -281,8 +300,14 @@ fn font_dirs() -> Vec<PathBuf> {
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         dirs.push(home.join(".fonts"));
     }
-    let data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned());
-    dirs.extend(data_dirs.split(':').filter(|d| !d.is_empty()).map(|d| Path::new(d).join("fonts")));
+    let data_dirs =
+        std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned());
+    dirs.extend(
+        data_dirs
+            .split(':')
+            .filter(|d| !d.is_empty())
+            .map(|d| Path::new(d).join("fonts")),
+    );
     dirs
 }
 
