@@ -7,16 +7,22 @@
 //! bar, so each change is a `SetField` followed by `Save` (which also sends
 //! `ReloadConfig`: the scaler grabs the new keys). «Restablecer» is
 //! `Inherit`, back to the 1.x default.
+//!
+//! While a row captures, the GUI sends `PauseHotkeys { on: true }`: the
+//! scaler lets go of its grabs, so a combo it holds (Alt+Shift+A) reaches
+//! the capture (round 4, front Y).
 
 use std::collections::BTreeMap;
 
 use dioxus::prelude::*;
 use lirtup_config::{Hotkey, HotkeyAction};
+use lirtup_proto::Command;
 
 use super::SectionTitle;
 use crate::app::{use_dispatch, use_store};
 use crate::components::{Button, ButtonSize, ButtonVariant, HotkeyCapture, SettingGroup, SettingRow};
 use crate::i18n::tr;
+use crate::link::CoreLink;
 use crate::route::ProfileRef;
 use crate::screens::modes::widgets::{use_control, use_origin, use_value, yaml};
 use crate::state::{Action, Scope};
@@ -174,6 +180,7 @@ pub(crate) fn Hotkeys() -> Element {
 #[component]
 fn HotkeyRow(action: HotkeyAction, conflicts: Vec<HotkeyAction>) -> Element {
     let dispatch = use_dispatch();
+    let core = use_context::<CoreLink>();
     let binding = use_value::<String>(scope(), store_key(action));
     let origin = use_origin(scope(), store_key(action));
     let control = use_control(binding, |b| parse(b));
@@ -201,7 +208,13 @@ fn HotkeyRow(action: HotkeyAction, conflicts: Vec<HotkeyAction>) -> Element {
     };
     rsx! {
         SettingRow { icon: icon(action), title: name.clone(), subtitle, origin: origin(), on_inherit,
-            HotkeyCapture { value: control, label: name, require_modifier: true, on_change }
+            HotkeyCapture {
+                value: control,
+                label: name,
+                require_modifier: true,
+                on_change,
+                on_capture: move |on: bool| core.send(Command::PauseHotkeys { on }),
+            }
         }
     }
 }

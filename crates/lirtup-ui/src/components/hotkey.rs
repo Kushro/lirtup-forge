@@ -108,7 +108,9 @@ fn modifier_names(m: Modifiers) -> Vec<String> {
 /// uses the names `lirtup-config` parses (`Hotkey::from_str`).
 ///
 /// Combos that `lirtup serve` grabs on X11 (the activation hotkeys) never
-/// reach the webview while it runs; see the front A note.
+/// reach the webview while it runs (front A's note): `on_capture` tells the
+/// caller when capturing starts and ends, so it can release them
+/// (`Command::PauseHotkeys`, round 4 front Y).
 #[component]
 pub fn HotkeyCapture(
     value: Signal<Option<Hotkey>>,
@@ -120,8 +122,28 @@ pub fn HotkeyCapture(
     require_modifier: bool,
     #[props(default)] disabled: bool,
     on_change: Option<EventHandler<Option<Hotkey>>>,
+    /// Capturing started (`true`) or ended (`false`, also when the
+    /// component goes away while capturing).
+    on_capture: Option<EventHandler<bool>>,
 ) -> Element {
     let mut capturing = use_signal(|| false);
+    let mut reported = use_signal(|| false);
+    use_effect(move || {
+        let now = capturing();
+        if now != *reported.peek() {
+            reported.set(now);
+            if let Some(on_capture) = on_capture {
+                on_capture(now);
+            }
+        }
+    });
+    use_drop(move || {
+        if *reported.peek()
+            && let Some(on_capture) = on_capture
+        {
+            on_capture(false);
+        }
+    });
     let mut held = use_signal(Modifiers::default);
     let mut error = use_signal(|| false);
     let mut target = use_signal(|| None::<Rc<MountedData>>);

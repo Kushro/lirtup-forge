@@ -412,16 +412,24 @@ fn app_shortcut(event: KeyboardEvent, dispatch: Callback<Action>, store: Signal<
 }
 
 /// The 40 px title bar: drag to move, double click to maximize, minimize,
-/// maximize and close. (Close hides to the tray when `close_to_tray` once
-/// the tray exists, round 4 front Y; until then it quits.)
+/// maximize and close. Minimize and close go to the tray when Ajustes says
+/// so, and close quits otherwise, asking about unsaved edits (round 4,
+/// front Y: `crate::tray`).
 #[component]
 fn TitleBar() -> Element {
     let window = use_window();
+    let store = use_store();
+    let dispatch = use_dispatch();
+    let core = use_context::<CoreLink>();
     let drag = window.clone();
     let max = window.clone();
     let max2 = window.clone();
     let min = window.clone();
     let close = window.clone();
+    let to_tray = {
+        let gui = &store.read().gui;
+        gui.show_tray_icon && gui.close_to_tray
+    };
     rsx! {
         header {
             class: "flex items-center h-10 shrink-0 pl-4 pr-1 gap-2 bg-surface-container-low",
@@ -432,11 +440,18 @@ fn TitleBar() -> Element {
                 class: "flex items-center gap-1",
                 // Buttons must not start a drag.
                 onmousedown: move |e| e.stop_propagation(),
-                IconButton { icon: "remove", label: t!("titlebar-minimize"), size: 32, tip: "right", onclick: move |_| min.window.set_minimized(true) }
+                IconButton { icon: "remove", label: t!("titlebar-minimize"), size: 32, tip: "right", onclick: move |_| crate::tray::minimize_window(&min, store, dispatch) }
                 IconButton { icon: "crop_square", label: t!("titlebar-maximize"), size: 32, tip: "right", onclick: move |_| max2.toggle_maximized() }
-                IconButton { icon: "close", label: t!("titlebar-close"), size: 32, tip: "right", onclick: move |_| close.close() }
+                IconButton {
+                    icon: "close",
+                    label: if to_tray { t!("titlebar-close-to-tray") } else { t!("titlebar-close") },
+                    size: 32,
+                    tip: "right",
+                    onclick: move |_| crate::tray::close_window(&close, store, &core, dispatch, false),
+                }
             }
         }
+        crate::tray::QuitDialog {}
     }
 }
 
