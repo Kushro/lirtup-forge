@@ -73,7 +73,7 @@ el log, para que el atajo no tumbe la sesión antes de que T los complete.
 | **M. Migración y traducciones** | `lirtup-config/src/migrate.rs`; `lirtup-ui/src/screens/migrate.rs`; los brazos `Migrate`, `SkipMigration` y `Migrated` de `update` y el ofrecimiento después de `Loaded` en `state/store.rs`; `lirtup-ui/src/i18n_check.rs`; `scripts/ts-to-ftl*`; `i18n/*/*.ftl` (solo para completar el inglés y pasar las cadenas de la 1.x) | el resto del estado, `app.rs` |
 | **T. Barra sobre el juego** | `lirtup-pipeline/src/{toolbar,tokens}.rs`; en `pipeline.rs`, lo que conecta la barra (`toggle_toolbar`, `OverlayNotice::Pointer`, la pasada en `frame`); en `surface.rs`, el ruteo en el hilo de la superposición; `lirtup-x11/src/overlay_input.rs`; `lirtup-effects/src/ui_draw*`; `lirtup-effects/src/osd.rs` y `lirtup-pipeline/src/{osd,stats}.rs` (panel y OSD con los tokens y las fuentes nuevas); `scripts/gen-tokens-icons.py` (las dos instancias estáticas de Material Symbols en `.ttf`) | la GUI, el núcleo |
 | **Y. Bandeja, daemon, avisos y ciclo de vida** | `lirtup-core/src/{daemon,lifecycle}.rs`; en `engine.rs` y `server.rs`, lo que conecta el daemon, el ciclo de vida y `Resume`; `lirtup-cli/src/serve.rs`; `lirtup-fg/src/layer.rs` (`restart_self` con `Resume`); `lirtup-ui/src/{tray,notify}.rs`; en `app.rs`, solo los manejadores de cerrar y minimizar de la barra de título; las filas de bandeja de `screens/settings/mod.rs` (General); `start_delay_s` en `screens/home/activation.rs`; `i18n/*/settings.ftl` y `home.ftl`, solo las claves nuevas | `pipeline.rs`, lo de T |
-| **P. Empaquetado y documentación** | `packaging/**`; `scripts/build-release-linux.sh`; `.github/workflows/**` (uno nuevo para Rust; el de wheels queda hasta la decisión 1); `README.md`; `docs/user/**`; `mkdocs.yml`; los íconos de `data/` | el código, la versión y el `CHANGELOG.md` |
+| **P. Empaquetado y documentación** | `packaging/**`; `scripts/build-release-linux.sh`; `.github/workflows/**` (borra el de wheels y agrega el de Rust); `README.md`; `docs/user/**`; `mkdocs.yml`; los íconos de `data/` | el código, la versión y el `CHANGELOG.md` |
 | **Revisor** | Los dos `Cargo.toml` (el del workspace y el de cada crate), `package.json`, los dos archivos de bloqueo (`Cargo.lock` y `package-lock.json`), la versión, `CHANGELOG.md`, `assets/tailwind.css`, los tipos de `state/mod.rs`, `proto`, el resto de `app.rs`, y lo que esté en la lista de abajo como «Revisor» | — |
 
 Orden de integración: **M → T → Y → P**, como en 5.6. Ya agregué `notify-rust` al `Cargo.toml`
@@ -197,7 +197,7 @@ una sección «Cambios respecto de la 1.x» del README.
 
 | # | La 1.x | Hoy en la 2.0 | Quién |
 | --- | --- | --- | --- |
-| 46 | `.desktop`, íconos, pipx y wheels | Falta | P (con la decisión 1) |
+| 46 | `.desktop`, íconos, pipx y wheels | Falta | P (mismo paquete de AUR que la 1.x) |
 | 47 | Los efectos MagpieFX se instalan con el paquete | `builtin_dir` usa la ruta del repo de la compilación o `/usr/share/lirtup/effects` | P: instalarlos en `/usr/share/lirtup/effects` (AUR) y dentro de la AppImage (`$APPDIR`); el revisor agrega `LIRTUP_DATA_DIR` si la AppImage lo necesita |
 | 48 | README y `docs/user` de `upscale` | Falta | P: `lirtup run/serve/ctl/list/bench/migrate`, las filas «Distinto a propósito» y lo de Vulkan bajo XWayland |
 
