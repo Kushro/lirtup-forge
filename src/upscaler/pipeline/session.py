@@ -162,6 +162,7 @@ def create_pipeline_session(
     hotkey_manager.toggle_scaling.connect(controller.toggle_overlay)
     hotkey_manager.exit_app.connect(on_exit or controller.exit_app)
     hotkey_manager.screenshot.connect(controller.take_screenshot)
+    hotkey_manager.toggle_stats.connect(pipeline.stats.toggle)
     hotkey_manager.cycle_model.connect(controller.switch_model)
     hotkey_manager.cycle_geometry.connect(controller.switch_geometry)
     hotkey_manager.restore_view.connect(controller.restore_view)

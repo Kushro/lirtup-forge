@@ -145,6 +145,7 @@ class Config:
         screenshot_filename: Filename template for screenshots.
         show_osd: If True, show on-screen display messages.
         osd_duration: How long OSD messages stay visible.
+        show_stats: If True, start with the stats panel visible (experimental).
         max_fps: Maximum pipeline frames per second.
         present_on_change_only: If True, skip presents while the target
             window has no new frame (for frame generation layers).
@@ -309,6 +310,7 @@ class Config:
     # OSD
     show_osd: bool = True
     osd_duration: float = 1.5
+    show_stats: bool = False
 
     # Vulkan
     max_fps: Optional[int] = None

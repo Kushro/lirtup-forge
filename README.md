@@ -34,6 +34,7 @@ A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It u
 - **Tile-Based processing** that upscales only the frame regions that change, reducing GPU load for mostly static content.
 - **Customizable output geometry**: scaling mode (fit, stretch, cover), offset, crop and zoom.
 - **Input forwarding** as if interacting directly with the original window.
+- **Stats panel** (experimental), like mpv's stats page: frame rates, GPU times and the active processing chain, toggled with Alt+Shift+I.
 - **Frame generation** through [lsfg-vk](https://lsfg-vk.dev) (×2 to ×5), see [below](#frame-generation).
 - **Magpie effects** with a choice of engine: a few effects ported by hand, or 86 effects from [Magpie](https://github.com/Blinue/Magpie) run unmodified by a MagpieFX loader (see below).
 
@@ -175,6 +176,27 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
   numbers.
 - FP16 (`//!CAPABILITY FP16`), which is currently ignored.
 - More native ports, where the effort pays off.
+
+## Stats panel
+
+An experimental panel in the top-left corner of the overlay, in the spirit of
+mpv's stats page. Show or hide it with **Alt+Shift+I** (the `toggle_stats`
+hotkey), start with it visible with `--show-stats` or `show_stats: true`, or
+tick *Extras* > *Stats panel* in the GUI. It refreshes twice per second and
+shows:
+
+- **Game**: new frames per second from the target window, and how often the
+  window is polled.
+- **Shown**: frames presented per second, and the CPU time of a full render.
+- **Frame gen**: the lsfg-vk multiplier and an estimate of the output rate.
+  The frames lsfg-vk adds are generated after the app presents, so they are
+  not counted here; MangoHud (`MANGOHUD=1`) measures them.
+- **Source**, **Upscale**, **Effects** (each with its GPU time), **Output**,
+  **Post**, **Present** and **Profile**: the processing chain in order.
+
+While the panel is visible, the Magpie effects are timed with GPU timestamp
+queries, which cost a little. With frame generation on, each panel refresh
+presents one extra frame.
 
 ## Frame generation
 

@@ -29,6 +29,7 @@ from ..magpiefx import MagpieEffect, MagpieFXError
 from ..magpiefx.spec import EffectSpec, parse_effect_chain
 from ..utils import calculate_scaling_rect
 from ..vulkan import Texture2D, R16G16B16A16_FLOAT
+from .stats import StatsHUD
 
 if TYPE_CHECKING:
     from .osd import OSDManager
@@ -81,6 +82,7 @@ class Presenter:
         config: Config,
         osd_manager: OSDManager,
         swapchain_manager: SwapchainManager,
+        stats_hud: Optional[StatsHUD] = None,
     ) -> None:
         # --- dimensions & layout ------------------------------------------------
         self.screen_width = screen_width
@@ -96,6 +98,7 @@ class Presenter:
         self.config = config
         self.osd = osd_manager
         self.swapchain = swapchain_manager
+        self.stats = stats_hud
 
         # --- Screen texture (rendered by Lanczos and all post-FX) ---------------
         self.screen_tex = Texture2D(
@@ -293,7 +296,9 @@ class Presenter:
         # ---- Film grain -----------------------------------------------------
         self._apply_grain_if_enabled()
 
-        # ---- OSD blend ------------------------------------------------------
+        # ---- Stats panel and OSD blend ---------------------------------------
+        if self.stats is not None:
+            self.stats.blend(self.screen_tex_8bit)
         self.osd.blend_active(self.screen_tex_8bit)
 
         # ---- Swapchain present ----------------------------------------------
@@ -691,7 +696,8 @@ class Presenter:
         if not sequence:
             return src
 
-        result = sequence[0][0].dispatch_sequence(sequence, timestamps=_EFFECT_TIMING)
+        timing = _EFFECT_TIMING or self._stats_visible()
+        result = sequence[0][0].dispatch_sequence(sequence, timestamps=timing)
         if result is not None:
             self._record_effect_times(labels, result[1])
         return src
@@ -704,6 +710,11 @@ class Presenter:
             start, end = ts[3 + 2 * i], ts[4 + 2 * i]
             span = spans.setdefault(label, [start, end])
             span[0], span[1] = min(span[0], start), max(span[1], end)
+        if self.stats is not None:
+            for label, (start, end) in spans.items():
+                self.stats.set_gpu_ms(label, (end - start) / 1e6)
+        if not _EFFECT_TIMING:
+            return
         for label, (start, end) in spans.items():
             self._effect_times[label] = self._effect_times.get(label, 0.0) + (
                 end - start
@@ -790,13 +801,15 @@ class Presenter:
             del specs[failed]
         self._magpie_stats = []
         self._magpie_stats_since = time.perf_counter()
+        if self.stats is not None:
+            self.stats.clear_gpu_ms()  # the fx<i> labels moved
 
     def _apply_magpiefx_effects(self, src: Texture2D) -> Texture2D:
         """Run the MagpieFX chain; each effect's OUTPUT feeds the next one."""
         if not self._magpie:
             return src
 
-        profile = self.config.magpie_profile
+        profile = self.config.magpie_profile or self._stats_visible()
         if len(self._magpie_stats) != len(self._magpie):
             self._magpie_stats = [[] for _ in self._magpie]
 
@@ -827,9 +840,13 @@ class Presenter:
                 return input_tex
             if profile:
                 self._magpie_stats[i].append(sum(fx.last_gpu_ms))
+                if self.stats is not None:
+                    self.stats.set_gpu_ms(f"fx{i}", sum(fx.last_gpu_ms))
 
-        if profile:
+        if self.config.magpie_profile:
             self._log_magpie_stats()
+        elif profile:
+            self._magpie_stats = [[] for _ in self._magpie]
         return src
 
     def _log_magpie_stats(self, interval: float = 5.0) -> None:
@@ -849,6 +866,22 @@ class Presenter:
         )
         self._magpie_stats = [[] for _ in self._magpie]
         self._magpie_stats_since = now
+
+    def _stats_visible(self) -> bool:
+        return self.stats is not None and self.stats.visible
+
+    def active_effects(self) -> List[Tuple[str, str]]:
+        """(display name, GPU-time label) of the Magpie effects that run."""
+        if self.config.effects_engine == "magpiefx":
+            return [(fx.desc.name, f"fx{i}") for i, fx in enumerate(self._magpie)]
+        effects = []
+        if self._anime4k is not None:
+            effects.append(("Anime4K_Upscale_S", "anime4k"))
+        if self._luma_sharpen is not None:
+            effects.append(("LumaSharpen", "luma_sharpen"))
+        if self._crt is not None:
+            effects.append(("CRT_Easymode", "crt_easymode"))
+        return effects
 
     def _apply_cas_if_enabled(self) -> None:
         if self._cas is not None and self.config.cas_enabled:

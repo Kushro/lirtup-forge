@@ -10,6 +10,7 @@ DEFAULT_HOTKEYS: Dict[str, str] = {
     "toggle_scaling": "Alt+Shift+S",
     "exit_app": "Alt+Shift+Escape",
     "screenshot": "Alt+Shift+P",
+    "toggle_stats": "Alt+Shift+I",
     "cycle_model": "Alt+Shift+M",
     "cycle_geometry": "Alt+Shift+G",
     "restore_view": "Alt+Shift+R",
@@ -22,7 +23,7 @@ DEFAULT_HOTKEYS: Dict[str, str] = {
 }
 
 HOTKEY_GROUPS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
-    ("session", ("toggle_scaling", "exit_app", "screenshot")),
+    ("session", ("toggle_scaling", "exit_app", "screenshot", "toggle_stats")),
     ("view", ("cycle_model", "cycle_geometry", "restore_view")),
     ("zooming", ("zoom_in", "zoom_out")),
     ("panning", ("offset_left", "offset_right", "offset_up", "offset_down")),
