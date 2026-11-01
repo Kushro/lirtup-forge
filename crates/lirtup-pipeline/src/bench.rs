@@ -71,7 +71,7 @@ const RESULTS_VERSION: u64 = 1;
 pub struct BenchCase {
     /// Native, MagpieFX or frame generation.
     pub kind: BenchKind,
-    /// Effect name, or the frame generation key (`x2-flow1.0-quality`, as
+    /// Effect name, or the frame generation key (`x2 flow 1.0 quality`, as
     /// `framegen_key` of 1.x).
     ///
     /// The key is spelled as 1.x writes it in `bench.json`
@@ -342,8 +342,12 @@ struct LsfgRunner {
 
 impl LsfgRunner {
     fn new(device: &Arc<Device>, frames: &[Texture; 2], dll: &Path, case: &BenchCase) -> Result<LsfgRunner> {
-        let (multiplier, flow_scale, performance) = parse_framegen_key(&case.name)
-            .ok_or_else(|| PipelineError::other(Stage::FrameGen, format!("bad frame generation case {}", case.name)))?;
+        let (multiplier, flow_scale, performance) = parse_framegen_key(&case.name).ok_or_else(|| {
+            PipelineError::other(
+                Stage::FrameGen,
+                format!("bad frame generation case {}", case.name),
+            )
+        })?;
         let info = device.info();
         if !info.supports_external_fd {
             return Err(PipelineError::other(
@@ -385,7 +389,10 @@ impl LsfgRunner {
             .collect::<lirtup_gpu::Result<Vec<_>>>()?;
         let context = engine.create_context(
             [inputs[0].export_fd()?, inputs[1].export_fd()?],
-            outputs.iter().map(ExternalTexture::export_fd).collect::<lirtup_gpu::Result<_>>()?,
+            outputs
+                .iter()
+                .map(ExternalTexture::export_fd)
+                .collect::<lirtup_gpu::Result<_>>()?,
             w,
             h,
             VK_FORMAT_R8G8B8A8_UNORM,
@@ -434,7 +441,10 @@ impl Runner for LsfgRunner {
         )?;
         copy.wait(LSFG_TIMEOUT_NS)?;
         done.wait(LSFG_TIMEOUT_NS).map_err(|e| {
-            PipelineError::other(Stage::FrameGen, format!("lsfg did not finish a generated frame in time ({e})"))
+            PipelineError::other(
+                Stage::FrameGen,
+                format!("lsfg did not finish a generated frame in time ({e})"),
+            )
         })?;
         self.frame += 1;
         Ok(start.elapsed().as_secs_f64() * 1000.0)
@@ -521,7 +531,10 @@ impl Backend<'_> {
             )
         });
         if compilers.is_empty() {
-            return Err(PipelineError::other(Stage::Effects, "no HLSL compiler found (dxc or glslang)"));
+            return Err(PipelineError::other(
+                Stage::Effects,
+                "no HLSL compiler found (dxc or glslang)",
+            ));
         }
         let entry = catalog.resolve(name)?;
         // As the presenter runs it: BGRA input, the swap folded in.
@@ -777,9 +790,7 @@ pub fn save_results(path: &Path, report: &BenchReport) -> Result<()> {
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .expect("checked by load_results");
-    let entry = gpus
-        .entry(report.gpu.clone())
-        .or_insert_with(|| json!({}));
+    let entry = gpus.entry(report.gpu.clone()).or_insert_with(|| json!({}));
     if !entry.is_object() {
         *entry = json!({});
     }
@@ -910,8 +921,14 @@ mod tests {
 
     fn request(framegen: bool, effects: &[&str]) -> BenchRequest {
         BenchRequest {
-            src: Size { width: 1280, height: 720 },
-            dst: Size { width: 2560, height: 1440 },
+            src: Size {
+                width: 1280,
+                height: 720,
+            },
+            dst: Size {
+                width: 2560,
+                height: 1440,
+            },
             mode: None,
             effects: effects.iter().map(|s| (*s).to_owned()).collect(),
             framegen,
@@ -923,7 +940,10 @@ mod tests {
     fn cases_follow_the_1x_order() {
         let cases = build_cases(&request(true, &["CAS", "FSR", "CAS"]));
         let names: Vec<&str> = cases.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(&names[..5], ["LumaSharpen", "Anime4K_Upscale_S", "CRT_Easymode", "CAS", "FSR"]);
+        assert_eq!(
+            &names[..5],
+            ["LumaSharpen", "Anime4K_Upscale_S", "CRT_Easymode", "CAS", "FSR"]
+        );
         assert_eq!(cases.len(), 5 + 12);
         assert_eq!(names[5], "x2 flow 1.0 quality");
         assert_eq!(names[7], "x4 flow 1.0 quality");
@@ -990,7 +1010,10 @@ mod tests {
         let gpu = "1002:73bf:AMD Radeon RX 6800".to_owned();
         let first = BenchReport {
             gpu: gpu.clone(),
-            entries: vec![entry("CAS", Some(0.123_456), None), entry("Bad", None, Some("boom"))],
+            entries: vec![
+                entry("CAS", Some(0.123_456), None),
+                entry("Bad", None, Some("boom")),
+            ],
             cancelled: false,
         };
         save_results(&path, &first).unwrap();

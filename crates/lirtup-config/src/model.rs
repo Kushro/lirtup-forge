@@ -295,7 +295,8 @@ pub enum Geometry {
     Cover,
     /// Scale by a percentage; `force` is the trailing `!`.
     Percent {
-        /// Percentage, 100 = source size.
+        /// Percentage of the monitor, 100 = the monitor size (as 1.x
+        /// `parse_output_geometry`).
         percent: f32,
         /// Ignore the monitor bounds.
         force: bool,
