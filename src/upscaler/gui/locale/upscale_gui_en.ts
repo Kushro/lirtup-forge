@@ -1623,7 +1623,39 @@ Read at startup: restart to apply.</source>
         <comment>Description of a setting (tooltip)</comment>
         <translation type="unfinished" />
     </message>
-  </context>
+      <message>
+        <source>lsfg-vk layer</source>
+        <comment>Frame generation engine</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Built in (experimental)</source>
+        <comment>Frame generation engine</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Engine</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk layer: the installed lsfg-vk Vulkan layer generates frames over the upscaler's window (needs lsfg-vk.dll).
+Built in: the upscaler runs the lsfg core itself on the same GPU and paces the frames (needs Lossless.dll; no layer).
+Read at startup: restart to apply.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The built-in engine is not part of this installation.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Lossless.dll was not found. Install Lossless Scaling from Steam, or set the path of Lossless.dll.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+</context>
   <context>
     <name>ProfileActions</name>
     <message>
@@ -2858,6 +2890,16 @@ Use Stop from the tray menu to return.</source>
     </message>
     <message>
         <source>Choosing one restarts LirtUp Forge</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Built-in engine not installed</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Lossless.dll not found</source>
         <comment>Tray menu note</comment>
         <translation type="unfinished" />
     </message>

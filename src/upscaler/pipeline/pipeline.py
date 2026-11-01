@@ -842,7 +842,21 @@ class Pipeline(QObject):
         ]
 
         status = framegen.status()
-        if status == framegen.FrameGenStatus.ACTIVE:
+        native = self.presenter.frame_gen
+        if native is not None:
+            m = native.settings.multiplier
+            if native.enabled:
+                shaders = {True: "FP16", False: "FP32"}.get(native.fp16, "")
+                rows.append(
+                    (
+                        "Frame gen",
+                        f"x{m} built-in {shaders}  ~{new_frames * m:.0f} fps, "
+                        f"pacing {native.interval * 1000:.1f} ms",
+                    )
+                )
+            else:
+                rows.append(("Frame gen", f"x{m} built-in failed, off", True))
+        elif status == framegen.FrameGenStatus.ACTIVE:
             m = framegen.active_multiplier()
             rows.append(("Frame gen", f"x{m} lsfg-vk  ~{new_frames * m:.0f} fps est."))
         elif status == framegen.FrameGenStatus.EXTERNAL:

@@ -354,6 +354,38 @@ class Device:
     def is_discrete(self) -> bool:
         return bool(self._handle.is_discrete)
 
+    @property
+    def supports_fp16(self) -> bool:
+        """True if shaders can use 16-bit floats."""
+        return bool(self._handle.supports_fp16)
+
+    @property
+    def supports_external_fd(self) -> bool:
+        """True if memory and semaphores can be shared with another device by fd."""
+        return bool(self._handle.supports_external_fd)
+
+    def create_external_semaphore(self) -> int:
+        """Create an exportable binary semaphore and return its handle."""
+        return self._handle.create_external_semaphore()
+
+    def destroy_semaphore(self, handle: int) -> None:
+        """Destroy a semaphore from :meth:`create_external_semaphore`."""
+        self._handle.destroy_semaphore(handle)
+
+    def export_semaphore_fd(self, handle: int) -> int:
+        """A new opaque fd for a semaphore; the receiver takes ownership."""
+        return self._handle.export_semaphore_fd(handle)
+
+    def copy_texture_signal(
+        self, src: "Texture2D", dst: "Texture2D", semaphore: int
+    ) -> None:
+        """Copy *src* into *dst* after the work already submitted, then signal."""
+        self._handle.copy_texture_signal(src._handle, dst._handle, semaphore)
+
+    def wait_semaphore(self, handle: int, timeout_ns: int = 1_000_000_000) -> bool:
+        """Block until another device signals *handle*. False on timeout."""
+        return self._handle.wait_semaphore(handle, timeout_ns)
+
     def set_buffer_pool_size(self, size: int) -> None:
         """Set the number of reusable staging buffers."""
         self._handle.set_buffer_pool_size(size)
@@ -774,6 +806,24 @@ class Texture2D(Resource):
         self = cls.__new__(cls)
         self._handle = handle
         return self
+
+    @classmethod
+    def external(
+        cls,
+        width: int,
+        height: int,
+        format: int = R8G8B8A8_UNORM,
+        device: Optional[Device] = None,
+    ) -> "Texture2D":
+        """A texture whose memory can be shared by fd (:meth:`export_memory_fd`)."""
+        dev = device or get_current_device()
+        return cls.from_handle(
+            dev._handle.create_texture2d_external(width, height, format)
+        )
+
+    def export_memory_fd(self) -> int:
+        """A new opaque fd for this texture's memory; the receiver takes ownership."""
+        return self._handle.export_memory_fd()
 
     @property
     def width(self) -> int:

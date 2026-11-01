@@ -40,6 +40,7 @@ ZOOM_LEVELS = tuple(f"{level}%" for level in range(50, 801, 25))
 
 
 EFFECTS_ENGINES = ("native", "magpiefx")
+FRAME_GEN_ENGINES = ("layer", "native")
 
 
 class OverlayMode(str, Enum):
@@ -154,7 +155,10 @@ class Config:
         frame_gen_multiplier: lsfg-vk frames per captured frame (1 = off).
         frame_gen_flow_scale: lsfg-vk optical flow resolution (0.25-1.0).
         frame_gen_performance: If True, use the lighter lsfg-vk model.
-        frame_gen_dll: Folder holding lsfg-vk.dll (None = search Steam).
+        frame_gen_dll: Folder holding lsfg-vk.dll, or Lossless.dll for the
+            native engine (None = search Steam).
+        frame_gen_engine: "layer" (the lsfg-vk Vulkan layer) or "native"
+            (lsfg built in, experimental).
         vulkan_present_mode: Vulkan presentation mode (fifo, mailbox, immediate).
         frame_timeout: GPU frame fence timeout in nanoseconds.
         use_tile_processing: If True, enable tile-based processing.
@@ -324,6 +328,7 @@ class Config:
     frame_gen_flow_scale: float = 1.0
     frame_gen_performance: bool = False
     frame_gen_dll: Optional[str] = None
+    frame_gen_engine: str = "layer"
     vulkan_present_mode: str = VulkanPresentMode.FIFO.value
     frame_timeout: int = 1_000_000_000
 

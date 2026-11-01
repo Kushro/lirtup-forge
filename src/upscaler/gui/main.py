@@ -809,6 +809,10 @@ class MainWindow(QMainWindow):
         return self._config_manager.effective_config.frame_gen_dll
 
     @property
+    def frame_gen_engine(self) -> str:
+        return self._config_manager.effective_config.frame_gen_engine
+
+    @property
     def profile_names(self) -> List[str]:
         return list(self._config_manager.profiles)
 

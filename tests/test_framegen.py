@@ -109,3 +109,57 @@ def test_own_variables_are_replaced_on_relaunch(layer, isolated_home):
 def test_invalid_options_fall_back_to_off():
     status = framegen.prepare_from_options({"frame_gen_multiplier": "lots"})
     assert status == FrameGenStatus.OFF
+
+
+# ----------------------------------------------------------------------
+# Native engine
+# ----------------------------------------------------------------------
+def _native_dll(root):
+    app = root / "steamapps/common" / framegen.STEAM_APP_DIR
+    app.mkdir(parents=True, exist_ok=True)
+    dll = app / framegen.NATIVE_DLL_NAME
+    dll.write_bytes(b"MZ")
+    return dll
+
+
+def test_find_native_dll_in_steam(isolated_home):
+    dll = _native_dll(isolated_home / ".local/share/Steam")
+    assert framegen.find_dll(native=True) == dll
+
+
+def test_find_native_dll_override_takes_the_file(tmp_path):
+    dll = tmp_path / "copy-of-Lossless.dll"
+    dll.write_bytes(b"MZ")
+    assert framegen.find_dll(str(dll), native=True) == dll
+
+
+def test_native_without_extension(monkeypatch):
+    monkeypatch.setattr(framegen, "native_available", lambda: False)
+    assert framegen.prepare(2, engine="native") == FrameGenStatus.NO_NATIVE
+    assert os.environ["DISABLE_LSFGVK"] == "1"
+    assert framegen.native_settings() is None
+
+
+def test_native_without_dll(monkeypatch):
+    monkeypatch.setattr(framegen, "native_available", lambda: True)
+    assert framegen.prepare(2, engine="native") == FrameGenStatus.NO_DLL
+
+
+def test_native_active_keeps_the_layer_off(monkeypatch, isolated_home):
+    monkeypatch.setattr(framegen, "native_available", lambda: True)
+    dll = _native_dll(isolated_home / ".local/share/Steam")
+    status = framegen.prepare(3, flow_scale=0.5, engine="native")
+    assert status == FrameGenStatus.ACTIVE
+    assert framegen.engine() == "native"
+    assert os.environ["DISABLE_LSFGVK"] == "1"
+    assert "LSFGVK_CONFIG" not in os.environ
+    assert framegen.native_settings() == framegen.NativeSettings(dll, 3, 0.5, False)
+    assert framegen.active_multiplier() == 3
+
+
+def test_native_extension_rejects_a_bad_dll(tmp_path):
+    lsfg = pytest.importorskip("upscaler.lsfg.lsfg")
+    fake = tmp_path / "Lossless.dll"
+    fake.write_bytes(b"not a PE file")
+    assert lsfg.probe(str(fake)) == "dll_unreadable"
+    assert lsfg.probe(str(tmp_path / "missing.dll")) == "dll_unreadable"

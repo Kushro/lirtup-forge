@@ -170,6 +170,11 @@ void vk_Device_dealloc(vk_Device *self) {
       PyMem_Free(self->staging_pool.sizes);
     }
 
+    if (self->ext_fence)
+      vkDestroyFence(self->device, self->ext_fence, nullptr);
+    if (self->ext_cmd)
+      vkFreeCommandBuffers(self->device, self->command_pool, 1,
+                           &self->ext_cmd);
     if (self->internal_cmd_buffer)
       vkFreeCommandBuffers(self->device, self->command_pool, 1,
                            &self->internal_cmd_buffer);
@@ -252,6 +257,27 @@ vk_Device *vk_Device_get_initialized(vk_Device *self) {
   if (vk_supports_swapchain)
     extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
+  // Optional: share frames with the native frame generation engine
+  uint32_t ext_count = 0;
+  vkEnumerateDeviceExtensionProperties(phys, nullptr, &ext_count, nullptr);
+  std::vector<VkExtensionProperties> available(ext_count);
+  vkEnumerateDeviceExtensionProperties(phys, nullptr, &ext_count,
+                                       available.data());
+  auto has_extension = [&](const char *name) {
+    for (const auto &ext : available)
+      if (std::strcmp(ext.extensionName, name) == 0)
+        return true;
+    return false;
+  };
+  self->supports_external_fd =
+      has_extension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) &&
+      has_extension(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
+  if (self->supports_external_fd) {
+    extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+    extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
+  }
+  self->supports_fp16 = features12.shaderFloat16;
+
   // Enable features that are actually available
   VkPhysicalDeviceFeatures enabled_features = {};
   enabled_features.shaderStorageImageReadWithoutFormat =
@@ -277,6 +303,15 @@ vk_Device *vk_Device_get_initialized(vk_Device *self) {
 
   vkGetDeviceQueue(self->device, qf_index, 0, &self->queue);
 
+  if (self->supports_external_fd) {
+    self->get_memory_fd = reinterpret_cast<PFN_vkGetMemoryFdKHR>(
+        vkGetDeviceProcAddr(self->device, "vkGetMemoryFdKHR"));
+    self->get_semaphore_fd = reinterpret_cast<PFN_vkGetSemaphoreFdKHR>(
+        vkGetDeviceProcAddr(self->device, "vkGetSemaphoreFdKHR"));
+    self->supports_external_fd =
+        self->get_memory_fd != nullptr && self->get_semaphore_fd != nullptr;
+  }
+
   // ---- Command pool (one for the whole device) ----
   VkCommandPoolCreateInfo pinfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   pinfo.queueFamilyIndex = qf_index;
@@ -290,6 +325,11 @@ vk_Device *vk_Device_get_initialized(vk_Device *self) {
   ainfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   ainfo.commandBufferCount = 1;
   vkAllocateCommandBuffers(self->device, &ainfo, &self->internal_cmd_buffer);
+  if (self->supports_external_fd) {
+    vkAllocateCommandBuffers(self->device, &ainfo, &self->ext_cmd);
+    VkFenceCreateInfo finfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    vkCreateFence(self->device, &finfo, nullptr, &self->ext_fence);
+  }
 
   // ---- Pipeline cache (shared across all pipelines) ----
   VkPipelineCacheCreateInfo cinfo = {
@@ -1006,6 +1046,31 @@ static PyMethodDef vk_Device_methods[] = {
      "timeout_ns (int, default UINT64_MAX).\n"
      "Returns True if signalled, False on timeout."},
 
+    {"create_texture2d_external",
+     (PyCFunction)vk_Device_create_texture2d_external, METH_VARARGS,
+     "Create a 2D texture whose memory can be exported as an fd.\n\n"
+     "Args: width, height, format."},
+
+    {"create_external_semaphore",
+     (PyCFunction)vk_Device_create_external_semaphore, METH_NOARGS,
+     "Create an exportable binary semaphore; returns its handle (int)."},
+
+    {"destroy_semaphore", (PyCFunction)vk_Device_destroy_semaphore,
+     METH_VARARGS, "Destroy a semaphore handle (waits for the queue)."},
+
+    {"export_semaphore_fd", (PyCFunction)vk_Device_export_semaphore_fd,
+     METH_VARARGS, "Return a new opaque fd for a semaphore handle."},
+
+    {"copy_texture_signal", (PyCFunction)vk_Device_copy_texture_signal,
+     METH_VARARGS,
+     "Copy a texture into another and signal a semaphore when done.\n\n"
+     "Args: src, dst, semaphore (handle)."},
+
+    {"wait_semaphore", (PyCFunction)vk_Device_wait_semaphore, METH_VARARGS,
+     "Block until a semaphore is signalled.\n\n"
+     "Args: semaphore (handle), timeout_ns (default 1 s). "
+     "Returns False on timeout."},
+
     {nullptr, nullptr, 0, nullptr}};
 
 static PyMemberDef vk_Device_members[] = {
@@ -1026,6 +1091,12 @@ static PyMemberDef vk_Device_members[] = {
      "True if the device is a hardware GPU (not CPU or virtual)."},
     {"is_discrete", T_BOOL, offsetof(vk_Device, is_discrete), 0,
      "True if the device is a discrete GPU (separate card)."},
+    {"supports_fp16", T_BOOL, offsetof(vk_Device, supports_fp16), 0,
+     "True if shaders can use 16-bit floats (valid after initialization)."},
+    {"supports_external_fd", T_BOOL, offsetof(vk_Device, supports_external_fd),
+     0,
+     "True if memory and semaphores can be shared by fd (valid after "
+     "initialization)."},
     {nullptr}};
 
 PyTypeObject vk_Device_Type = {

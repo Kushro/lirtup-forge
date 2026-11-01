@@ -6,6 +6,8 @@ recursive-include src/upscaler/gui/locale *.qm
 recursive-include src/upscaler/shaders *.spv
 recursive-include src/upscaler/srcnn *.json *.spv
 recursive-include src/upscaler/vulkan/lib *.cpp *.h
+recursive-include src/upscaler/lsfg/lib *.cpp *.h
+recursive-include src/upscaler/lsfg/third_party *.c *.cpp *.h *.hpp *.md LICENSE
 prune docs
 prune scripts
 prune src/upscaler/srcnn/**/*.hlsl

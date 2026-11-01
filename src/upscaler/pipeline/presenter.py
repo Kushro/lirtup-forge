@@ -25,9 +25,11 @@ from ..shaders import (
     NISScaler,
     Vignette,
 )
+from .. import framegen
 from ..magpiefx import MagpieEffect, MagpieFXError
 from ..magpiefx.spec import EffectSpec, parse_effect_chain
 from ..utils import calculate_scaling_rect
+from .native_framegen import NativeFrameGen
 from ..vulkan import Texture2D, R16G16B16A16_FLOAT
 from .stats import StatsHUD
 
@@ -99,6 +101,12 @@ class Presenter:
         self.osd = osd_manager
         self.swapchain = swapchain_manager
         self.stats = stats_hud
+
+        # Native frame generation (frame_gen_engine "native"), see present()
+        settings = framegen.native_settings()
+        self.frame_gen: Optional[NativeFrameGen] = (
+            NativeFrameGen(settings) if settings is not None else None
+        )
 
         # --- Screen texture (rendered by Lanczos and all post-FX) ---------------
         self.screen_tex = Texture2D(
@@ -302,7 +310,13 @@ class Presenter:
         self.osd.blend_active(self.screen_tex_8bit)
 
         # ---- Swapchain present ----------------------------------------------
-        self.swapchain.present(self.screen_tex_8bit, wait_for_fence=wait_for_fence)
+        if self.frame_gen is not None:
+            # Generated frames first, paced over the game's frame interval
+            self.frame_gen.present(self.screen_tex_8bit, self.swapchain)
+        else:
+            self.swapchain.present(
+                self.screen_tex_8bit, wait_for_fence=wait_for_fence
+            )
 
         # ---- Advance frame counter ------------------------------------------
         self._frame_counter += 1
@@ -451,6 +465,9 @@ class Presenter:
 
     def close(self) -> None:
         """Release all GPU resources while the Vulkan device is still alive."""
+        if self.frame_gen is not None:
+            self.frame_gen.close()
+            self.frame_gen = None
         self._copy = None
         self._upsampler = None
         self._downsampler = None

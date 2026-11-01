@@ -469,9 +469,15 @@ class TrayController(QObject):
             note.setEnabled(False)
             return
         missing = None
-        if framegen.find_layer() is None:
+        dll = self._main_window.frame_gen_dll
+        if self._main_window.frame_gen_engine == "native":
+            if not framegen.native_available():
+                missing = self.tr("Built-in engine not installed", "Tray menu note")
+            elif framegen.find_dll(dll, native=True) is None:
+                missing = self.tr("Lossless.dll not found", "Tray menu note")
+        elif framegen.find_layer() is None:
             missing = self.tr("lsfg-vk is not installed", "Tray menu note")
-        elif framegen.find_dll(self._main_window.frame_gen_dll) is None:
+        elif framegen.find_dll(dll) is None:
             missing = self.tr("lsfg-vk.dll not found", "Tray menu note")
 
         group = QActionGroup(menu)

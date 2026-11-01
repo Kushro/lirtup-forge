@@ -250,6 +250,28 @@ class PresentationTab(SettingsTab):
                 "Description of a setting (tooltip)",
             ),
         )
+        self._fg_engine_labels = {
+            "layer": self.tr("lsfg-vk layer", "Frame generation engine"),
+            "native": self.tr("Built in (experimental)", "Frame generation engine"),
+        }
+        self._fg_engine = self._add_combo(
+            self.tr("Engine", "Label of setting (must be short)"),
+            list(self._fg_engine_labels.values()),
+            self._fg_engine_labels.get(self._config.frame_gen_engine),
+            self._on_fg_engine,
+            baseline=self._fg_engine_labels.get(
+                self.baseline_config.frame_gen_engine
+            ),
+            field="frame_gen_engine",
+            help=self.tr(
+                "lsfg-vk layer: the installed lsfg-vk Vulkan layer generates "
+                "frames over the upscaler's window (needs lsfg-vk.dll).\n"
+                "Built in: the upscaler runs the lsfg core itself on the same "
+                "GPU and paces the frames (needs Lossless.dll; no layer).\n"
+                "Read at startup: restart to apply.",
+                "Description of a setting (tooltip)",
+            ),
+        )
         self._fg_flow = self._add_slider(
             self.tr("Flow scale", "Label of setting (must be short)"),
             25,
@@ -348,6 +370,13 @@ class PresentationTab(SettingsTab):
         self._update_fg_ui()
         self.config_changed.emit()
 
+    def _on_fg_engine(self, text: str) -> None:
+        for engine, label in self._fg_engine_labels.items():
+            if label == text:
+                self._config.frame_gen_engine = engine
+        self._update_fg_ui()
+        self.config_changed.emit()
+
     def _on_fg_flow_scale(self, value: float) -> None:
         self._config.frame_gen_flow_scale = round(value, 2)
         self._update_fg_ui()
@@ -360,6 +389,7 @@ class PresentationTab(SettingsTab):
 
     def _update_fg_ui(self) -> None:
         on = self._config.frame_gen_multiplier > 1
+        self._fg_engine.setEnabled(on)
         self._fg_flow.setEnabled(on)
         self._fg_performance.setEnabled(on)
         self._fg_info.setText(self._fg_info_html(on))
@@ -373,18 +403,40 @@ class PresentationTab(SettingsTab):
                 "this setting is ignored.",
                 "Frame generation status",
             )
-        if on and framegen.find_layer() is None:
+        native = self._config.frame_gen_engine == "native"
+        if on and native and not framegen.native_available():
+            return self.tr(
+                "The built-in engine is not part of this installation.",
+                "Frame generation status",
+            )
+        if (
+            on
+            and native
+            and framegen.find_dll(self._config.frame_gen_dll, native=True) is None
+        ):
+            return self.tr(
+                "Lossless.dll was not found. Install Lossless Scaling from "
+                "Steam, or set the path of Lossless.dll.",
+                "Frame generation status",
+            )
+        if on and not native and framegen.find_layer() is None:
             return self.tr(
                 "lsfg-vk is not installed.", "Frame generation status"
             )
-        if on and framegen.find_dll(self._config.frame_gen_dll) is None:
+        if (
+            on
+            and not native
+            and framegen.find_dll(self._config.frame_gen_dll) is None
+        ):
             return self.tr(
                 "lsfg-vk.dll was not found. In Steam, switch Lossless Scaling "
                 "to the 'lsfg-vk' branch (Properties, Betas).",
                 "Frame generation status",
             )
         running = framegen.active_multiplier()
-        if running != self._config.frame_gen_multiplier:
+        if running != self._config.frame_gen_multiplier or (
+            on and running > 1 and framegen.engine() != self._config.frame_gen_engine
+        ):
             if running > 1:
                 now = self.tr("Running at ×{0}.", "Frame generation status")
                 now = now.format(running)

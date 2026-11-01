@@ -1691,6 +1691,40 @@ Se lee al iniciar: reinicia para aplicarlo.</translation>
             <comment>Description of a setting (tooltip)</comment>
             <translation>Experimental. Busca durante los primeros segundos la barra de menú que los programas de Windows dibujan debajo de la barra de título (con Wine) y la recorta, además del valor de Superior.</translation>
         </message>
+    <message>
+        <source>lsfg-vk layer</source>
+        <comment>Frame generation engine</comment>
+        <translation>Capa lsfg-vk</translation>
+    </message>
+    <message>
+        <source>Built in (experimental)</source>
+        <comment>Frame generation engine</comment>
+        <translation>Integrado (experimental)</translation>
+    </message>
+    <message>
+        <source>Engine</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation>Motor</translation>
+    </message>
+    <message>
+        <source>lsfg-vk layer: the installed lsfg-vk Vulkan layer generates frames over the upscaler's window (needs lsfg-vk.dll).
+Built in: the upscaler runs the lsfg core itself on the same GPU and paces the frames (needs Lossless.dll; no layer).
+Read at startup: restart to apply.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation>Capa lsfg-vk: la capa Vulkan de lsfg-vk instalada genera cuadros sobre la ventana del escalador (necesita lsfg-vk.dll).
+Integrado: el escalador ejecuta el núcleo de lsfg en la misma GPU y reparte los cuadros (necesita Lossless.dll; sin capa).
+Se lee al iniciar: reinicia para aplicarlo.</translation>
+    </message>
+    <message>
+        <source>The built-in engine is not part of this installation.</source>
+        <comment>Frame generation status</comment>
+        <translation>El motor integrado no está en esta instalación.</translation>
+    </message>
+    <message>
+        <source>Lossless.dll was not found. Install Lossless Scaling from Steam, or set the path of Lossless.dll.</source>
+        <comment>Frame generation status</comment>
+        <translation>No se encontró Lossless.dll. Instala Lossless Scaling desde Steam o indica la ruta de Lossless.dll.</translation>
+    </message>
 </context>
 <context>
     <name>ProfileActions</name>
@@ -2958,6 +2992,16 @@ Utilice «Detener» en el menú de la bandeja para volver.</translation>
         <source>Choosing one restarts LirtUp Forge</source>
         <comment>Tray menu note</comment>
         <translation>Elegir una reinicia LirtUp Forge</translation>
+    </message>
+    <message>
+        <source>Built-in engine not installed</source>
+        <comment>Tray menu note</comment>
+        <translation>Motor integrado no instalado</translation>
+    </message>
+    <message>
+        <source>Lossless.dll not found</source>
+        <comment>Tray menu note</comment>
+        <translation>No se encontró Lossless.dll</translation>
     </message>
 </context>
 <context>

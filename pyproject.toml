@@ -76,6 +76,7 @@ where = ["src"]
 "upscaler.shaders" = ["**/*.spv"]
 "upscaler.srcnn" = ["**/*.json", "**/*.spv"]
 "upscaler.vulkan" = ["lib/*.cpp", "lib/*.h"]
+"upscaler.lsfg" = ["lib/*.cpp", "lib/*.h", "third_party/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

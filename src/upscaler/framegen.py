@@ -1,5 +1,5 @@
 """
-Frame generation through the lsfg-vk Vulkan layer.
+Frame generation with lsfg-vk, through its Vulkan layer or built in.
 
 lsfg-vk (Lossless Scaling Frame Generation on Linux) is an implicit Vulkan
 layer that generates frames between the ones an application presents. The
@@ -16,6 +16,10 @@ top of it. This module only prepares the layer for this process:
   so the user's ``~/.config/lsfg-vk/conf.toml`` is never touched. When frame
   generation is off, ``DISABLE_LSFGVK=1`` keeps the user's own lsfg-vk
   profiles from matching the Python interpreter.
+
+The "native" engine (experimental) runs the lsfg core inside the upscaler
+instead (:mod:`upscaler.lsfg`, used by the presenter). It reads the shaders
+from the classic ``Lossless.dll`` and keeps the layer disabled.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator, List, Mapping, Optional
+from typing import Any, Iterator, List, Mapping, NamedTuple, Optional
 
 from .config.yaml import default_config_path
 
@@ -33,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 LAYER_MANIFEST = "VkLayer_LSFGVK_frame_generation.json"
 DLL_NAME = "lsfg-vk.dll"
+NATIVE_DLL_NAME = "Lossless.dll"
 CONFIG_FILE = "lsfg-vk.toml"
 STEAM_APP_DIR = "Lossless Scaling"
 
@@ -50,11 +55,23 @@ class FrameGenStatus(Enum):
     NO_LAYER = "no_layer"  # lsfg-vk is not installed
     NO_DLL = "no_dll"  # lsfg-vk.dll not found
     EXTERNAL = "external"  # The user set LSFGVK_* variables themselves
+    NO_NATIVE = "no_native"  # The native engine was not built
 
 
 # Set once by prepare(), read by the pipeline and the GUI
 _status: FrameGenStatus = FrameGenStatus.OFF
 _multiplier: int = 1
+_engine: str = "layer"
+_native: Optional["NativeSettings"] = None
+
+
+class NativeSettings(NamedTuple):
+    """What the presenter needs to run the native engine."""
+
+    dll: Path
+    multiplier: int
+    flow_scale: float
+    performance: bool
 
 
 def status() -> FrameGenStatus:
@@ -70,6 +87,25 @@ def active_multiplier() -> int:
 def is_active() -> bool:
     """True when lsfg-vk generates frames over our swapchain."""
     return _status in (FrameGenStatus.ACTIVE, FrameGenStatus.EXTERNAL)
+
+
+def engine() -> str:
+    """Engine chosen by :func:`prepare`: "layer" or "native"."""
+    return _engine
+
+
+def native_settings() -> Optional[NativeSettings]:
+    """Settings of the native engine, or None when it is not the active one."""
+    return _native if _status == FrameGenStatus.ACTIVE else None
+
+
+def native_available() -> bool:
+    """True if the native engine was built with this installation."""
+    try:
+        from .lsfg import lsfg  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 # ----------------------------------------------------------------------
@@ -124,21 +160,26 @@ def _steam_libraries() -> Iterator[Path]:
                 yield lib
 
 
-def find_dll(override: Optional[str] = None) -> Optional[Path]:
+def find_dll(override: Optional[str] = None, native: bool = False) -> Optional[Path]:
     """
-    Locate ``lsfg-vk.dll``.
+    Locate ``lsfg-vk.dll`` (layer) or ``Lossless.dll`` (native engine).
 
     Args:
         override: A file or folder given by the user. lsfg-vk always loads
-            ``lsfg-vk.dll`` from the folder, so only the folder matters.
+            ``lsfg-vk.dll`` from the folder, so for the layer only the
+            folder matters; the native engine takes a file as it is.
+        native: Look for the native engine's DLL.
     """
+    name = NATIVE_DLL_NAME if native else DLL_NAME
     if override:
         path = Path(os.path.expanduser(override))
+        if native and path.is_file():
+            return path
         folder = path if path.is_dir() else path.parent
-        dll = folder / DLL_NAME
+        dll = folder / name
         return dll if dll.is_file() else None
     for lib in _steam_libraries():
-        dll = lib / "steamapps/common" / STEAM_APP_DIR / DLL_NAME
+        dll = lib / "steamapps/common" / STEAM_APP_DIR / name
         if dll.is_file():
             return dll
     return None
@@ -189,6 +230,7 @@ def prepare(
     flow_scale: float = 1.0,
     performance: bool = False,
     dll_path: Optional[str] = None,
+    engine: str = "layer",
 ) -> FrameGenStatus:
     """
     Configure lsfg-vk for this process. Must run before any Vulkan call.
@@ -197,9 +239,13 @@ def prepare(
         multiplier: Output frames per captured frame (1 = off, 2 to 5).
         flow_scale: Optical flow resolution (0.25 to 1.0).
         performance: Use the lighter model.
-        dll_path: Folder (or file inside it) holding ``lsfg-vk.dll``.
+        dll_path: Folder (or file inside it) holding ``lsfg-vk.dll``, or
+            ``Lossless.dll`` for the native engine.
+        engine: "layer" or "native".
     """
-    global _status, _multiplier
+    global _status, _multiplier, _engine, _native
+    _engine = engine
+    _native = None
 
     if os.environ.pop(_MANAGED_MARK, None):
         for var in _USER_ENV:
@@ -216,6 +262,22 @@ def prepare(
     _multiplier = multiplier
     if multiplier <= 1:
         _status = FrameGenStatus.OFF
+    elif engine == "native":
+        if not native_available():
+            _status = FrameGenStatus.NO_NATIVE
+            logger.warning("The native frame generation engine was not built")
+        elif (dll := find_dll(dll_path, native=True)) is None:
+            _status = FrameGenStatus.NO_DLL
+            logger.warning(
+                "Native frame generation needs %s (Lossless Scaling on Steam), "
+                "which was not found",
+                NATIVE_DLL_NAME,
+            )
+        else:
+            _status = FrameGenStatus.ACTIVE
+            _native = NativeSettings(dll, multiplier, flow_scale, performance)
+            logger.info("Frame generation x%d with the native engine", multiplier)
+        # The layer must not generate frames on top of ours
     elif find_layer() is None:
         _status = FrameGenStatus.NO_LAYER
         logger.warning("Frame generation needs lsfg-vk, which is not installed")
@@ -258,6 +320,7 @@ def prepare_from_options(options: Mapping[str, Any]) -> FrameGenStatus:
             float(opt("frame_gen_flow_scale")),
             bool(opt("frame_gen_performance")),
             opt("frame_gen_dll"),
+            str(opt("frame_gen_engine")),
         )
     except (TypeError, ValueError):
         logger.warning("Invalid frame generation options, frame generation is off")
