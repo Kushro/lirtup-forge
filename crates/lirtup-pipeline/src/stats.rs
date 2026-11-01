@@ -9,7 +9,9 @@
 //!   ([`crate::latency`]) and, every `sample_interval`, returns the
 //!   [`StatsSample`] the session thread sends as `Event::Stats`.
 //! - [`StatsPanel`] draws the panel (`show_stats`, `ToggleStats`) from the
-//!   same sample, so the GUI and the panel show the same numbers.
+//!   same sample, so the GUI and the panel show the same numbers. Since
+//!   round 4 (front T) it is drawn with `lirtup_effects::ui_draw` on the
+//!   dark glass of the design, in JetBrains Mono.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -18,13 +20,14 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, TrySendError};
 use lirtup_effects::Pass;
-use lirtup_effects::osd::{OverlayBlend, TextRenderer, TextStyle};
+use lirtup_effects::ui_draw::{Shape, UiDraw, UiFont};
 use lirtup_gpu::{Device, Texture, Timestamps};
 use lirtup_proto::{GpuWarning, KindLatency, StageTime, StatsSample};
 
 use crate::Result;
 use crate::latency::LatencyLog;
-use crate::osd::{Canvas, load_font};
+use crate::tokens::{Scheme, color};
+use crate::toolbar::{ui_fonts, ui_scale};
 
 /// Seconds of history behind each rate (1.x `_WINDOW`).
 const WINDOW: Duration = Duration::from_secs(1);
@@ -373,10 +376,10 @@ fn smooth(old: f64, new: f64) -> f64 {
     old * (1.0 - GPU_SMOOTHING) + new * GPU_SMOOTHING
 }
 
-/// The OSD and the panel draw after the effects and do not count against
-/// the budget.
+/// The OSD, the panel and the bar over the game draw after the effects and
+/// do not count against the budget.
 fn is_overlay(label: &str) -> bool {
-    label == "osd"
+    label == "osd" || label == "toolbar"
 }
 
 /// Mean and 95th percentile (1.x `summarize`: the value at rank
@@ -604,29 +607,22 @@ fn panel_rows(sample: &StatsSample, context: &PanelContext) -> Vec<Row> {
     rows
 }
 
-/// Monospace fonts of the panel, in order (1.x `_FONTS`).
-const PANEL_FONTS: &[&str] = &[
-    "DejaVuSansMono.ttf",
-    "LiberationMono-Regular.ttf",
-    "NotoSansMono-Regular.ttf",
-];
-/// Pixels from the top-left corner of the screen.
-const MARGIN: u32 = 12;
-const LABEL_COLOR: [f32; 4] = [150.0 / 255.0, 200.0 / 255.0, 1.0, 1.0];
-const VALUE_COLOR: [f32; 4] = [1.0; 4];
-const WARNING_COLOR: [f32; 4] = [1.0, 110.0 / 255.0, 90.0 / 255.0, 1.0];
-const BG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 170.0 / 255.0];
-
-/// 1.x: 1.6 % of the screen height, at least 12 px.
-fn panel_font_size(screen_height: u32) -> u32 {
-    ((screen_height as f32 * 0.016) as u32).max(12)
-}
+/// CSS px of the panel (the «Superposición» artboard): left and top (under
+/// the bar), padding, corner, text size and line height.
+const LEFT: f32 = 20.0;
+const TOP: f32 = 96.0;
+const PAD_X: f32 = 18.0;
+const PAD_Y: f32 = 16.0;
+const RADIUS: f32 = crate::tokens::SHAPE_LG_INC;
+const TEXT: f32 = 12.0;
+const LINE: f32 = 19.0;
+const COLUMN_GAP: f32 = 16.0;
 
 /// The stats panel, blended over the screen texture.
 pub struct StatsPanel {
-    renderer: TextRenderer,
-    blend: OverlayBlend,
+    draw: UiDraw,
     screen: (u32, u32),
+    scale: f32,
     visible: bool,
     /// Visibility changed since the last update.
     toggled: bool,
@@ -638,12 +634,12 @@ impl StatsPanel {
     /// Create it over `screen` (the presenter's final texture), hidden or
     /// visible (`show_stats`).
     pub fn new(device: &Arc<Device>, screen: &Texture, visible: bool) -> Result<StatsPanel> {
-        let renderer = TextRenderer::new(load_font(PANEL_FONTS)?)?;
         let screen_size = (screen.width(), screen.height());
+        let scale = ui_scale(screen_size);
         Ok(StatsPanel {
-            renderer,
-            blend: OverlayBlend::new(device, screen, max_panel(screen_size))?,
+            draw: UiDraw::new(device, screen, ui_fonts()?, max_panel(screen_size, scale), "osd")?,
             screen: screen_size,
+            scale,
             visible,
             toggled: visible,
             drawn: None,
@@ -674,7 +670,7 @@ impl StatsPanel {
         let toggled = std::mem::take(&mut self.toggled);
         if !self.visible {
             if toggled {
-                self.blend.set_image(None, (0, 0))?;
+                self.draw.set_scene(&[])?;
                 self.drawn = None;
             }
             return Ok(toggled);
@@ -694,8 +690,10 @@ impl StatsPanel {
     /// The screen texture was recreated (resize): blend onto the new one.
     pub fn rebind(&mut self, device: &Arc<Device>, screen: &Texture) -> Result<()> {
         self.screen = (screen.width(), screen.height());
-        self.blend = OverlayBlend::new(device, screen, max_panel(self.screen))?;
-        // Redraw on the next update, at the new font size.
+        self.scale = ui_scale(self.screen);
+        self.draw
+            .rebind(device, screen, max_panel(self.screen, self.scale))?;
+        // Redraw on the next update, at the new size.
         self.drawn = None;
         self.toggled = self.visible;
         Ok(())
@@ -704,71 +702,71 @@ impl StatsPanel {
     /// The blend pass, if visible. The presenter records it after the
     /// effect chain and the OSD.
     pub fn pass(&self) -> Option<&dyn Pass> {
-        (self.visible && self.drawn.is_some()).then_some(&self.blend as &dyn Pass)
+        (self.visible && self.drawn.is_some() && self.draw.is_shown()).then(|| self.draw.pass())
     }
 
-    /// Draw the rows as 1.x `_render`: two columns (labels, values) on a
-    /// translucent rounded box, one text image per cell.
+    /// Draw the rows as 1.x `_render` (two columns: labels, values) on the
+    /// glass of the design: labels in `primary`, values in `glass-content`,
+    /// warnings in `error`.
     fn draw(&mut self, sample: &StatsSample, context: &PanelContext) -> Result<()> {
         let rows = panel_rows(sample, context);
-        let size = panel_font_size(self.screen.1);
-        let pad = (size / 2).max(6);
-        let gap = size;
-        let line_h = (size as f32 * 1.35) as u32;
-        let style = |color: [f32; 4]| TextStyle {
-            size_px: size as f32,
-            color,
-            background: None,
-            padding: 0,
-            radius: 0,
-        };
-        let cells: Vec<_> = rows
+        let s = self.scale;
+        let size = TEXT * s;
+        let line = LINE * s;
+        let scheme = Scheme::Dark;
+        let label_w = rows
             .iter()
-            .map(|row| {
-                let (label_color, value_color) = if row.warning {
-                    (WARNING_COLOR, WARNING_COLOR)
-                } else {
-                    (LABEL_COLOR, VALUE_COLOR)
-                };
-                let label =
-                    (!row.label.is_empty()).then(|| self.renderer.render(&row.label, &style(label_color)));
-                let value = self.renderer.render(&row.value, &style(value_color));
-                (label, value)
-            })
-            .collect();
-        let label_w = cells
+            .map(|r| self.draw.measure(&r.label, size, UiFont::Mono))
+            .fold(0.0, f32::max);
+        let value_w = rows
             .iter()
-            .filter_map(|(l, _)| l.as_ref())
-            .map(|l| l.width)
-            .max()
-            .unwrap_or(0);
-        let value_w = cells.iter().map(|(_, v)| v.width).max().unwrap_or(0);
-        let width = pad * 2 + label_w + gap + value_w;
-        let height = pad * 2 + line_h * rows.len() as u32;
-
-        let mut canvas = Canvas::new(width, height);
-        let x_value = pad + label_w + gap;
-        for (i, (label, value)) in cells.iter().enumerate() {
-            let y = pad + i as u32 * line_h;
-            if let Some(label) = label {
-                canvas.draw(label, pad, y);
+            .map(|r| self.draw.measure(&r.value, size, UiFont::Mono))
+            .fold(0.0, f32::max);
+        let (ascent, descent) = self.draw.metrics(size, UiFont::Mono);
+        let (x, y) = (LEFT * s, TOP * s);
+        let w = 2.0 * PAD_X * s + label_w + COLUMN_GAP * s + value_w;
+        let h = 2.0 * PAD_Y * s + line * rows.len() as f32;
+        let mut shapes = vec![Shape::RoundRect {
+            rect: [x, y, w.ceil(), h.ceil()],
+            radius: RADIUS * s,
+            color: color("glass", scheme),
+        }];
+        let x_value = x + PAD_X * s + label_w + COLUMN_GAP * s;
+        for (i, row) in rows.iter().enumerate() {
+            // The text's line box centered in its row.
+            let baseline = (y + PAD_Y * s + line * i as f32 + line / 2.0 + (ascent + descent) / 2.0).round();
+            let (label_color, value_color) = if row.warning {
+                (color("error", scheme), color("error", scheme))
+            } else {
+                (color("primary", scheme), color("glass-content", scheme))
+            };
+            if !row.label.is_empty() {
+                shapes.push(Shape::Text {
+                    origin: [x + PAD_X * s, baseline],
+                    size,
+                    font: UiFont::Mono,
+                    text: row.label.clone(),
+                    color: label_color,
+                });
             }
-            canvas.draw(value, x_value, y);
+            shapes.push(Shape::Text {
+                origin: [x_value, baseline],
+                size,
+                font: UiFont::Mono,
+                text: row.value.clone(),
+                color: value_color,
+            });
         }
-        canvas.rounded_rect(pad as f32, BG_COLOR);
-        let image = canvas.finish();
-        // OverlayBlend crops what does not fit (1.x clipped to the screen).
-        self.blend
-            .set_image(Some(&image), (MARGIN as i32, MARGIN as i32))?;
-        Ok(())
+        // `ui_draw` crops what does not fit (1.x clipped to the screen).
+        Ok(self.draw.set_scene(&shapes)?)
     }
 }
 
-/// The largest panel image that fits on the screen past the margin.
-fn max_panel(screen: (u32, u32)) -> (u32, u32) {
+/// The largest panel image that fits on the screen past its corner.
+fn max_panel(screen: (u32, u32), scale: f32) -> (u32, u32) {
     (
-        screen.0.saturating_sub(MARGIN).max(1),
-        screen.1.saturating_sub(MARGIN).max(1),
+        screen.0.saturating_sub((LEFT * scale) as u32).max(1),
+        screen.1.saturating_sub((TOP * scale) as u32).max(1),
     )
 }
 
