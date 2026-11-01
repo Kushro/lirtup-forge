@@ -89,7 +89,11 @@ pub enum ScaleMode {
 
 /// Overlay size, content size and scale mode of a geometry for a source of
 /// `src` on a monitor of `base` (`parse_output_geometry`).
-pub fn output_geometry(geometry: &Geometry, src: (u32, u32), base: (u32, u32)) -> ((u32, u32), (u32, u32), ScaleMode) {
+pub fn output_geometry(
+    geometry: &Geometry,
+    src: (u32, u32),
+    base: (u32, u32),
+) -> ((u32, u32), (u32, u32), ScaleMode) {
     let (sw, sh) = (f64::from(src.0.max(1)), f64::from(src.1.max(1)));
     let fit = |ow: u32, oh: u32| {
         let s = (f64::from(ow) / sw).min(f64::from(oh) / sh);
@@ -249,7 +253,10 @@ impl MagpieContext {
 
     fn swap_rb(&mut self) -> Result<CompiledEffect> {
         if self.swap_rb.is_none() {
-            self.swap_rb = Some(lirtup_magpiefx::runtime::compile_swap_rb(&self.compilers, &self.cache)?);
+            self.swap_rb = Some(lirtup_magpiefx::runtime::compile_swap_rb(
+                &self.compilers,
+                &self.cache,
+            )?);
         }
         Ok(self.swap_rb.clone().expect("just compiled"))
     }
@@ -332,9 +339,10 @@ fn native_params(effect: &NativeEffect) -> Option<ParamValues> {
             ("vignette_radius", f64::from(radius)),
             ("vignette_falloff", f64::from(falloff)),
         ]),
-        NativeEffect::Grain { strength, size } => {
-            p(&[("grain_strength", f64::from(strength)), ("grain_size", f64::from(size))])
-        }
+        NativeEffect::Grain { strength, size } => p(&[
+            ("grain_strength", f64::from(strength)),
+            ("grain_size", f64::from(size)),
+        ]),
         NativeEffect::Lut { intensity, .. } => p(&[("lut_intensity", f64::from(intensity))]),
         NativeEffect::LumaSharpen {
             strength,
@@ -734,7 +742,13 @@ impl Presenter {
         if (zoom - self.layout.zoom).abs() > f32::EPSILON {
             self.layout.zoom = zoom;
             // CRT and MagpieFX render at the content size.
-            if self.plan.pre.iter().any(|e| matches!(e, NativeEffect::CrtEasymode(_))) || !self.plan.magpie.is_empty() {
+            if self
+                .plan
+                .pre
+                .iter()
+                .any(|e| matches!(e, NativeEffect::CrtEasymode(_)))
+                || !self.plan.magpie.is_empty()
+            {
                 self.pre_stale = true;
             }
         }
@@ -765,11 +779,28 @@ impl Presenter {
     pub fn chain(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         if self.pre_stale {
-            out.extend(self.plan.pre.iter().filter(|e| matches!(e, NativeEffect::Deband { .. })).map(|e| e.label().to_owned()));
+            out.extend(
+                self.plan
+                    .pre
+                    .iter()
+                    .filter(|e| matches!(e, NativeEffect::Deband { .. }))
+                    .map(|e| e.label().to_owned()),
+            );
             out.extend(self.plan.magpie.iter().map(|s| s.name.clone()));
-            out.extend(self.plan.pre.iter().filter(|e| !matches!(e, NativeEffect::Deband { .. })).map(|e| e.label().to_owned()));
+            out.extend(
+                self.plan
+                    .pre
+                    .iter()
+                    .filter(|e| !matches!(e, NativeEffect::Deband { .. }))
+                    .map(|e| e.label().to_owned()),
+            );
         } else {
-            out.extend(self.pre.iter().filter(|p| p.label() != "SwapRB").map(|p| p.label().to_owned()));
+            out.extend(
+                self.pre
+                    .iter()
+                    .filter(|p| p.label() != "SwapRB")
+                    .map(|p| p.label().to_owned()),
+            );
         }
         match &self.scale {
             Some(stage) => {
@@ -824,7 +855,10 @@ impl Presenter {
     /// Bring the chain up to date with the source, the config and the view.
     fn prepare(&mut self) -> Result<()> {
         let Some(source) = self.source.clone() else {
-            return Err(PipelineError::other(Stage::Runtime, "present without a source texture"));
+            return Err(PipelineError::other(
+                Stage::Runtime,
+                "present without a source texture",
+            ));
         };
         if self.pre_stale {
             self.build_pre(&source)?;
@@ -857,7 +891,11 @@ impl Presenter {
         };
         let mut input = source.clone();
         let plan = self.plan.clone();
-        for effect in plan.pre.iter().filter(|e| matches!(e, NativeEffect::Deband { .. })) {
+        for effect in plan
+            .pre
+            .iter()
+            .filter(|e| matches!(e, NativeEffect::Deband { .. }))
+        {
             let pass = effect.create(&self.device, &input, (input.width(), input.height()))?;
             input = pass.output().clone();
             self.pre.push(pass);
@@ -868,7 +906,11 @@ impl Presenter {
             self.pre.extend(passes);
             self.magpie_active = active;
         }
-        for effect in plan.pre.iter().filter(|e| !matches!(e, NativeEffect::Deband { .. })) {
+        for effect in plan
+            .pre
+            .iter()
+            .filter(|e| !matches!(e, NativeEffect::Deband { .. }))
+        {
             let size = (input.width(), input.height());
             let pass = effect.create(&self.device, &input, content_rect(&self.layout, size))?;
             input = pass.output().clone();
@@ -888,7 +930,9 @@ impl Presenter {
         specs: &[EffectSpec],
         out_size: (u32, u32),
     ) -> (Vec<Box<dyn Pass>>, Vec<EffectSpec>) {
-        let ctx = self.magpie.get_or_insert_with(|| MagpieContext::new(&self.device));
+        let ctx = self
+            .magpie
+            .get_or_insert_with(|| MagpieContext::new(&self.device));
         let mut active = specs.to_vec();
         while !active.is_empty() {
             match bind_magpie(&self.device, ctx, input, &active, out_size) {
@@ -902,7 +946,12 @@ impl Presenter {
         (Vec::new(), active)
     }
 
-    fn build_scale(&self, input: &Texture, kind: ScalerKind, rect: (i32, i32, u32, u32)) -> Result<ScaleStage> {
+    fn build_scale(
+        &self,
+        input: &Texture,
+        kind: ScalerKind,
+        rect: (i32, i32, u32, u32),
+    ) -> Result<ScaleStage> {
         let mut scaler = Scaler::new(
             &self.device,
             kind,
@@ -957,7 +1006,13 @@ fn bind_magpie(
     let swap = |ctx: &mut MagpieContext, current: &Texture| -> Result<Box<dyn Pass>> {
         let compiled = ctx.swap_rb()?;
         let size = (current.width(), current.height());
-        Ok(Box::new(MagpieEffect::new(device, &compiled, current, size, &ParamValues::new())?))
+        Ok(Box::new(MagpieEffect::new(
+            device,
+            &compiled,
+            current,
+            size,
+            &ParamValues::new(),
+        )?))
     };
     for (i, spec) in specs.iter().enumerate() {
         let compiled = ctx.compile(&spec.name, i == 0, i == last).map_err(|e| (i, e))?;
@@ -966,7 +1021,8 @@ fn bind_magpie(
             current = pass.output().clone();
             passes.push(pass);
         }
-        let fx = MagpieEffect::new(device, &compiled, &current, out_size, &spec.params).map_err(|e| (i, e.into()))?;
+        let fx = MagpieEffect::new(device, &compiled, &current, out_size, &spec.params)
+            .map_err(|e| (i, e.into()))?;
         current = fx.output().clone();
         passes.push(Box::new(fx));
         if i == last && !compiled.output_swapped() {
@@ -979,7 +1035,13 @@ fn bind_magpie(
 }
 
 fn new_screen(device: &Arc<Device>, size: (u32, u32)) -> Result<Texture> {
-    Ok(util::texture(device, size.0.max(1), size.1.max(1), Format::R8G8B8A8Unorm, "screen")?)
+    Ok(util::texture(
+        device,
+        size.0.max(1),
+        size.1.max(1),
+        Format::R8G8B8A8Unorm,
+        "screen",
+    )?)
 }
 
 #[cfg(test)]
@@ -988,43 +1050,110 @@ mod tests {
 
     #[test]
     fn scaling_rect_matches_1x() {
-        assert_eq!(scaling_rect((640, 480), (1920, 1080), ScaleMode::Fit), (240, 0, 1440, 1080));
-        assert_eq!(scaling_rect((640, 480), (1920, 1080), ScaleMode::Stretch), (0, 0, 1920, 1080));
-        assert_eq!(scaling_rect((640, 480), (1920, 1080), ScaleMode::Cover), (0, -180, 1920, 1440));
+        assert_eq!(
+            scaling_rect((640, 480), (1920, 1080), ScaleMode::Fit),
+            (240, 0, 1440, 1080)
+        );
+        assert_eq!(
+            scaling_rect((640, 480), (1920, 1080), ScaleMode::Stretch),
+            (0, 0, 1920, 1080)
+        );
+        assert_eq!(
+            scaling_rect((640, 480), (1920, 1080), ScaleMode::Cover),
+            (0, -180, 1920, 1440)
+        );
     }
 
     #[test]
     fn output_geometry_matches_parse_output_geometry() {
         let base = (1920, 1080);
         let src = (800, 600);
-        assert_eq!(output_geometry(&Geometry::Fit, src, base), (base, (1440, 1080), ScaleMode::Fit));
-        assert_eq!(output_geometry(&Geometry::Stretch, src, base), (base, base, ScaleMode::Stretch));
         assert_eq!(
-            output_geometry(&Geometry::Percent { percent: 50.0, force: false }, src, base),
+            output_geometry(&Geometry::Fit, src, base),
+            (base, (1440, 1080), ScaleMode::Fit)
+        );
+        assert_eq!(
+            output_geometry(&Geometry::Stretch, src, base),
+            (base, base, ScaleMode::Stretch)
+        );
+        assert_eq!(
+            output_geometry(
+                &Geometry::Percent {
+                    percent: 50.0,
+                    force: false
+                },
+                src,
+                base
+            ),
             ((960, 540), (720, 540), ScaleMode::Fit)
         );
         assert_eq!(
-            output_geometry(&Geometry::Percent { percent: 50.0, force: true }, src, base),
+            output_geometry(
+                &Geometry::Percent {
+                    percent: 50.0,
+                    force: true
+                },
+                src,
+                base
+            ),
             ((960, 540), (960, 540), ScaleMode::Stretch)
         );
         assert_eq!(
-            output_geometry(&Geometry::Width { width: 1600, force: false }, src, base),
+            output_geometry(
+                &Geometry::Width {
+                    width: 1600,
+                    force: false
+                },
+                src,
+                base
+            ),
             ((1600, 1200), (1600, 1200), ScaleMode::Fit)
         );
         assert_eq!(
-            output_geometry(&Geometry::Height { height: 300, force: true }, src, base),
+            output_geometry(
+                &Geometry::Height {
+                    height: 300,
+                    force: true
+                },
+                src,
+                base
+            ),
             ((400, 300), (400, 300), ScaleMode::Stretch)
         );
         assert_eq!(
-            output_geometry(&Geometry::Size { width: 1000, height: 1000, flag: None }, src, base),
+            output_geometry(
+                &Geometry::Size {
+                    width: 1000,
+                    height: 1000,
+                    flag: None
+                },
+                src,
+                base
+            ),
             ((1000, 1000), (1000, 750), ScaleMode::Fit)
         );
         assert_eq!(
-            output_geometry(&Geometry::Size { width: 1000, height: 1000, flag: Some('^') }, src, base),
+            output_geometry(
+                &Geometry::Size {
+                    width: 1000,
+                    height: 1000,
+                    flag: Some('^')
+                },
+                src,
+                base
+            ),
             ((1000, 1000), (1333, 1000), ScaleMode::Cover)
         );
         assert_eq!(
-            output_geometry(&Geometry::Size { width: 1000, height: 1000, flag: Some('!') }, src, base),
+            output_geometry(
+                &Geometry::Size {
+                    width: 1000,
+                    height: 1000,
+                    flag: Some('!')
+                },
+                src,
+                base
+            ),
             ((1000, 1000), (1000, 1000), ScaleMode::Stretch)
         );
     }

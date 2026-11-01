@@ -24,8 +24,8 @@ use lirtup_effects::Pass;
 use lirtup_effects::srcnn::{Srcnn, SrcnnOptions};
 use lirtup_effects::util;
 use lirtup_gpu::{
-    Buffer, BufferDesc, CopyRegion, Device, Format, MemoryLocation, Submission,
-    SubmitOptions, Texture, Timestamps,
+    Buffer, BufferDesc, CopyRegion, Device, Format, MemoryLocation, Submission, SubmitOptions, Texture,
+    Timestamps,
 };
 use lirtup_x11::DamageRect;
 
@@ -246,7 +246,8 @@ impl Upscaler {
                     let x0 = r.dst_x as usize * 4;
                     let x1 = x0 + r.width as usize * 4;
                     for y in r.dst_y as usize..(r.dst_y + r.height) as usize {
-                        mapped[y * row + x0..y * row + x1].copy_from_slice(&pixels[y * stride + x0..y * stride + x1]);
+                        mapped[y * row + x0..y * row + x1]
+                            .copy_from_slice(&pixels[y * stride + x0..y * stride + x1]);
                     }
                 }
             }

@@ -177,7 +177,12 @@ fn run(device: &Arc<Device>, pass: &dyn Pass) {
 }
 
 fn native_effect(case: &Case) -> NativeEffect {
-    let p = |name: &str| *case.params.get(name).unwrap_or_else(|| panic!("{}: no {name}", case.name)) as f32;
+    let p = |name: &str| {
+        *case
+            .params
+            .get(name)
+            .unwrap_or_else(|| panic!("{}: no {name}", case.name)) as f32
+    };
     match case.effect.as_deref().expect("an effect case") {
         "deband" => NativeEffect::Deband {
             strength: p("deband_strength"),
@@ -243,8 +248,15 @@ fn run_case(device: &Arc<Device>, case: &Case, src: &[u8], (w, h): (u32, u32)) -
             tight_antiring: true,
             kernel_radius: None,
         };
-        let mut scaler = Scaler::new(device, scaler_kind(kind), &input, dst, (0, 0, dst.0, dst.1), &params)
-            .expect("scaler");
+        let mut scaler = Scaler::new(
+            device,
+            scaler_kind(kind),
+            &input,
+            dst,
+            (0, 0, dst.0, dst.1),
+            &params,
+        )
+        .expect("scaler");
         scaler.set_background([0.0, 0.0, 0.0, 1.0]);
         Box::new(scaler)
     } else {
@@ -298,7 +310,8 @@ fn compare(name: &str, got: (u32, u32, &[u8]), want: &image::RgbaImage, max_diff
 fn native_passes_match_python() {
     let dir = fixtures();
     let manifest: Manifest =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).expect("cases.json")).expect("manifest");
+        serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).expect("cases.json"))
+            .expect("manifest");
     let size = (manifest.input.width, manifest.input.height);
     let src = input_image(size.0, size.1);
     let device = device();
@@ -320,13 +333,23 @@ fn native_passes_match_python() {
         };
         let (w, h, got) = run_case(&device, case, &src, size);
         compared += 1;
-        if let Some(problem) = compare(&case.name, (w, h, &got), &want, case.max_diff.unwrap_or(manifest.max_diff)) {
+        if let Some(problem) = compare(
+            &case.name,
+            (w, h, &got),
+            &want,
+            case.max_diff.unwrap_or(manifest.max_diff),
+        ) {
             failures.push(problem);
         } else {
             println!("ok   {}", case.name);
         }
     }
-    assert!(failures.is_empty(), "{} of {compared} differ:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} of {compared} differ:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 #[test]

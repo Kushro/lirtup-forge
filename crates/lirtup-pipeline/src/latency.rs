@@ -87,7 +87,10 @@ mod tests {
 
     #[test]
     fn rows_match_the_1x_format() {
-        assert_eq!(row(0.95, 1.0, "generated", 2), "0.950000,1.000000,50.000,generated,2\n");
+        assert_eq!(
+            row(0.95, 1.0, "generated", 2),
+            "0.950000,1.000000,50.000,generated,2\n"
+        );
         assert_eq!(row(1.5, 1.5125, "real", 1), "1.500000,1.512500,12.500,real,1\n");
     }
 

@@ -44,7 +44,9 @@ impl Manifest {
         let text = std::fs::read_to_string(path).expect("cases.json");
         let number = |key: &str| -> u32 {
             let re = Regex::new(&format!(r#""{key}"\s*:\s*(\d+)"#)).unwrap();
-            re.captures(&text).unwrap_or_else(|| panic!("no {key}"))[1].parse().unwrap()
+            re.captures(&text).unwrap_or_else(|| panic!("no {key}"))[1]
+                .parse()
+                .unwrap()
         };
         let pair = Regex::new(r#""target"\s*:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]"#).unwrap();
         let target = pair.captures(&text).expect("target");
@@ -234,17 +236,29 @@ fn verified_effects_match_python() {
         };
         let out = effect.output();
         let Some(got) = download_rgba8(out) else {
-            failures.push(format!("{name}: OUTPUT format {:?} is not compared", out.format()));
+            failures.push(format!(
+                "{name}: OUTPUT format {:?} is not compared",
+                out.format()
+            ));
             continue;
         };
         compared += 1;
-        let max_diff = manifest.max_diff_by_effect.get(name).copied().unwrap_or(manifest.max_diff);
+        let max_diff = manifest
+            .max_diff_by_effect
+            .get(name)
+            .copied()
+            .unwrap_or(manifest.max_diff);
         match compare(name, (out.width(), out.height(), &got), &want, max_diff) {
             Some(problem) => failures.push(problem),
             None => println!("ok   {name}"),
         }
     }
-    assert!(failures.is_empty(), "{} failed ({compared} compared):\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failed ({compared} compared):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 #[test]

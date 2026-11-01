@@ -26,9 +26,7 @@ use lirtup_config::Config;
 use lirtup_effects::Pass;
 use lirtup_effects::srcnn::{Srcnn, SrcnnOptions, TileLayout, TilePlacement};
 use lirtup_effects::util;
-use lirtup_gpu::{
-    Buffer, BufferDesc, CommandRecorder, CopyRegion, Device, Format, MemoryLocation, Texture,
-};
+use lirtup_gpu::{Buffer, BufferDesc, CommandRecorder, CopyRegion, Device, Format, MemoryLocation, Texture};
 use lirtup_x11::DamageRect;
 
 use crate::Result;
@@ -57,7 +55,12 @@ impl TileProcessor {
     /// pass adds: the 1× input for 2×, the first stage's 2× output for 4×.
     /// Writes into its own full-size output ([`TileProcessor::output`]),
     /// kept between frames: clean tiles keep last frame's result.
-    pub fn new(device: &Arc<Device>, config: &Config, src_size: (u32, u32), residual: &Texture) -> Result<TileProcessor> {
+    pub fn new(
+        device: &Arc<Device>,
+        config: &Config,
+        src_size: (u32, u32),
+        residual: &Texture,
+    ) -> Result<TileProcessor> {
         let tile_size = config.tile_size.max(1);
         let margin = config.tile_context_margin;
         let layers = config.max_tile_layers.max(1);
@@ -158,11 +161,7 @@ impl TileProcessor {
             return Ok(Some(0));
         }
         if tiles.len() > self.layers as usize {
-            tracing::warn!(
-                "{} dirty tiles > {} layers, full frame",
-                tiles.len(),
-                self.layers
-            );
+            tracing::warn!("{} dirty tiles > {} layers, full frame", tiles.len(), self.layers);
             return Ok(None);
         }
         let scale = if self.double { 4 } else { 2 };
@@ -171,7 +170,8 @@ impl TileProcessor {
         let mut regions = Vec::with_capacity(tiles.len());
         if self.double {
             for (layer, &(tx, ty)) in tiles.iter().enumerate() {
-                let Some((x0, y0)) = interior_origin(tx, ty, self.tile_size, self.margin, self.src_size) else {
+                let Some((x0, y0)) = interior_origin(tx, ty, self.tile_size, self.margin, self.src_size)
+                else {
                     return Ok(None);
                 };
                 regions.push(CopyRegion {
@@ -190,7 +190,16 @@ impl TileProcessor {
             staging.write_with(|mapped| {
                 for (layer, &(tx, ty)) in tiles.iter().enumerate() {
                     let out = &mut mapped[layer * tile_bytes..(layer + 1) * tile_bytes];
-                    extract_expanded(pixels, stride, self.src_size, tx, ty, self.tile_size, self.margin, out);
+                    extract_expanded(
+                        pixels,
+                        stride,
+                        self.src_size,
+                        tx,
+                        ty,
+                        self.tile_size,
+                        self.margin,
+                        out,
+                    );
                 }
             })?;
             for layer in 0..tiles.len() {
@@ -308,7 +317,11 @@ mod tests {
 
     #[test]
     fn dirty_tiles_are_row_major_and_unique() {
-        let tiles = dirty_tiles(&[rect(70, 10, 10, 10), rect(0, 0, 64, 64), rect(10, 10, 5, 5)], 64, (3, 2));
+        let tiles = dirty_tiles(
+            &[rect(70, 10, 10, 10), rect(0, 0, 64, 64), rect(10, 10, 5, 5)],
+            64,
+            (3, 2),
+        );
         assert_eq!(tiles, vec![(0, 0), (1, 0)]);
     }
 

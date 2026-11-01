@@ -121,7 +121,9 @@ pub fn detect_menu_bar(pixels: &[u8], width: u32, height: u32, stride: u32) -> C
     let flat_xs: Vec<usize> = ((frame.width as f32 * FLAT_FROM) as usize..frame.width - 4)
         .step_by(STEP)
         .collect();
-    let item_xs: Vec<usize> = (2..(frame.width as f32 * ITEMS_SHARE) as usize).step_by(STEP).collect();
+    let item_xs: Vec<usize> = (2..(frame.width as f32 * ITEMS_SHARE) as usize)
+        .step_by(STEP)
+        .collect();
 
     let Some(background) = frame.flat(&flat_xs, 0) else {
         return none;
@@ -185,7 +187,9 @@ fn client_edge(frame: &Frame<'_>, top: usize, separator: &[Color]) -> usize {
     let ys: Vec<usize> = (top..height.saturating_sub(e)).step_by(STEP * 5).collect();
     let xs: Vec<usize> = (e..width.saturating_sub(e)).step_by(STEP * 5).collect();
     let line = |points: Vec<(usize, usize)>, color: Color| {
-        points.into_iter().all(|(x, y)| close(frame.px(x, y), color, EDGE_TOLERANCE))
+        points
+            .into_iter()
+            .all(|(x, y)| close(frame.px(x, y), color, EDGE_TOLERANCE))
     };
     for (i, &side) in separator.iter().enumerate() {
         // Left side: the same colors as the top side.
@@ -352,7 +356,11 @@ mod tests {
                 }
                 y -= 1;
             }
-            if y < separator_rows { SEPARATOR } else { content(x, y) }
+            if y < separator_rows {
+                SEPARATOR
+            } else {
+                content(x, y)
+            }
         }
     }
 
@@ -398,7 +406,8 @@ mod tests {
         let mut padded = vec![0u8; (stride * HEIGHT) as usize];
         for y in 0..HEIGHT as usize {
             let row = (WIDTH * 4) as usize;
-            padded[y * stride as usize..y * stride as usize + row].copy_from_slice(&tight[y * row..(y + 1) * row]);
+            padded[y * stride as usize..y * stride as usize + row]
+                .copy_from_slice(&tight[y * row..(y + 1) * row]);
         }
         assert_eq!(detect_menu_bar(&padded, WIDTH, HEIGHT, stride), crop(19, 0));
     }
@@ -465,7 +474,9 @@ mod tests {
         let data = frame(with_bar(18, 1, true, false));
         let t0 = Instant::now();
         let mut d = MenuBarDetector::new(t0);
-        let check = |d: &mut MenuBarDetector, ms: u64| d.check(t0 + Duration::from_millis(ms), &data, WIDTH, HEIGHT, WIDTH * 4);
+        let check = |d: &mut MenuBarDetector, ms: u64| {
+            d.check(t0 + Duration::from_millis(ms), &data, WIDTH, HEIGHT, WIDTH * 4)
+        };
         assert_eq!(check(&mut d, 0), MenuBarCheck::Pending);
         assert_eq!(check(&mut d, 100), MenuBarCheck::Pending); // between samples
         assert_eq!(check(&mut d, 250), MenuBarCheck::Pending);
