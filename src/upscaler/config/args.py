@@ -1123,6 +1123,57 @@ micro-stutters and 'immediate' may still present tearing.
 
 """,
     )
+    framegen_group = parser.add_argument_group("FRAME GENERATION OPTIONS")
+    framegen_group.add_argument(
+        "--frame-gen",
+        dest="frame_gen_multiplier",
+        type=int,
+        choices=range(1, 6),
+        default=DEFAULT_CONFIG.frame_gen_multiplier,
+        help="""Generate frames with lsfg-vk: output frames per captured
+frame (1 = off, 2 to 5). Default: %(default)s.
+
+Needs the lsfg-vk Vulkan layer and lsfg-vk.dll (the
+'lsfg-vk' branch of Lossless Scaling on Steam). Adds about
+one captured frame of latency. Read only at startup.
+
+""",
+    )
+    framegen_group.add_argument(
+        "--frame-gen-flow-scale",
+        type=float,
+        default=DEFAULT_CONFIG.frame_gen_flow_scale,
+        help="""Optical flow resolution, from 0.25 to 1.0. Lower is
+faster and less accurate. Default: %(default)s.
+
+""",
+    )
+    framegen_group.add_argument(
+        "--frame-gen-performance",
+        action="store_true",
+        default=DEFAULT_CONFIG.frame_gen_performance,
+        help="Use the lighter lsfg-vk model.",
+    )
+    framegen_group.add_argument(
+        "--frame-gen-dll",
+        default=DEFAULT_CONFIG.frame_gen_dll,
+        help="""Folder holding lsfg-vk.dll. Default: search the Steam
+libraries.
+
+""",
+    )
+    vulkan_group.add_argument(
+        "--present-on-change-only",
+        action="store_true",
+        default=DEFAULT_CONFIG.present_on_change_only,
+        help="""Present only when the target window shows a new frame,
+instead of presenting the last frame again on every loop.
+
+Needed by frame generation layers such as lsfg-vk, which
+would otherwise interpolate between identical frames.
+
+""",
+    )
     vulkan_group.add_argument(
         "--frame-timeout",
         type=int,

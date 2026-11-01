@@ -33,10 +33,15 @@ from ..utils import (
     get_base_geometry,
     parse_output_geometry,
 )
+from .. import framegen
 from ..vulkan import SwapchainError, select_device
 from ..window import WindowInfo, WindowTracker
 
 logger = logging.getLogger(__name__)
+
+# Seconds between captures while waiting for a new frame with
+# present_on_change_only (short, so a new frame is not delayed).
+_CHANGE_POLL_INTERVAL = 0.001
 
 
 class PauseReason(Enum):
@@ -405,6 +410,11 @@ class Pipeline(QObject):
         if idle:
             if self._swapchain_manager.needs_recreation():
                 logger.debug("Swapchain needs recreation, skipping idle present")
+                return
+            if self.config.present_on_change_only or framegen.is_active():
+                # Nothing was presented, so no fence paces the loop
+                self._wake_event.wait(timeout=_CHANGE_POLL_INTERVAL)
+                self._wake_event.clear()
                 return
             self.presenter.present_unchanged()
             rect = self.presenter.get_scaling_rect(self._scale_factor)

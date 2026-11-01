@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
 
 from ..sidebar import SettingsTab
+from ...styles import info_text_style
 from ...utils import normalize_to_hex
+from .... import framegen
 from ....config import OverlayMode
 
 if TYPE_CHECKING:
@@ -214,6 +217,60 @@ class PresentationTab(SettingsTab):
             ),
         )
 
+        # ---- Frame generation ----
+        self._add_section(self.tr("Frame generation", "Settings section"))
+        self._fg_labels = {1: self.tr("Off", "Frame generation multiplier")}
+        for m in range(2, 6):
+            self._fg_labels[m] = f"\u00d7{m}"
+        self._add_combo(
+            self.tr("Multiplier", "Label of setting (must be short)"),
+            list(self._fg_labels.values()),
+            self._fg_labels.get(self._config.frame_gen_multiplier),
+            self._on_fg_multiplier,
+            baseline=self._fg_labels.get(self.baseline_config.frame_gen_multiplier),
+            field="frame_gen_multiplier",
+            help=self.tr(
+                "Generate frames between the captured ones with lsfg-vk "
+                "(Lossless Scaling Frame Generation).\n"
+                "×4 turns 30 captured fps into 120 shown fps.\n"
+                "Read at startup: restart to apply.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._fg_flow = self._add_slider(
+            self.tr("Flow scale", "Label of setting (must be short)"),
+            25,
+            100,
+            int(round(self._config.frame_gen_flow_scale * 100)),
+            scale_factor=100,
+            float_slot=self._on_fg_flow_scale,
+            baseline=self.baseline_config.frame_gen_flow_scale,
+            field="frame_gen_flow_scale",
+            help=self.tr(
+                "Resolution of the motion estimation. Lower is faster and "
+                "less accurate; useful at 1440p and 4K.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._fg_performance = self._add_cb(
+            self.tr("Performance mode", "Label of setting (must be short)"),
+            self._config.frame_gen_performance,
+            self._on_fg_performance,
+            baseline=self.baseline_config.frame_gen_performance,
+            field="frame_gen_performance",
+            help=self.tr(
+                "Use the lighter lsfg-vk model.",
+                "Description of a setting (tooltip)",
+            ),
+        )
+        self._fg_info = QLabel()
+        self._fg_info.setWordWrap(True)
+        self._fg_info.setTextFormat(Qt.RichText)
+        self._fg_info.setStyleSheet(info_text_style(self._gui_config))
+        self._fg_info.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.content_layout.addWidget(self._fg_info)
+        self._update_fg_ui()
+
     def _on_overlay_mode(self, text: str):
         self._config.overlay_mode = text
         self.config_changed.emit()
@@ -263,3 +320,96 @@ class PresentationTab(SettingsTab):
     def _on_bg_color(self, text: str):
         self._config.background_color = text
         self.config_changed.emit()
+
+    # ------------------------------------------------------------------
+    #  Frame generation
+    # ------------------------------------------------------------------
+    def _on_fg_multiplier(self, text: str) -> None:
+        for m, label in self._fg_labels.items():
+            if label == text:
+                self._config.frame_gen_multiplier = m
+        self._update_fg_ui()
+        self.config_changed.emit()
+
+    def _on_fg_flow_scale(self, value: float) -> None:
+        self._config.frame_gen_flow_scale = round(value, 2)
+        self._update_fg_ui()
+        self.config_changed.emit()
+
+    def _on_fg_performance(self, state: int) -> None:
+        self._config.frame_gen_performance = bool(state)
+        self._update_fg_ui()
+        self.config_changed.emit()
+
+    def _update_fg_ui(self) -> None:
+        on = self._config.frame_gen_multiplier > 1
+        self._fg_flow.setEnabled(on)
+        self._fg_performance.setEnabled(on)
+        self._fg_info.setText(self._fg_info_html(on))
+
+    def _fg_status_text(self, on: bool) -> str:
+        """One line on what runs now and what the selection needs."""
+        status = framegen.status()
+        if status == framegen.FrameGenStatus.EXTERNAL:
+            return self.tr(
+                "lsfg-vk is set up by environment variables (LSFGVK_*); "
+                "this setting is ignored.",
+                "Frame generation status",
+            )
+        if on and framegen.find_layer() is None:
+            return self.tr(
+                "lsfg-vk is not installed.", "Frame generation status"
+            )
+        if on and framegen.find_dll(self._config.frame_gen_dll) is None:
+            return self.tr(
+                "lsfg-vk.dll was not found. In Steam, switch Lossless Scaling "
+                "to the 'lsfg-vk' branch (Properties, Betas).",
+                "Frame generation status",
+            )
+        running = framegen.active_multiplier()
+        if running != self._config.frame_gen_multiplier:
+            if running > 1:
+                now = self.tr("Running at ×{0}.", "Frame generation status")
+                now = now.format(running)
+            else:
+                now = self.tr("Not running.", "Frame generation status")
+            restart = self.tr(
+                "Save and restart LirtUp Forge to apply.",
+                "Frame generation status",
+            )
+            return f"{now} {restart}"
+        if running > 1:
+            return self.tr(
+                "Running at ×{0}. Flow scale and performance mode apply "
+                "after a restart.",
+                "Frame generation status",
+            ).format(running)
+        return ""
+
+    def _fg_info_html(self, on: bool) -> str:
+        items = [
+            "+ "
+            + self.tr(
+                "Smoother motion: shows up to N times the captured frame rate",
+                "Frame generation pro",
+            ),
+            "&minus; "
+            + self.tr(
+                "Adds about one captured frame of latency "
+                "(33 ms at 30 fps, 17 ms at 60 fps)",
+                "Frame generation con",
+            ),
+            "&minus; "
+            + self.tr(
+                "Generated frames can smear HUD edges and fast motion",
+                "Frame generation con",
+            ),
+            "&minus; "
+            + self.tr(
+                "Global setting: profiles cannot change it",
+                "Frame generation con",
+            ),
+        ]
+        status = self._fg_status_text(on)
+        status_html = f"<p><b>{status}</b></p>" if status else ""
+        return f"{status_html}<p>{'<br>'.join(items)}</p>"

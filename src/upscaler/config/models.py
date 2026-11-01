@@ -146,6 +146,12 @@ class Config:
         show_osd: If True, show on-screen display messages.
         osd_duration: How long OSD messages stay visible.
         max_fps: Maximum pipeline frames per second.
+        present_on_change_only: If True, skip presents while the target
+            window has no new frame (for frame generation layers).
+        frame_gen_multiplier: lsfg-vk frames per captured frame (1 = off).
+        frame_gen_flow_scale: lsfg-vk optical flow resolution (0.25-1.0).
+        frame_gen_performance: If True, use the lighter lsfg-vk model.
+        frame_gen_dll: Folder holding lsfg-vk.dll (None = search Steam).
         vulkan_present_mode: Vulkan presentation mode (fifo, mailbox, immediate).
         frame_timeout: GPU frame fence timeout in nanoseconds.
         use_tile_processing: If True, enable tile-based processing.
@@ -306,6 +312,13 @@ class Config:
 
     # Vulkan
     max_fps: Optional[int] = None
+    present_on_change_only: bool = False
+
+    # Frame generation (lsfg-vk), read once at startup
+    frame_gen_multiplier: int = 1
+    frame_gen_flow_scale: float = 1.0
+    frame_gen_performance: bool = False
+    frame_gen_dll: Optional[str] = None
     vulkan_present_mode: str = VulkanPresentMode.FIFO.value
     frame_timeout: int = 1_000_000_000
 

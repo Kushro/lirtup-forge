@@ -34,6 +34,7 @@ A real-time SRCNN upscaler for any X-Window (X11 or XWayland) on GNU/Linux. It u
 - **Tile-Based processing** that upscales only the frame regions that change, reducing GPU load for mostly static content.
 - **Customizable output geometry**: scaling mode (fit, stretch, cover), offset, crop and zoom.
 - **Input forwarding** as if interacting directly with the original window.
+- **Frame generation** through [lsfg-vk](https://lsfg-vk.dev) (×2 to ×5), see [below](#frame-generation).
 - **Magpie effects** with a choice of engine: a few effects ported by hand, or 86 effects from [Magpie](https://github.com/Blinue/Magpie) run unmodified by a MagpieFX loader (see below).
 
 ## Requirements
@@ -174,6 +175,40 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
   numbers.
 - FP16 (`//!CAPABILITY FP16`), which is currently ignored.
 - More native ports, where the effort pays off.
+
+## Frame generation
+
+LirtUp Forge presents through its own Vulkan swapchain, so the
+[lsfg-vk](https://lsfg-vk.dev) layer (Lossless Scaling Frame Generation on
+Linux) can generate frames on top of it, for any captured window: Vulkan,
+OpenGL, emulators or video. Turn it on in the GUI (*Presentation* tab >
+*Frame generation*), with `frame_gen_multiplier` in the config or with
+`--frame-gen N` on the CLI. It is read at startup, so changes need a restart.
+
+What it needs:
+
+- lsfg-vk 2.x installed (its implicit Vulkan layer).
+- `lsfg-vk.dll`, which comes with the `lsfg-vk` branch of Lossless Scaling on
+  Steam (*Properties* > *Betas*). It is found in the Steam libraries, or in the
+  folder given by `frame_gen_dll`. The regular `Lossless.dll` does not work
+  with lsfg-vk 2.x.
+
+How it works: the app writes its own lsfg-vk profile to
+`~/.config/linux-rt-upscaler/lsfg-vk.toml` and points the layer to it before
+the first Vulkan call. Your `~/.config/lsfg-vk/conf.toml` is not touched. With
+frame generation on, the app presents only new frames of the target window
+(`present_on_change_only`), so lsfg-vk never interpolates between identical
+frames. If you set `LSFGVK_*` or `DISABLE_LSFGVK` yourself, the app leaves the
+layer alone.
+
+Trade-offs: smoother motion, at the cost of about one captured frame of
+latency (33 ms at 30 fps, 17 ms at 60 fps), and generated frames can smear HUD
+edges and fast motion.
+
+Status: checked by eye on an RX 9070 XT (RADV) with a 30 fps video, where ×2
+and ×4 looked much smoother. Not measured yet: latency, the frame rate that
+reaches the screen, real games and other GPUs. Analysis and test notes:
+[frame generation analysis](docs/developer/frame-generation-analysis.md).
 
 ## Future plans
 

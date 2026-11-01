@@ -312,13 +312,17 @@ bool vk_Swapchain_recreate(vk_Swapchain *self, uint32_t width,
   swap_info.clipped = VK_TRUE;
   swap_info.oldSwapchain = self->swapchain; // facilitates reuse of old images
 
+  // Create into a local handle so a failure leaves self->swapchain (the old
+  // swapchain, still valid) for the caller or dealloc to destroy.
+  VkSwapchainKHR new_swapchain = VK_NULL_HANDLE;
   VkResult res =
-      vkCreateSwapchainKHR(device, &swap_info, nullptr, &self->swapchain);
+      vkCreateSwapchainKHR(device, &swap_info, nullptr, &new_swapchain);
   if (res != VK_SUCCESS) {
     PyErr_Format(vk_SwapchainError, "Failed to create swapchain (error %d)",
                  res);
     return false;
   }
+  self->swapchain = new_swapchain;
   // Destroy the old swapchain now that the new one is alive.
   if (swap_info.oldSwapchain != VK_NULL_HANDLE)
     vkDestroySwapchainKHR(device, swap_info.oldSwapchain, nullptr);
@@ -511,7 +515,7 @@ PyObject *vk_Device_create_swapchain_impl(vk_Device *self, PyObject *args) {
   sw->last_present_fence = VK_NULL_HANDLE;
 
   if (!vk_Swapchain_recreate(sw, width, height)) {
-    vkDestroySurfaceKHR(vk_instance, surface, nullptr);
+    // vk_Swapchain_dealloc destroys the surface and whatever was created
     Py_DECREF(sw);
     return nullptr;
   }

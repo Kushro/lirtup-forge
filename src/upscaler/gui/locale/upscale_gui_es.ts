@@ -1560,6 +1560,105 @@ Supports transparency.</source>
         <translation>Color de fondo detrás de la imagen escalada (franjas tipo &quot;letterbox&quot;).
 Admite transparencia.</translation>
     </message>
+        <message>
+            <source>Frame generation</source>
+            <comment>Settings section</comment>
+            <translation>Generación de cuadros</translation>
+        </message>
+        <message>
+            <source>Off</source>
+            <comment>Frame generation multiplier</comment>
+            <translation>Apagado</translation>
+        </message>
+        <message>
+            <source>Multiplier</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Multiplicador</translation>
+        </message>
+        <message>
+            <source>Flow scale</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Escala de flujo</translation>
+        </message>
+        <message>
+            <source>Performance mode</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Modo rendimiento</translation>
+        </message>
+        <message>
+            <source>lsfg-vk is set up by environment variables (LSFGVK_*); this setting is ignored.</source>
+            <comment>Frame generation status</comment>
+            <translation>lsfg-vk está configurado con variables de entorno (LSFGVK_*); este ajuste se ignora.</translation>
+        </message>
+        <message>
+            <source>lsfg-vk is not installed.</source>
+            <comment>Frame generation status</comment>
+            <translation>lsfg-vk no está instalado.</translation>
+        </message>
+        <message>
+            <source>lsfg-vk.dll was not found. In Steam, switch Lossless Scaling to the 'lsfg-vk' branch (Properties, Betas).</source>
+            <comment>Frame generation status</comment>
+            <translation>No se encontró lsfg-vk.dll. En Steam, cambia Lossless Scaling a la rama 'lsfg-vk' (Propiedades, Betas).</translation>
+        </message>
+        <message>
+            <source>Save and restart LirtUp Forge to apply.</source>
+            <comment>Frame generation status</comment>
+            <translation>Guarda y reinicia LirtUp Forge para aplicarlo.</translation>
+        </message>
+        <message>
+            <source>Generate frames between the captured ones with lsfg-vk (Lossless Scaling Frame Generation).
+×4 turns 30 captured fps into 120 shown fps.
+Read at startup: restart to apply.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Genera cuadros entre los capturados con lsfg-vk (Lossless Scaling Frame Generation).
+×4 convierte 30 fps capturados en 120 fps mostrados.
+Se lee al iniciar: reinicia para aplicarlo.</translation>
+        </message>
+        <message>
+            <source>Resolution of the motion estimation. Lower is faster and less accurate; useful at 1440p and 4K.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Resolución de la estimación de movimiento. Más baja es más rápida y menos precisa; útil en 1440p y 4K.</translation>
+        </message>
+        <message>
+            <source>Use the lighter lsfg-vk model.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Usa el modelo más liviano de lsfg-vk.</translation>
+        </message>
+        <message>
+            <source>Running at ×{0}.</source>
+            <comment>Frame generation status</comment>
+            <translation>Activo en ×{0}.</translation>
+        </message>
+        <message>
+            <source>Not running.</source>
+            <comment>Frame generation status</comment>
+            <translation>Inactivo.</translation>
+        </message>
+        <message>
+            <source>Smoother motion: shows up to N times the captured frame rate</source>
+            <comment>Frame generation pro</comment>
+            <translation>Movimiento más fluido: muestra hasta N veces los fps capturados</translation>
+        </message>
+        <message>
+            <source>Adds about one captured frame of latency (33 ms at 30 fps, 17 ms at 60 fps)</source>
+            <comment>Frame generation con</comment>
+            <translation>Suma cerca de un cuadro capturado de latencia (33 ms a 30 fps, 17 ms a 60 fps)</translation>
+        </message>
+        <message>
+            <source>Generated frames can smear HUD edges and fast motion</source>
+            <comment>Frame generation con</comment>
+            <translation>Los cuadros generados pueden emborronar bordes de la interfaz y movimientos rápidos</translation>
+        </message>
+        <message>
+            <source>Global setting: profiles cannot change it</source>
+            <comment>Frame generation con</comment>
+            <translation>Ajuste global: los perfiles no lo cambian</translation>
+        </message>
+        <message>
+            <source>Running at ×{0}. Flow scale and performance mode apply after a restart.</source>
+            <comment>Frame generation status</comment>
+            <translation>Activo en ×{0}. La escala de flujo y el modo rendimiento se aplican tras reiniciar.</translation>
+        </message>
 </context>
 <context>
     <name>ProfileActions</name>
