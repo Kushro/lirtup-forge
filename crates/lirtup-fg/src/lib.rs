@@ -8,9 +8,10 @@
 //!   run before `lirtup_gpu::Instance::new`. Changing the multiplier means
 //!   `exec` of `/proc/self/exe` ([`layer::restart_self`]).
 //! - **Native** ([`native`]): lsfg built in, through `lsfg-sys`, with images
-//!   and semaphores shared by fd. This crate wraps the C API safely; the
+//!   and semaphores shared by fd. This crate wraps the C API safely and
+//!   (re)starts lsfg in the background ([`native::EngineStart`]); the
 //!   presentation thread, cycles and pacing are `lirtup-pipeline::framegen`
-//!   and `::pacing` (front F, round 2).
+//!   and `::pacing`, which own the GPU side.
 //!
 //! [`dll`] finds `lsfg-vk.dll` / `Lossless.dll` in Steam; [`AutoMultiplier`]
 //! picks the multiplier from the game's frame rate; [`FrameGenState`] is what

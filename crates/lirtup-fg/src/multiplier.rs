@@ -141,6 +141,13 @@ impl AutoMultiplier {
     pub fn current(&self) -> u8 {
         self.current.unwrap_or(AUTO_START_MULTIPLIER)
     }
+
+    /// The multiplier chosen so far; `None` until the first
+    /// [`AutoMultiplier::update`] (the native engine waits for it before
+    /// starting lsfg).
+    pub fn chosen(&self) -> Option<u8> {
+        self.current
+    }
 }
 
 #[cfg(test)]
@@ -166,7 +173,9 @@ mod tests {
         let t = Instant::now();
         let mut auto = AutoMultiplier::new(144.0, None);
         assert_eq!(auto.current(), AUTO_START_MULTIPLIER);
+        assert_eq!(auto.chosen(), None);
         assert_eq!(auto.update(30.0, t), 4);
+        assert_eq!(auto.chosen(), Some(4));
         let mut still = AutoMultiplier::new(144.0, None);
         assert_eq!(still.update(1.0, t), AUTO_MIN_MULTIPLIER);
     }
