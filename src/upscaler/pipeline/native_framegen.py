@@ -21,8 +21,10 @@ Any error turns frame generation off for the session; presentation goes on.
 from __future__ import annotations
 
 import logging
+import statistics
 import time
-from typing import TYPE_CHECKING, List, Optional
+from collections import deque
+from typing import TYPE_CHECKING, Deque, List, Optional
 
 from ..framegen import NativeSettings
 from ..vulkan import R8G8B8A8_UNORM, Texture2D, get_current_device
@@ -38,7 +40,14 @@ _SEMAPHORE_TIMEOUT_NS = 500_000_000  # a generated frame later than this is lost
 # Bounds of the game frame interval used for pacing (seconds)
 _MIN_INTERVAL = 1 / 240
 _MAX_INTERVAL = 1 / 15
-_INTERVAL_SMOOTHING = 0.2  # weight of the newest interval in the average
+# The interval is the time spanned by the last measured intervals over the
+# game frames they hold. Polling rounds each interval to the display refresh,
+# so a median would be biased; the long average is not. An interval that
+# lost frames counts as as many frames as medians fit in it.
+_INTERVAL_HISTORY = 30
+# A cycle waits at most this share of a step to stay chained to the previous
+# one; more would block the pipeline into the next game frame and lose it
+_MAX_CHAIN_WAIT = 0.5
 
 
 class NativeFrameGen:
@@ -64,7 +73,9 @@ class NativeFrameGen:
         self._frame = 0  # frames pushed into the current context
 
         self._last_frame_time: Optional[float] = None
+        self._last_real_present: Optional[float] = None
         self._interval = 1 / 60
+        self._intervals: Deque[float] = deque(maxlen=_INTERVAL_HISTORY)
 
     # ------------------------------------------------------------------
     # Public API
@@ -88,13 +99,29 @@ class NativeFrameGen:
                 self.close()
                 generated = []
 
+        if not generated:
+            self._last_real_present = None
+            swapchain.present(texture, wait_for_fence=False)
+            return
+
+        # Chain this cycle to the previous real frame, one step after it, so
+        # the gaps do not follow the jitter of when a new frame is noticed
+        # (polling) and generated. Start now instead when the frame came too
+        # late for that, or when keeping the chain would wait too long.
         step = self._interval / (len(generated) + 1)
+        now = time.perf_counter()
+        base = now
+        if self._last_real_present is not None:
+            chained = self._last_real_present + step
+            if 0 <= chained - now <= step * _MAX_CHAIN_WAIT:
+                base = chained
         for i, frame in enumerate(generated):
-            self._sleep_until(start + i * step)
+            self._sleep_until(base + i * step)
             swapchain.present(frame, wait_for_fence=False)
-        if generated:
-            self._sleep_until(start + len(generated) * step)
+        real_time = base + len(generated) * step
+        self._sleep_until(real_time)
         swapchain.present(texture, wait_for_fence=False)
+        self._last_real_present = real_time
 
     def close(self) -> None:
         """Release lsfg's device and the shared textures and semaphores."""
@@ -219,8 +246,10 @@ class NativeFrameGen:
         self._last_frame_time = now
         if last is None:
             return
-        measured = min(max(now - last, _MIN_INTERVAL), _MAX_INTERVAL)
-        self._interval += (measured - self._interval) * _INTERVAL_SMOOTHING
+        self._intervals.append(min(max(now - last, _MIN_INTERVAL), _MAX_INTERVAL))
+        median = statistics.median(self._intervals)
+        frames = sum(max(1, round(v / median)) for v in self._intervals)
+        self._interval = sum(self._intervals) / frames
 
     @staticmethod
     def _sleep_until(target: float) -> None:

@@ -1,6 +1,6 @@
 # Generación de cuadros (FG): análisis de posibilidad
 
-Estado: **fase 0 integrada** (ajustes `frame_gen_*`, `--frame-gen` y sección en la GUI; ver [integración](#integración-de-la-fase-0-2026-10-31)) (ver [resultados](#fase-0-resultados-2026-10-31)). **Fase 1 escrita y compilada, sin probar** (ver [fase 1](#fase-1-implementación-2026-11-01)). Fecha: 2026-11-01. Rama de la fase 1: `feature/next-round`.
+Estado: **fase 0 integrada** (ajustes `frame_gen_*`, `--frame-gen` y sección en la GUI; ver [integración](#integración-de-la-fase-0-2026-10-31)) (ver [resultados](#fase-0-resultados-2026-10-31)). **Fase 1 integrada y probada con video** (ver [fase 1](#fase-1-implementación-2026-11-01)). Fecha: 2026-11-01. Rama de la fase 1: `feature/next-round`.
 
 Convención: **verificado** = leído en el código o comprobado en esta máquina; **medido en otro
 proyecto** = cifra de Enigmata Temple, en otro pipeline; **estimado** = cuenta hecha aquí, sin
@@ -313,7 +313,7 @@ Hallazgos (verificado):
 
 ## Fase 1: implementación (2026-11-01)
 
-Escrita y compilada; **nada de esto se probó todavía en la GPU**. Es el motor «integrado»
+Escrita, compilada y probada con video (ver [resultados](#fase-1-resultados-2026-11-01)). Es el motor «integrado»
 (`frame_gen_engine: native`), al lado de la capa, que sigue siendo el predeterminado.
 
 Qué se hizo, comparado con el plan de arriba:
@@ -322,8 +322,8 @@ Qué se hizo, comparado con el plan de arriba:
 | --- | --- |
 | 1. Módulo nativo | `src/upscaler/lsfg/`: lsfg-vk (3.1 y 3.1P), pe-parse, volk y `shader_loader` copiados de Enigmata Temple, compilados como la extensión `upscaler.lsfg.lsfg` desde `setup.py` (sin CMake). volk se compila como C++ (`lib/volk_unit.cpp`) con visibilidad oculta, así sus punteros no chocan con `libvulkan` que usa `upscaler.vulkan`. Única modificación a lsfg-vk: `exception.cpp` sin `std::format` (GCC 13). |
 | 2. Compartir por fd | Hecho, sin el respaldo por staging. `vk_external.cpp` en `upscaler.vulkan`: el dispositivo activa `VK_KHR_external_memory_fd` y `VK_KHR_external_semaphore_fd` si están; `Texture2D.external` crea texturas exportables (asignación dedicada, primer tipo `DEVICE_LOCAL`, igual que importa lsfg); semáforos binarios exportables; `copy_texture_signal` y `wait_semaphore`. lsfg usa `createContext` original (por fd), no el `createContextLocal` de Temple. La GPU se elige por `vendorID << 32 \| deviceID` del dispositivo de lirtup. |
-| 3. Detector de cadencia | No hace falta uno aparte: con FG activa el pipeline ya presenta sólo cuadros nuevos (`present_on_change_only`), y el intervalo entre presentaciones es el del juego. Se suaviza (media exponencial, 4,2 a 67 ms). Sin modo automático de multiplicador todavía. |
-| 4. Hilo de presentación | No: el mismo hilo presenta los generados y después el real, repartidos en el intervalo con `sleep`. Mientras espera no captura, pero el próximo cuadro del juego llega recién al final del intervalo. Más simple; si el ritmo sale desparejo, este es el primer sospechoso. |
+| 3. Detector de cadencia | No hace falta uno aparte: con FG activa el pipeline ya presenta sólo cuadros nuevos (`present_on_change_only`), y el intervalo entre presentaciones es el del juego. Se estima con los últimos 30 intervalos: tiempo total sobre cuadros del juego, contando como varios los intervalos que perdieron cuadros (la mediana y la media sesgaban, ver resultados). Sin modo automático de multiplicador todavía. |
+| 4. Hilo de presentación | No: el mismo hilo presenta los generados y después el real, repartidos en el intervalo con `sleep`, y cada ciclo se encadena al real anterior (si eso no obliga a esperar más de medio paso). Alcanza con fuentes de 30 fps; con 60 fps y ×2 se pierden cuadros (ver resultados): ahí hace falta el hilo aparte. |
 | 5. Dónde va en la cadena | Sobre `screen_tex_8bit`, **después** del OSD y del panel de stats (no antes, como proponía el plan): se interpolan también. |
 | 6. Config, GUI, CLI | `frame_gen_engine` (`--frame-gen-engine`), selector «Motor» en la GUI, estados propios (falta el motor, falta `Lossless.dll`), traducción. La bandeja y el panel de stats lo conocen. |
 | 7. `DISABLE_LSFGVK=1` | Sí, el motor integrado deja la capa apagada. |
@@ -348,6 +348,40 @@ Riesgos que hay que mirar al probar:
 - Sin traspaso explícito de familia de colas (`VK_QUEUE_FAMILY_EXTERNAL`), igual que la capa de
   escritorio.
 - El ritmo con `fifo`: cada `present` puede bloquear hasta el vblank y correr los siguientes.
+
+## Fase 1: resultados (2026-11-01)
+
+mpv con un video `testsrc2` de 1280×720 (X11/XWayland) como origen; lirtup desde el árbol de
+trabajo en `--overlay-mode windowed --vulkan-present-mode mailbox`, salida 2560×1440; MangoHud
+registra 8 s de presentaciones de lirtup, que con el motor integrado incluyen los cuadros
+generados. RX 9070 XT, RADV. Una corrida por caso.
+
+- **Arranca y genera**: lsfg crea su dispositivo en la misma GPU, shaders FP16 desde
+  `Lossless.dll` de Steam, importa texturas y semáforos por fd. Sin errores de Vulkan.
+- **Los cuadros son interpolados de verdad**: volcado a PNG del cuadro anterior, el generado y el
+  real; en el generado los objetos que se mueven quedan a mitad de camino (con el halo típico de
+  LSFG) y el reloj del video sale mezclado.
+- **Ritmo** (video de 30 fps), después de tres correcciones:
+
+| Multiplicador | Fps presentados | Mediana entre cuadros | Desvío |
+| --- | --- | --- | --- |
+| ×2 | 60,0 | 16,7 ms | 0,89 ms |
+| ×3 | 89,9 | 11,1 ms | 0,19 ms |
+| ×4 | 118,3 y 118,9 (dos corridas) | 8,4 ms | 1,14 y 0,27 ms |
+
+  Correcciones que hicieron falta, en orden:
+  1. Repartir desde el momento en que se nota el cuadro nuevo seguía el temblor del sondeo:
+     ×4 alternaba 4,4 y 16,5 ms. Ahora cada ciclo se encadena al real anterior.
+  2. Encadenar sin límite bloqueaba el hilo hasta el cuadro siguiente, que se perdía; eso
+     estiraba el intervalo medido y se realimentaba (×4 cayó a 68,5 fps). El encadenado ahora
+     espera como mucho medio paso.
+  3. La media exponencial, la mediana y la media recortada sesgaban el intervalo, porque el
+     sondeo lo redondea al refresco (144 Hz). Ahora es tiempo total sobre cuadros del juego.
+- **Límite encontrado**: video de 60 fps con ×2 da 100,7 fps en vez de 120. Sin FG lirtup capta
+  los 60 (`--present-on-change-only`, 60,0 fps). Con un solo hilo, el ciclo suma el render, la
+  generación y un paso de espera (8,3 ms) y pasa de 16,7 ms. Arreglo: el hilo de presentación
+  aparte (punto 4 del plan), que necesita sincronizar el acceso a la `VkQueue` entre hilos.
+- **Sin probar todavía**: un juego real, latencia medida, otras GPU.
 
 ## Próximos pasos propuestos
 
