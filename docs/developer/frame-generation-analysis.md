@@ -381,7 +381,18 @@ generados. RX 9070 XT, RADV. Una corrida por caso.
   los 60 (`--present-on-change-only`, 60,0 fps). Con un solo hilo, el ciclo suma el render, la
   generación y un paso de espera (8,3 ms) y pasa de 16,7 ms. Arreglo: el hilo de presentación
   aparte (punto 4 del plan), que necesita sincronizar el acceso a la `VkQueue` entre hilos.
-- **Sin probar todavía**: un juego real, latencia medida, otras GPU.
+- **Con el juego** (G-senjou no Maou, 1284×743 bajo Wine, la cadena de la persona
+  Anime4K_Upscale_Denoise_UL + Anime4K_Restore_Soft_UL + Lanczos, ×2, 85 s jugando):
+  - Funciona de punta a punta, sin errores; la barra de menú se detecta y recorta.
+  - Ritmo bajo: en los tramos con movimiento se presentaron unos 25 fps (mediana 33,5 ms entre
+    presentaciones). Los efectos cuestan 34,5 ms de GPU y el render completo pasa de 70 ms, así
+    que lirtup procesa unos 13 a 15 cuadros reales por segundo y ×2 los lleva a ~28. Con la capa
+    no pasa: genera después de que lirtup presenta y no frena el bucle. El motor integrado comparte
+    el hilo (y la GPU) con los efectos; el hilo de presentación aparte y un `flow_scale` menor son
+    lo siguiente a probar.
+  - La detección de la barra recortó 21 filas, cuando en otra corrida fueron 23 (las correctas):
+    quedan 2 filas. Probablemente detectó durante una transición. Pendiente de revisar.
+- **Sin probar todavía**: latencia medida, otras GPU.
 
 ## Próximos pasos propuestos
 
