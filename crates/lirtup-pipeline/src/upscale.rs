@@ -58,6 +58,9 @@ pub struct Upscaler {
     stages: Vec<Srcnn>,
     tiles: Option<TileProcessor>,
     first_tile_frame: bool,
+    /// Something was uploaded already: the upload buffer and the input
+    /// mirror the frame, so damage alone is enough.
+    primed: bool,
     /// The last submission, with timestamps if asked for.
     last: Option<Submission>,
 }
@@ -121,6 +124,7 @@ impl Upscaler {
             stages,
             tiles,
             first_tile_frame: true,
+            primed: false,
             last: None,
         })
     }
@@ -139,6 +143,10 @@ impl Upscaler {
     ) -> Result<UpscaleOutcome> {
         // The upload buffer is rewritten below: the last copy must be done.
         self.finish()?;
+        // A new upscaler (another model, a new size) starts from the whole
+        // frame: the capture buffer holds it, the upload buffer does not.
+        let full = full || !self.primed;
+        self.primed = true;
         let (w, h) = self.src_size;
         let partial = !full && self.damage_tracking && !damage.is_empty();
         let mut recorder = self.device.recorder()?;
