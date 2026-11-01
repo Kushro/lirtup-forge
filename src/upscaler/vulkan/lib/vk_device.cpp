@@ -157,7 +157,10 @@ static VkImage create_vk_image(VkDevice device, VkImageType type,
 void vk_Device_dealloc(vk_Device *self) {
   Py_XDECREF(self->name);
   if (self->device) {
-    vkDeviceWaitIdle(self->device);
+    {
+      vk_QueueLock lock(self);
+      vkDeviceWaitIdle(self->device);
+    }
 
     // Release the staging buffer pool
     if (self->staging_pool.count > 0) {
@@ -928,7 +931,13 @@ PyObject *vk_Device_wait_idle(vk_Device *self, PyObject * /*ignored*/) {
   vk_Device *dev = vk_Device_get_initialized(self);
   if (!dev)
     return nullptr;
-  VkResult res = vkQueueWaitIdle(dev->queue);
+  VkResult res;
+  Py_BEGIN_ALLOW_THREADS;
+  {
+    std::lock_guard<std::mutex> lock(dev->queue_mutex);
+    res = vkQueueWaitIdle(dev->queue);
+  }
+  Py_END_ALLOW_THREADS;
   if (res != VK_SUCCESS) {
     PyErr_Format(PyExc_RuntimeError, "vkQueueWaitIdle failed: %d", res);
     return nullptr;

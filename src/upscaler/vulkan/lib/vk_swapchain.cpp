@@ -252,7 +252,10 @@ bool vk_Swapchain_recreate(vk_Swapchain *self, uint32_t width,
   // ---------------------------------------------------------------
   // 2. Wait for device idle, then tear down old resources
   // ---------------------------------------------------------------
-  vkDeviceWaitIdle(device);
+  {
+    vk_QueueLock lock(self->py_device);
+    vkDeviceWaitIdle(device);
+  }
 
   // Per-image fences
   if (self->fences) {
@@ -530,7 +533,10 @@ PyObject *vk_Device_create_swapchain_impl(vk_Device *self, PyObject *args) {
 void vk_Swapchain_dealloc(vk_Swapchain *self) {
   if (self->py_device) {
     VkDevice device = self->py_device->device;
-    vkDeviceWaitIdle(device);
+    {
+      vk_QueueLock lock(self->py_device);
+      vkDeviceWaitIdle(device);
+    }
 
     if (self->fences) {
       for (uint32_t i = 0; i < self->image_count; ++i)
@@ -579,6 +585,14 @@ void vk_Swapchain_dealloc(vk_Swapchain *self) {
  * The `wait_for_fence` parameter (from the Python caller) is ignored; the
  * caller is expected to use `get_last_fence()` for frame-level synchronisation.
  *
+ * The waits that can last until a vblank (acquire, the per-image fence, and
+ * the submit and present, which take the device's queue mutex) run without
+ * the GIL, so other Python threads go on meanwhile; with `fifo` the
+ * acquire can block for a whole refresh. Recording stays under the GIL: the
+ * command buffers come from the device's shared command pool. The caller
+ * must not present on the same swapchain from two threads at once
+ * (SwapchainManager holds a lock around it).
+ *
  * @param self        Swapchain object.
  * @param args        Python arguments: (texture, x, y, wait_for_fence)
  * @return Py_True if the image was successfully presented,
@@ -608,9 +622,11 @@ PyObject *vk_Swapchain_present(vk_Swapchain *self, PyObject *args) {
 
   // --- Acquire next image index ---
   uint32_t image_index;
+  Py_BEGIN_ALLOW_THREADS;
   res = vkAcquireNextImageKHR(dev->device, self->swapchain, UINT64_MAX,
                               self->image_available_semaphore, VK_NULL_HANDLE,
                               &image_index);
+  Py_END_ALLOW_THREADS;
   if (res == VK_ERROR_OUT_OF_DATE_KHR) {
     self->out_of_date = true;
     Py_RETURN_FALSE;
@@ -621,8 +637,10 @@ PyObject *vk_Swapchain_present(vk_Swapchain *self, PyObject *args) {
   }
 
   // --- Wait for and reset the per-image fence ---
+  Py_BEGIN_ALLOW_THREADS;
   vkWaitForFences(dev->device, 1, &self->fences[image_index], VK_TRUE,
                   UINT64_MAX);
+  Py_END_ALLOW_THREADS;
   vkResetFences(dev->device, 1, &self->fences[image_index]);
 
   // --- Record the command buffer ---
@@ -723,9 +741,27 @@ PyObject *vk_Swapchain_present(vk_Swapchain *self, PyObject *args) {
   submit.signalSemaphoreCount = 1;
   submit.pSignalSemaphores = &self->render_finished_semaphore;
 
-  res = vkQueueSubmit(dev->queue, 1, &submit, self->fences[image_index]);
-  if (res != VK_SUCCESS) {
-    PyErr_Format(vk_SwapchainError, "Queue submit failed (error %d)", res);
+  VkPresentInfoKHR present_info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+  present_info.waitSemaphoreCount = 1;
+  present_info.pWaitSemaphores = &self->render_finished_semaphore;
+  present_info.swapchainCount = 1;
+  present_info.pSwapchains = &self->swapchain;
+  present_info.pImageIndices = &image_index;
+
+  // --- Submit and present, holding the queue but not the GIL ---
+  VkResult submit_res;
+  Py_BEGIN_ALLOW_THREADS;
+  {
+    std::lock_guard<std::mutex> lock(dev->queue_mutex);
+    submit_res =
+        vkQueueSubmit(dev->queue, 1, &submit, self->fences[image_index]);
+    if (submit_res == VK_SUCCESS)
+      res = vkQueuePresentKHR(dev->queue, &present_info);
+  }
+  Py_END_ALLOW_THREADS;
+  if (submit_res != VK_SUCCESS) {
+    PyErr_Format(vk_SwapchainError, "Queue submit failed (error %d)",
+                 submit_res);
     return nullptr;
   }
 
@@ -734,15 +770,6 @@ PyObject *vk_Swapchain_present(vk_Swapchain *self, PyObject *args) {
   // frame-related GPU work is complete.
   self->last_present_fence = self->fences[image_index];
 
-  // --- Present ---
-  VkPresentInfoKHR present_info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-  present_info.waitSemaphoreCount = 1;
-  present_info.pWaitSemaphores = &self->render_finished_semaphore;
-  present_info.swapchainCount = 1;
-  present_info.pSwapchains = &self->swapchain;
-  present_info.pImageIndices = &image_index;
-
-  res = vkQueuePresentKHR(dev->queue, &present_info);
   if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR ||
       self->framebuffer_resized) {
     self->out_of_date = true;

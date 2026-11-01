@@ -104,6 +104,11 @@ struct vk_Device {
   VkCommandBuffer internal_cmd_buffer; // short synchronous operations
   VkPipelineCache pipeline_cache;      // shared by all pipelines
   std::mutex cmd_pool_mutex;
+  // Held around every use of `queue` (submit, present, wait idle) and around
+  // vkDeviceWaitIdle: the pipeline and the frame generation presenter use
+  // the queue from two threads, some of it without the GIL. Never take the
+  // GIL while holding it (see vk_QueueLock).
+  std::mutex queue_mutex;
 
   VkPhysicalDeviceMemoryProperties mem_props;
   VkPhysicalDeviceFeatures features;
@@ -222,6 +227,29 @@ extern PyTypeObject vk_Sampler_Type;
 // =========================================================================
 //  Convenience macros
 // =========================================================================
+
+// Locks a device's queue from a thread that holds the GIL. When another
+// thread has the queue (it may be blocked in a present without the GIL), the
+// GIL is released while waiting, so that thread can take it back after.
+// Threads without the GIL lock `queue_mutex` directly.
+class vk_QueueLock {
+public:
+  explicit vk_QueueLock(vk_Device *dev);
+  ~vk_QueueLock() { mutex_.unlock(); }
+  vk_QueueLock(const vk_QueueLock &) = delete;
+  vk_QueueLock &operator=(const vk_QueueLock &) = delete;
+
+private:
+  std::mutex &mutex_;
+};
+
+inline vk_QueueLock::vk_QueueLock(vk_Device *dev) : mutex_(dev->queue_mutex) {
+  if (!mutex_.try_lock()) {
+    Py_BEGIN_ALLOW_THREADS;
+    mutex_.lock();
+    Py_END_ALLOW_THREADS;
+  }
+}
 
 // Zero all bytes after the PyObject header (used in object constructors).
 #define VK_CLEAR_OBJECT(obj)                                                   \

@@ -21,10 +21,11 @@
  * The other device must import the memory with the same size and memory
  * type, which lsfg does (first DEVICE_LOCAL type, dedicated allocation).
  *
- * Like the rest of this module, every call that uses the queue keeps the
- * GIL while it does, so Python threads (the pipeline and the frame
- * generation presenter) never use the queue at the same time, as Vulkan
- * requires. Only fence waits release the GIL.
+ * Two Python threads use the device's queue (the pipeline and the frame
+ * generation presenter), and Vulkan requires one at a time: like the rest
+ * of this module, every submit, present and wait idle holds the device's
+ * `queue_mutex` (vk_QueueLock). The GIL is not enough, since presenting
+ * releases it while it waits for the display.
  */
 
 #include "vk_device.h"
@@ -232,7 +233,10 @@ PyObject *vk_Device_destroy_semaphore(vk_Device *self, PyObject *args) {
   if (!PyArg_ParseTuple(args, "K", &handle))
     return nullptr;
   if (self->device && handle) {
-    vkQueueWaitIdle(self->queue); // with the GIL: the queue is shared
+    {
+      vk_QueueLock lock(self);
+      vkQueueWaitIdle(self->queue);
+    }
     vkDestroySemaphore(self->device, semaphore_from_handle(handle), nullptr);
   }
   Py_RETURN_NONE;
@@ -317,9 +321,13 @@ PyObject *vk_Device_copy_texture_signal(vk_Device *self, PyObject *args) {
   submit.pCommandBuffers = &cmd;
   submit.signalSemaphoreCount = 1;
   submit.pSignalSemaphores = &semaphore;
-  VK_CHECK_OR_RETURN_NULL(
-      vkQueueSubmit(self->queue, 1, &submit, self->ext_fence),
-      PyExc_RuntimeError, "Failed to submit the frame copy");
+  VkResult res;
+  {
+    vk_QueueLock lock(self);
+    res = vkQueueSubmit(self->queue, 1, &submit, self->ext_fence);
+  }
+  VK_CHECK_OR_RETURN_NULL(res, PyExc_RuntimeError,
+                          "Failed to submit the frame copy");
   self->ext_pending = true;
   Py_RETURN_NONE;
 }
@@ -348,15 +356,20 @@ PyObject *vk_Device_wait_semaphore(vk_Device *self, PyObject *args) {
   submit.waitSemaphoreCount = 1;
   submit.pWaitSemaphores = &semaphore;
   submit.pWaitDstStageMask = &stage;
-  VkResult res = vkQueueSubmit(self->queue, 1, &submit, fence);
+  VkResult res;
+  {
+    vk_QueueLock lock(self);
+    res = vkQueueSubmit(self->queue, 1, &submit, fence);
+  }
   if (res == VK_SUCCESS) {
     Py_BEGIN_ALLOW_THREADS;
     res = vkWaitForFences(self->device, 1, &fence, VK_TRUE, timeout);
-    Py_END_ALLOW_THREADS;
-    // The submission must finish before its fence is destroyed (with the
-    // GIL, since the queue is shared)
-    if (res == VK_TIMEOUT)
+    // The submission must finish before its fence is destroyed
+    if (res == VK_TIMEOUT) {
+      std::lock_guard<std::mutex> lock(self->queue_mutex);
       vkQueueWaitIdle(self->queue);
+    }
+    Py_END_ALLOW_THREADS;
   }
   vkDestroyFence(self->device, fence, nullptr);
   if (res == VK_TIMEOUT)
