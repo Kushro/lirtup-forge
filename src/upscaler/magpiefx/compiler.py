@@ -14,6 +14,12 @@ variable (``dxc``, ``glslang`` or ``auto``, the default: dxc first, glslang
 if dxc is missing or rejects the source). The dxc binary can be overridden
 with ``DXC``.
 
+Passes of FP16 effects can be compiled with 16-bit types enabled
+(``fp16=True``): dxc then targets shader model 6.2 with
+``-enable-16bit-types`` and glslang gets ``--hlsl-enable-16bit-types``, so
+``min16float`` becomes a real 16-bit float (SPIR-V ``Float16``, which needs
+the device's ``shaderFloat16``).
+
 Compiled SPIR-V is cached under ``$XDG_CACHE_HOME/linux-rt-upscaler/magpiefx``
 keyed by a SHA-256 of the generated source, include directory contents that
 the source may reference, the backend and its command line.
@@ -85,7 +91,12 @@ def select_backends() -> List[Tuple[str, str]]:
 
 
 def _command(
-    backend: str, exe: str, src: str, out: str, include_dir: Optional[str]
+    backend: str,
+    exe: str,
+    src: str,
+    out: str,
+    include_dir: Optional[str],
+    fp16: bool = False,
 ) -> List[str]:
     if backend == "dxc":
         cmd = [
@@ -95,7 +106,7 @@ def _command(
             "-Fo",
             out,
             "-T",
-            "cs_6_0",
+            "cs_6_2" if fp16 else "cs_6_0",
             "-E",
             "__M",
             # Magpie effects are written for fxc (HLSL 2018 semantics)
@@ -114,6 +125,8 @@ def _command(
             "-fvk-use-dx-layout",
             "-Wno-conversion",
         ]
+        if fp16:
+            cmd.append("-enable-16bit-types")
     else:
         cmd = [
             exe,
@@ -138,6 +151,8 @@ def _command(
             out,
             src,
         ]
+        if fp16:
+            cmd.insert(-3, "--hlsl-enable-16bit-types")
     if include_dir:
         cmd.insert(1, f"-I{include_dir}")
     return cmd
@@ -184,6 +199,7 @@ def compile_hlsl(
     use_cache: bool = True,
     transform: Optional[Callable[[str], str]] = None,
     transform_key: str = "",
+    fp16: bool = False,
 ) -> bytes:
     """
     Compile a generated pass to SPIR-V and return the bytecode.
@@ -197,6 +213,8 @@ def compile_hlsl(
             (macros and includes expanded by the same backend) before
             compiling. Exceptions it raises propagate to the caller.
         transform_key: Identifies *transform* in the cache key.
+        fp16: Enable 16-bit types (the source must be generated with
+            ``fp16=True`` too).
 
     Raises:
         MagpieFXError: with the compiler's diagnostics if compilation fails.
@@ -205,7 +223,8 @@ def compile_hlsl(
     for backend, exe in select_backends():
         try:
             spirv = _compile_with(
-                backend, exe, source, name, include_dir, use_cache, transform, transform_key
+                backend, exe, source, name, include_dir, use_cache, transform,
+                transform_key, fp16,
             )
         except MagpieFXError as e:
             errors.append(str(e))
@@ -225,8 +244,9 @@ def _compile_with(
     use_cache: bool,
     transform: Optional[Callable[[str], str]] = None,
     transform_key: str = "",
+    fp16: bool = False,
 ) -> bytes:
-    probe = _command(backend, exe, "SRC", "OUT", include_dir)
+    probe = _command(backend, exe, "SRC", "OUT", include_dir, fp16)
 
     key = hashlib.sha256()
     for part in (_CACHE_VERSION, backend, " ".join(probe[1:])):
@@ -251,7 +271,7 @@ def _compile_with(
             expanded = _preprocess(backend, exe, src, include_dir, name)
             with open(src, "w", encoding="utf-8") as f:
                 f.write(transform(expanded))
-        cmd = _command(backend, exe, src, out, include_dir)
+        cmd = _command(backend, exe, src, out, include_dir, fp16)
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0 or not os.path.isfile(out):
             diag = (proc.stderr or proc.stdout or "").strip()
