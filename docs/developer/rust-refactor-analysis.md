@@ -649,7 +649,7 @@ cuatro frentes programen contra firmas fijas:
 
 | Frente | Toca | No toca | Entregable |
 | --- | --- | --- | --- |
-| **A. Componentes y tema** | `crates/lirtup-ui/src/components/**` (cuerpos), `src/theme.rs`, `assets/main.css`, `assets/fonts/**`, `scripts/gen-tokens*`, `i18n/{es,en}/components.ftl` | pantallas, estado | Los 20 componentes de 6.2 con sus variantes, estados de foco y `prefers-reduced-motion`; `gen-tokens` (tokens → `tokens.css` y `tokens.rs`); semilla del tema con `material-colors` y las 20 paletas como semillas; subconjunto de Material Symbols y fuentes sin red |
+| **A. Componentes y tema** | `crates/lirtup-ui/src/components/**` (cuerpos), `src/theme.rs`, `assets/main.css`, `assets/fonts/**`, `scripts/gen-tokens*`, `scripts/contrast.py`, `i18n/{es,en}/components.ftl` | pantallas, estado | Los 20 componentes de 6.2 con sus variantes, estados de foco y `prefers-reduced-motion`; `gen-tokens` (tokens → `tokens.css` y `tokens.rs`); semilla del tema con `material-colors` y las 20 paletas como semillas; subconjunto de Material Symbols y fuentes sin red |
 | **B. Inicio y ventanas** | `src/screens/home/**`, `src/screens/about.rs`, `src/thumbs.rs`, `src/windows.rs`, `i18n/*/home.ftl`, `about.ftl` | componentes (solo los usa), estado de perfiles | Inicio completo (6.1): tarjeta de sesión, activación, daemon, cuadrícula con filtros, menú del mosaico, navegación con teclado; miniaturas por `use_asset_handler`; lista de ventanas; Acerca de con diagnóstico |
 | **C. Perfiles** | `src/screens/profile/**`, `src/screens/new_profile.rs`, `src/state/store.rs` (cuerpos de `Store`, `Field`, `update`), `i18n/*/profile.ftl` | componentes, pantallas de B y D | Página de perfil con sus 5 pestañas; herencia, sucio, barra flotante, Restablecer con sus 3 opciones, diálogo de cambios sin guardar, snackbar con Deshacer; Nuevo perfil con captura de ventana y vista previa de coincidencia; guardado a YAML; tests de `update()` |
 | **D. Modos y Ajustes** | `src/screens/modes/**`, `src/screens/settings/**`, `src/screens/bench.rs`, `i18n/*/modes.ftl`, `settings.ftl` | lo de A, B y C | Lista y editor de modos (modelo, escalado doble, muestreo, motor, cadena con arrastre, catálogo MagpieFX, controles generados por parámetro, aviso de modo compartido); diálogo de medición; Ajustes (General, Atajos con `HotkeyCapture`, Estilo) |
@@ -690,7 +690,7 @@ revisor, como la ronda 0):
 | 0 | El workspace pasa `cargo check`; cada crate tiene su API pública documentada |
 | 1 | `cargo test --workspace` en verde; el ejemplo de G corre sin errores de validation layers; X captura una ventana a PNG; E compila los 117 efectos con dxc (los 3 Denoise con glslang) y da la misma salida que Python en la imagen RGB de prueba; C lee `config-example.yaml` y los perfiles de la persona sin cambiarlos; `lsfg_probe` encuentra `Lossless.dll` |
 | 2 | `lirtup` escala una ventana en los cuatro modos de superposición, con tiles, reenvío de ratón y atajos; los tiempos de GPU de la tabla del README dentro de un 5 % de la versión de Python; FG por capa y por motor integrado a ×2 y ×4 con video, sin errores de validación; panel de stats y CSV de latencia iguales en contenido |
-| 3 | `dx build` sin advertencias de Tailwind; los 6 flujos de 6.1 de punta a punta contra `lirtup serve`; un perfil de la 1.x se abre y se guarda sin perder campos (diff del YAML vacío salvo lo cambiado); herencia y sucio correctos en los tres niveles (fila, pestaña, cajón); tests de `update()` en verde; ningún texto sin traducir en español; contraste AA de los roles de color medido (el diseño no lo midió); navegable con teclado |
+| 3 | `dx build` sin advertencias de Tailwind; los 6 flujos de 6.1 de punta a punta contra `lirtup serve`; un perfil de la 1.x se abre y se guarda sin perder campos (diff del YAML vacío salvo lo cambiado); herencia y sucio correctos en los tres niveles (fila, pestaña, cajón); tests de `update()` en verde; ningún texto sin traducir en español; `contrast.py` en verde con los tokens finales; navegable con teclado |
 | 4 | La barra sobre el juego no cambia los tiempos de GPU más de 0,1 ms; bandeja con los 4 estados; el daemon sigue escalando con la GUI cerrada; la migración de la configuración real de la persona da los mismos resultados de escalado; paquete AUR y AppImage que se instalan y arrancan en una máquina limpia; ningún pendiente de paridad abierto |
 
 
@@ -912,7 +912,8 @@ pub enum Event {
     DaemonMatch { window: WindowRef, profile: String },
     MenuBarDetected { profile: String, crop: Crop },  // la GUI lo guarda en el perfil
     WindowPicked(Option<WindowRef>),
-    Effects(Vec<EffectInfo>), EffectCompile { name: String, done: bool, error: Option<String> },
+    Effects(Vec<EffectInfo>),         // nombre, pasadas, parámetros, verified (sin probar → etiqueta)
+    EffectCompile { name: String, done: bool, error: Option<String> },
     Devices { monitors: Vec<MonitorInfo>, gpus: Vec<GpuInfo> },
     BenchProgress { done: u32, total: u32 }, BenchResult(BenchReport),
     Diagnostics(DiagReport),
@@ -950,16 +951,19 @@ Reglas:
 - `gui-config.yaml` sigue aparte, con los campos nuevos (semilla, cerrar a la bandeja, empezar
   oculto, seguir tras salir, intervalos de la cuadrícula).
 
-### 6.7 Cosas del diseño que hay que confirmar
+### 6.7 Cosas del diseño confirmadas y pendientes
 
-| Tema | Detalle | Propuesta |
+La sesión de diseño revisó los primeros cuatro puntos (commit `7047ec23` en
+`claude/design-system-1937a8`, nota compartida `design-system.md`).
+
+| Tema | Estado | Qué hace el plan |
 | --- | --- | --- |
-| Contraste | El diseño eligió los roles a mano y no los midió | Criterio de la ronda 3: generar con `material-colors` y medir AA |
-| Fuente Google Sans Flex | Hay que confirmar su licencia y que se pueda incluir en el paquete | Si no se puede, Roboto Flex (OFL), que ya es el respaldo del diseño |
-| Material Symbols | Licencia Apache-2.0; hace falta un subconjunto en woff2 para la GUI y en TTF para la barra en Vulkan (`ab_glyph` no lee woff2) | El script `gen-tokens` saca los dos |
-| Cantidad de efectos | El diseño dice 86 efectos en MagpieFX; el README dice que se incluyen los 117 y se verificaron 86 | Mostrar la cantidad real del catálogo (`ListEffects`) |
-| Ajustes por perfil que hoy son globales | Generación de cuadros es global (bien marcado); revisar en la ronda 3 qué otros campos de `Config` no tienen sentido por perfil | Lista en la nota de la ronda 3 |
-| Barra sobre el juego | Medidas sin probar con la tipografía real | Frente T, ronda 4, con criterio de costo de GPU |
+| Contraste | **Resuelto.** `docs/design/contrast.py` (WCAG 2.1) mide los 54 pares de `lf.css` en cada tema: texto e indicadores a 4,5:1 y contornos a 3:1, sin cambiar colores. El texto sobre el cristal de la barra del juego pasa sobre negro y sobre blanco (texto principal 13,3 y 8,2; primario 10,1 y 6,2) | El script se copia a `scripts/` y se corre en CI cuando cambia `design/tokens.json` (frente A de la ronda 3). Si la semilla se calcula con `material-colors`, se mide igual |
+| Google Sans Flex | **Resuelto.** OFL 1.1 en `google/fonts` (`ofl/googlesansflex`), sin nombre reservado, pero «Google Sans» y «Google Sans Flex» son marcas de Google: el `.ttf` va sin modificar, o con otro nombre de familia si se recorta | Se incluye el `.ttf` original, sin recortar, en `assets/fonts/` (la webview lo carga). Roboto Flex queda como respaldo. Para la barra en Vulkan, que necesita pocas letras, se usa el mismo `.ttf` completo |
+| Material Symbols | **Resuelto.** `google/material-design-icons` publica `MaterialSymbolsRounded[FILL,GRAD,opsz,wght].ttf` y su `.codepoints` (Apache-2.0). `ab_glyph` no lee woff2 ni aplica ligaduras | `gen-tokens` saca con `fonttools varLib.instancer` dos instancias fijas (relleno y sin relleno), recortadas a los íconos de la barra, y genera en `tokens.rs` una tabla nombre → código del `.codepoints`. La barra busca cada ícono por su código. La GUI usa el subconjunto en woff2 con ligaduras |
+| Cantidad de efectos | **Resuelto.** El lienzo ya no fija un número: la GUI muestra la cantidad real del catálogo (hoy 117, verificados 86) y los demás llevan la etiqueta «Sin probar» | `EffectInfo` (6.5) suma `verified: bool`; la lista de verificados sale de `magpiefx-report.md` y vive en `lirtup-magpiefx` |
+| Ajustes por perfil que hoy son globales | Pendiente. La generación de cuadros ya está marcada como global; falta revisar qué otros campos de `Config` no tienen sentido por perfil | Lista en la nota de la ronda 3 (frente C) |
+| Barra sobre el juego | Pendiente. Medidas sin probar con la tipografía real | Frente T, ronda 4, con criterio de costo de GPU |
 
 ### 6.8 Esfuerzo de la GUI (estimado)
 
