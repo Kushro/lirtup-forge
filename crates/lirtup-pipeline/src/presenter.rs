@@ -1105,8 +1105,7 @@ mod tests {
 
     #[test]
     fn background_is_bgra() {
-        let mut config = Config::default();
-        config.background_color = lirtup_config::BackgroundColor::default();
+        let config = Config::default();
         let [b, g, r, a] = background(&config);
         assert_eq!([r, g, b, a], config.background_color.to_rgba());
     }
