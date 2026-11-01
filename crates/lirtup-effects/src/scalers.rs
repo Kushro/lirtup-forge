@@ -101,11 +101,18 @@ impl Scaler {
     ) -> Result<Scaler> {
         let label = kind.label();
         let spirv = |path: &str| {
-            crate::assets::native_spirv(path)
-                .ok_or_else(|| EffectError::Asset { name: path.to_owned(), message: "not embedded".to_owned() })
+            crate::assets::native_spirv(path).ok_or_else(|| EffectError::Asset {
+                name: path.to_owned(),
+                message: "not embedded".to_owned(),
+            })
         };
-        let output =
-            util::texture(device, output_size.0, output_size.1, Format::R16G16B16A16Float, &format!("{label} output"))?;
+        let output = util::texture(
+            device,
+            output_size.0,
+            output_size.1,
+            Format::R16G16B16A16Float,
+            &format!("{label} output"),
+        )?;
         // Big enough for every layout (FSR: 112 bytes).
         let cb = util::constant_buffer(device, 112, &format!("{label} cb"))?;
 
@@ -121,7 +128,13 @@ impl Scaler {
                 device,
                 spirv("converters/linearize/linearize.spv")?,
                 "main",
-                &Bindings { cb: None, srv: &[input], uav: &[&linear], samplers: &[], push_size: 0 },
+                &Bindings {
+                    cb: None,
+                    srv: &[input],
+                    uav: &[&linear],
+                    samplers: &[],
+                    push_size: 0,
+                },
                 "linearize",
             )?;
             Some((pipeline, linear))
@@ -137,7 +150,13 @@ impl Scaler {
                 device,
                 spirv("scalers/copy/copy.spv")?,
                 "main",
-                &Bindings { cb: Some(&cb), srv: &[source], uav: &[&output], samplers: &[], push_size: 0 },
+                &Bindings {
+                    cb: Some(&cb),
+                    srv: &[source],
+                    uav: &[&output],
+                    samplers: &[],
+                    push_size: 0,
+                },
                 label,
             )?,
             ScalerKind::CatmullRom => {
@@ -146,7 +165,13 @@ impl Scaler {
                     device,
                     spirv("scalers/catmull_rom/catmull_rom.spv")?,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[source], uav: &[&output], samplers: &[&linear], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[source],
+                        uav: &[&output],
+                        samplers: &[&linear],
+                        push_size: 0,
+                    },
                     label,
                 )?
             }
@@ -156,14 +181,26 @@ impl Scaler {
                     device,
                     spirv("scalers/lanczos/lanczos_fixed.spv")?,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[source], uav: &[&output], samplers: &[&point], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[source],
+                        uav: &[&output],
+                        samplers: &[&point],
+                        push_size: 0,
+                    },
                     "lanczos fixed",
                 )?);
                 util::compute(
                     device,
                     spirv("scalers/lanczos/lanczos_adaptive.spv")?,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[source], uav: &[&output], samplers: &[], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[source],
+                        uav: &[&output],
+                        samplers: &[],
+                        push_size: 0,
+                    },
                     label,
                 )?
             }
@@ -173,7 +210,13 @@ impl Scaler {
                     device,
                     spirv("scalers/fsr/fsr.spv")?,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[source], uav: &[&output], samplers: &[&linear], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[source],
+                        uav: &[&output],
+                        samplers: &[&linear],
+                        push_size: 0,
+                    },
                     label,
                 )?
             }
@@ -291,7 +334,11 @@ fn lanczos_radii(src: (u32, u32), dst: (u32, u32), override_radius: Option<u32>)
     }
     let radius = |s: u32, d: u32| {
         let scale = d as f64 / s.max(1) as f64;
-        if scale >= 1.0 { 2 } else { ((2.0 / scale).ceil() as u32).min(MAX_LANCZOS_RADIUS) }
+        if scale >= 1.0 {
+            2
+        } else {
+            ((2.0 / scale).ceil() as u32).min(MAX_LANCZOS_RADIUS)
+        }
     };
     let (rx, ry) = (radius(src.0, dst.0), radius(src.1, dst.1));
     (rx, ry, rx == 2 && ry == 2)
@@ -377,7 +424,10 @@ fn scaler_constants(
         }
         ScalerKind::Nis => nis::constants(src, dst, nis_sharpness),
     };
-    ScalerConstants { bytes: cb.finish(), lanczos_fixed }
+    ScalerConstants {
+        bytes: cb.finish(),
+        lanczos_fixed,
+    }
 }
 
 fn coef_texture(device: &Arc<Device>, coefs: &[[f32; 8]; 64], label: &str) -> Result<Texture> {
@@ -421,7 +471,12 @@ impl Pass for Scaler {
             (Some(fixed), true) => fixed,
             _ => &self.pipeline,
         };
-        recorder.dispatch(&Dispatch { pipeline, groups: util::groups(screen, (16, 16)), push: &[], timestamp: Some(label) });
+        recorder.dispatch(&Dispatch {
+            pipeline,
+            groups: util::groups(screen, (16, 16)),
+            push: &[],
+            timestamp: Some(label),
+        });
         Ok(())
     }
 }
@@ -487,7 +542,12 @@ mod nis {
 mod tests {
     use super::*;
 
-    const PARAMS: ScalerParams = ScalerParams { blur: 1.0, antiring_strength: 1.0, tight_antiring: true, kernel_radius: None };
+    const PARAMS: ScalerParams = ScalerParams {
+        blur: 1.0,
+        antiring_strength: 1.0,
+        tight_antiring: true,
+        kernel_radius: None,
+    };
 
     #[test]
     fn lanczos_variant_follows_the_scale() {
@@ -500,7 +560,17 @@ mod tests {
     #[test]
     fn constant_sizes_match_the_shaders() {
         let size = |kind| {
-            scaler_constants(kind, (100, 100), (200, 200), (0, 0, 200, 200), [0.0; 4], &PARAMS, 0.5).bytes.len()
+            scaler_constants(
+                kind,
+                (100, 100),
+                (200, 200),
+                (0, 0, 200, 200),
+                [0.0; 4],
+                &PARAMS,
+                0.5,
+            )
+            .bytes
+            .len()
         };
         // 1.x struct sizes rounded up to 16
         assert_eq!(size(ScalerKind::Copy), 48); // ffffIIIIiiii = 48
@@ -508,7 +578,15 @@ mod tests {
         assert_eq!(size(ScalerKind::Lanczos), 64); // fixed: + f = 52
         assert_eq!(size(ScalerKind::Fsr), 112);
         assert_eq!(size(ScalerKind::Nis), 112); // 18f 8I 2f = 112
-        let down = scaler_constants(ScalerKind::Lanczos, (400, 400), (200, 200), (0, 0, 200, 200), [0.0; 4], &PARAMS, 0.5);
+        let down = scaler_constants(
+            ScalerKind::Lanczos,
+            (400, 400),
+            (200, 200),
+            (0, 0, 200, 200),
+            [0.0; 4],
+            &PARAMS,
+            0.5,
+        );
         assert!(!down.lanczos_fixed);
         assert_eq!(down.bytes.len(), 80); // ffffIIIIiiiiIIffI = 68
     }

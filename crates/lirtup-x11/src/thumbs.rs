@@ -139,7 +139,7 @@ pub(crate) fn bgrx_to_rgba(data: &[u8], w: u32, h: u32) -> Option<RgbaImage> {
         return None;
     }
     let mut out = Vec::with_capacity(len);
-    for px in data.chunks_exact(4) {
+    for px in data.as_chunks::<4>().0 {
         out.extend_from_slice(&[px[2], px[1], px[0], 255]);
     }
     Some(RgbaImage {

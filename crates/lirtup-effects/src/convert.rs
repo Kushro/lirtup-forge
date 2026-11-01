@@ -24,7 +24,12 @@ const DITHER_STRENGTH: f32 = 1.0 / 255.0;
 
 impl Conversion {
     /// Create the pass writing `output_format`.
-    pub fn create(&self, device: &Arc<Device>, input: &Texture, output_format: Format) -> Result<Box<dyn Pass>> {
+    pub fn create(
+        &self,
+        device: &Arc<Device>,
+        input: &Texture,
+        output_format: Format,
+    ) -> Result<Box<dyn Pass>> {
         Ok(Box::new(ConvertPass::new(device, *self, input, output_format)?))
     }
 
@@ -57,34 +62,57 @@ impl ConvertPass {
         let label = kind.label();
         let (w, h) = (input.width(), input.height());
         let output = util::texture(device, w, h, format, &format!("{label} output"))?;
-        let spirv = crate::assets::native_spirv(kind.spirv_path())
-            .ok_or_else(|| EffectError::Asset { name: kind.spirv_path().to_owned(), message: "not embedded".to_owned() })?;
+        let spirv = crate::assets::native_spirv(kind.spirv_path()).ok_or_else(|| EffectError::Asset {
+            name: kind.spirv_path().to_owned(),
+            message: "not embedded".to_owned(),
+        })?;
         let (pipeline, noise) = match kind {
             Conversion::Linearize => (
                 util::compute(
                     device,
                     spirv,
                     "main",
-                    &Bindings { cb: None, srv: &[input], uav: &[&output], samplers: &[], push_size: 0 },
+                    &Bindings {
+                        cb: None,
+                        srv: &[input],
+                        uav: &[&output],
+                        samplers: &[],
+                        push_size: 0,
+                    },
                     label,
                 )?,
                 None,
             ),
             Conversion::Delinearize | Conversion::Dither => {
                 let noise = blue_noise_texture(device)?;
-                let cb = util::constant_buffer_with(device, CbWriter::new().u32(w).u32(h).f32(DITHER_STRENGTH), label)?;
+                let cb = util::constant_buffer_with(
+                    device,
+                    CbWriter::new().u32(w).u32(h).f32(DITHER_STRENGTH),
+                    label,
+                )?;
                 let point = util::sampler(device, Filter::Point)?;
                 let p = util::compute(
                     device,
                     spirv,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[input, &noise], uav: &[&output], samplers: &[&point], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[input, &noise],
+                        uav: &[&output],
+                        samplers: &[&point],
+                        push_size: 0,
+                    },
                     label,
                 )?;
                 (p, Some(noise))
             }
         };
-        Ok(ConvertPass { kind, pipeline, output, _noise: noise })
+        Ok(ConvertPass {
+            kind,
+            pipeline,
+            output,
+            _noise: noise,
+        })
     }
 }
 

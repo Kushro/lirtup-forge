@@ -20,7 +20,10 @@ pub struct EffectSpec {
 }
 
 fn error(effect: &str, message: String) -> MagpieError {
-    MagpieError::Parse { effect: effect.to_owned(), message }
+    MagpieError::Parse {
+        effect: effect.to_owned(),
+        message,
+    }
 }
 
 /// Parse one item (`"Name"`, `"Name:a=1,b=2"`, or the long form).
@@ -30,7 +33,10 @@ pub fn parse_effect_spec(item: &MagpieEffectSpec) -> Result<EffectSpec> {
             if name.trim().is_empty() {
                 return Err(error("", "MagpieFX effect entry needs a 'name'".to_owned()));
             }
-            Ok(EffectSpec { name: name.clone(), params: params.clone() })
+            Ok(EffectSpec {
+                name: name.clone(),
+                params: params.clone(),
+            })
         }
         MagpieEffectSpec::Short(text) => parse_short(text),
     }
@@ -44,21 +50,32 @@ fn parse_short(text: &str) -> Result<EffectSpec> {
         return Err(error("", "Invalid MagpieFX effect entry: empty".to_owned()));
     }
     let Some((name, rest)) = text.rsplit_once(':').filter(|(_, rest)| rest.contains('=')) else {
-        return Ok(EffectSpec { name: text.to_owned(), params: BTreeMap::new() });
+        return Ok(EffectSpec {
+            name: text.to_owned(),
+            params: BTreeMap::new(),
+        });
     };
     let mut params = BTreeMap::new();
     for pair in rest.split(',') {
         let Some((key, value)) = pair.split_once('=').filter(|(k, _)| !k.trim().is_empty()) else {
-            return Err(error(name, format!("Invalid parameter '{pair}' in effect '{name}'")));
+            return Err(error(
+                name,
+                format!("Invalid parameter '{pair}' in effect '{name}'"),
+            ));
         };
         let key = key.trim();
-        let value: f64 = value
-            .trim()
-            .parse()
-            .map_err(|_| error(name, format!("Parameter '{key}' of effect '{name}' must be a number")))?;
+        let value: f64 = value.trim().parse().map_err(|_| {
+            error(
+                name,
+                format!("Parameter '{key}' of effect '{name}' must be a number"),
+            )
+        })?;
         params.insert(key.to_owned(), value);
     }
-    Ok(EffectSpec { name: name.to_owned(), params })
+    Ok(EffectSpec {
+        name: name.to_owned(),
+        params,
+    })
 }
 
 /// Parse the whole chain.
@@ -76,10 +93,19 @@ mod tests {
 
     #[test]
     fn short_forms() {
-        assert_eq!(short(" LumaSharpen ").unwrap(), EffectSpec { name: "LumaSharpen".into(), params: BTreeMap::new() });
+        assert_eq!(
+            short(" LumaSharpen ").unwrap(),
+            EffectSpec {
+                name: "LumaSharpen".into(),
+                params: BTreeMap::new()
+            }
+        );
         let s = short("CRT/CRT_Easymode:sharpnessH=0.6, maskStrength=0.2").unwrap();
         assert_eq!(s.name, "CRT/CRT_Easymode");
-        assert_eq!(s.params, BTreeMap::from([("sharpnessH".into(), 0.6), ("maskStrength".into(), 0.2)]));
+        assert_eq!(
+            s.params,
+            BTreeMap::from([("sharpnessH".into(), 0.6), ("maskStrength".into(), 0.2)])
+        );
         // a ':' without pairs is part of the name
         assert_eq!(short("C:/fx/a.hlsl").unwrap().name, "C:/fx/a.hlsl");
         assert_eq!(short("/a:b/fx.hlsl:x=1").unwrap().name, "/a:b/fx.hlsl");
@@ -95,10 +121,21 @@ mod tests {
 
     #[test]
     fn long_form() {
-        let item = MagpieEffectSpec::Full { name: "Fx".into(), params: BTreeMap::from([("a".into(), 1.0)]) };
+        let item = MagpieEffectSpec::Full {
+            name: "Fx".into(),
+            params: BTreeMap::from([("a".into(), 1.0)]),
+        };
         assert_eq!(parse_effect_spec(&item).unwrap().params["a"], 1.0);
-        let empty = MagpieEffectSpec::Full { name: " ".into(), params: BTreeMap::new() };
+        let empty = MagpieEffectSpec::Full {
+            name: " ".into(),
+            params: BTreeMap::new(),
+        };
         assert!(parse_effect_spec(&empty).is_err());
-        assert_eq!(parse_effect_chain(&[item.clone(), MagpieEffectSpec::Short("B".into())]).unwrap().len(), 2);
+        assert_eq!(
+            parse_effect_chain(&[item.clone(), MagpieEffectSpec::Short("B".into())])
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }

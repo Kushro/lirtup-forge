@@ -333,10 +333,12 @@ mod tests {
 
         // Native engine, automatic, with the DLL given by its file.
         let tmp = tempfile::tempdir().unwrap();
-        let mut native = Config::default();
-        native.frame_gen_engine = FrameGenEngine::Native;
-        native.frame_gen_multiplier = FrameGenMultiplier::Auto;
-        native.frame_gen_dll = Some(tmp.path().join("Lossless.dll"));
+        let native = Config {
+            frame_gen_engine: FrameGenEngine::Native,
+            frame_gen_multiplier: FrameGenMultiplier::Auto,
+            frame_gen_dll: Some(tmp.path().join("Lossless.dll")),
+            ..Config::default()
+        };
         let dll = tmp.path().join("Lossless.dll");
         std::fs::write(&dll, b"MZ").unwrap();
         let setup = prepare(&native).unwrap();
@@ -351,8 +353,10 @@ mod tests {
         }
         set_env("LSFGVK_ENV", "1".as_ref());
         assert!(external_env());
-        let mut on = Config::default();
-        on.frame_gen_multiplier = FrameGenMultiplier::Fixed(3);
+        let on = Config {
+            frame_gen_multiplier: FrameGenMultiplier::Fixed(3),
+            ..Config::default()
+        };
         assert_eq!(prepare(&on).unwrap().state, FrameGenState::External);
         remove_env("LSFGVK_ENV");
         set_env("DISABLE_LSFGVK", "1".as_ref());

@@ -165,10 +165,11 @@ pub(crate) fn clean_floats(value: &mut Value) {
         Value::Number(n) if n.is_f64() => {
             if let Some(x) = n.as_f64() {
                 let narrow = x as f32;
-                if x.is_finite() && narrow as f64 == x {
-                    if let Ok(short) = narrow.to_string().parse::<f64>() {
-                        *value = Value::Number(short.into());
-                    }
+                if x.is_finite()
+                    && narrow as f64 == x
+                    && let Ok(short) = narrow.to_string().parse::<f64>()
+                {
+                    *value = Value::Number(short.into());
                 }
             }
         }

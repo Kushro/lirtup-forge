@@ -231,9 +231,11 @@ mod tests {
 
         let id = store.new_id("Modo de Firefox");
         assert_eq!(id, "modo-de-firefox");
-        let mut settings = ModeSettings::default();
-        settings.model = crate::Model::M4x24;
-        settings.bloom_strength = 0.05;
+        let settings = ModeSettings {
+            model: crate::Model::M4x24,
+            bloom_strength: 0.05,
+            ..ModeSettings::default()
+        };
         let mode = Mode {
             name: "Modo de Firefox".into(),
             description: None,

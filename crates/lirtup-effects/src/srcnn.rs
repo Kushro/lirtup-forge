@@ -98,7 +98,10 @@ fn default_depth() -> String {
 
 impl ModelJson {
     fn load(model: Model, json: &str) -> Result<ModelJson> {
-        let asset = |message: String| EffectError::Asset { name: format!("{model:?}/model.json"), message };
+        let asset = |message: String| EffectError::Asset {
+            name: format!("{model:?}/model.json"),
+            message,
+        };
         let cfg: ModelJson = serde_json::from_str(json).map_err(|e| asset(e.to_string()))?;
         if cfg.srv_uav.len() != cfg.passes {
             return Err(asset(format!("srv_uav must have {} entries", cfg.passes)));
@@ -167,7 +170,9 @@ impl Srcnn {
     /// options do not carry: with `tiles: Some(..)` use [`Srcnn::new_tiled`].
     pub fn new(device: &Arc<Device>, input: &Texture, options: &SrcnnOptions) -> Result<Srcnn> {
         if options.tiles.is_some() {
-            return Err(EffectError::Unsupported("tiled SRCNN is created with Srcnn::new_tiled".to_owned()));
+            return Err(EffectError::Unsupported(
+                "tiled SRCNN is created with Srcnn::new_tiled".to_owned(),
+            ));
         }
         let (assets, cfg) = load(options.model)?;
         let format = cfg.intermediate_format()?;
@@ -179,7 +184,13 @@ impl Srcnn {
             let tex = util::texture(device, w, h, format, &format!("{label} {name}"))?;
             named.insert(name, tex);
         }
-        let output = util::texture(device, w * 2, h * 2, Format::R8G8B8A8Unorm, &format!("{label} output"))?;
+        let output = util::texture(
+            device,
+            w * 2,
+            h * 2,
+            Format::R8G8B8A8Unorm,
+            &format!("{label} output"),
+        )?;
         named.insert("output".to_owned(), output.clone());
         named.insert("input".to_owned(), input.clone());
 
@@ -188,7 +199,11 @@ impl Srcnn {
         for pass in 0..cfg.passes {
             let last = pass + 1 == cfg.passes;
             let out = if last { (w * 2, h * 2) } else { (w, h) };
-            let cb = util::constant_buffer_with(device, cb_words((w, h), out), &format!("{label} cb{}", pass + 1))?;
+            let cb = util::constant_buffer_with(
+                device,
+                cb_words((w, h), out),
+                &format!("{label} cb{}", pass + 1),
+            )?;
             pipelines.push(build_pass(
                 device,
                 &cfg,
@@ -234,11 +249,25 @@ impl Srcnn {
 
         let mut named: BTreeMap<String, Texture> = BTreeMap::new();
         for name in cfg.intermediate_names() {
-            let tex = util::texture_array(device, feat, feat, layers, true, format, &format!("{label} {name}"))?;
+            let tex = util::texture_array(
+                device,
+                feat,
+                feat,
+                layers,
+                true,
+                format,
+                &format!("{label} {name}"),
+            )?;
             named.insert(name, tex);
         }
         named.insert("input".to_owned(), input.clone());
-        let output = util::texture(device, output_size.0, output_size.1, Format::R8G8B8A8Unorm, &format!("{label} output"))?;
+        let output = util::texture(
+            device,
+            output_size.0,
+            output_size.1,
+            Format::R8G8B8A8Unorm,
+            &format!("{label} output"),
+        )?;
 
         let samplers = Samplers::new(device)?;
         let mut pipelines = Vec::with_capacity(cfg.passes);
@@ -248,7 +277,8 @@ impl Srcnn {
             if last {
                 // The final pass writes into the full output and reads the
                 // residual as `input` (1.x `_finalize_pipeline`).
-                let cb = util::constant_buffer_with(device, cb_words((feat, feat), output_size), &pass_label)?;
+                let cb =
+                    util::constant_buffer_with(device, cb_words((feat, feat), output_size), &pass_label)?;
                 let mut last_named = named.clone();
                 last_named.insert("input".to_owned(), residual.clone());
                 last_named.insert("output".to_owned(), output.clone());
@@ -264,7 +294,8 @@ impl Srcnn {
                     &pass_label,
                 )?);
             } else {
-                let cb = util::constant_buffer_with(device, cb_words((feat, feat), (feat, feat)), &pass_label)?;
+                let cb =
+                    util::constant_buffer_with(device, cb_words((feat, feat), (feat, feat)), &pass_label)?;
                 pipelines.push(build_pass(
                     device,
                     &cfg,
@@ -284,7 +315,13 @@ impl Srcnn {
             pipelines,
             groups: util::groups((feat, feat), (8, 8)),
             output,
-            tiles: Some(TileState { margin: layout.margin, full_out: output_size, layers, placements: Vec::new(), active: 0 }),
+            tiles: Some(TileState {
+                margin: layout.margin,
+                full_out: output_size,
+                layers,
+                placements: Vec::new(),
+                active: 0,
+            }),
             _intermediates: named.into_values().collect(),
         })
     }
@@ -364,7 +401,11 @@ fn load(model: Model) -> Result<(crate::assets::CunnyAssets, ModelJson)> {
     if assets.passes.len() != cfg.passes || assets.tile_passes.len() != cfg.passes {
         return Err(EffectError::Asset {
             name: format!("{model:?}"),
-            message: format!("model.json says {} passes, {} shaders embedded", cfg.passes, assets.passes.len()),
+            message: format!(
+                "model.json says {} passes, {} shaders embedded",
+                cfg.passes,
+                assets.passes.len()
+            ),
         });
     }
     Ok((assets, cfg))
@@ -385,9 +426,11 @@ fn cb_words(input: (u32, u32), output: (u32, u32)) -> CbWriter {
 
 /// `TileParams` (`_make_push_bytes`).
 fn tile_push(p: &TilePlacement, full_out: (u32, u32), layer: u32, margin: u32) -> [u8; 32] {
-    let words = [p.dst_x, p.dst_y, p.width, p.height, full_out.0, full_out.1, layer, margin];
+    let words = [
+        p.dst_x, p.dst_y, p.width, p.height, full_out.0, full_out.1, layer, margin,
+    ];
     let mut out = [0u8; 32];
-    for (chunk, w) in out.chunks_exact_mut(4).zip(words) {
+    for (chunk, w) in out.as_chunks_mut::<4>().0.iter_mut().zip(words) {
         chunk.copy_from_slice(&w.to_le_bytes());
     }
     out
@@ -400,14 +443,20 @@ struct Samplers {
 
 impl Samplers {
     fn new(device: &Arc<Device>) -> Result<Samplers> {
-        Ok(Samplers { point: util::sampler(device, Filter::Point)?, linear: util::sampler(device, Filter::Linear)? })
+        Ok(Samplers {
+            point: util::sampler(device, Filter::Point)?,
+            linear: util::sampler(device, Filter::Linear)?,
+        })
     }
 
     fn get(&self, kind: &str) -> Result<&Sampler> {
         match kind {
             "point" => Ok(&self.point),
             "linear" => Ok(&self.linear),
-            other => Err(EffectError::Asset { name: "model.json".to_owned(), message: format!("unknown sampler '{other}'") }),
+            other => Err(EffectError::Asset {
+                name: "model.json".to_owned(),
+                message: format!("unknown sampler '{other}'"),
+            }),
         }
     }
 }
@@ -433,12 +482,21 @@ fn build_pass(
     let (srv_names, uav_names) = &cfg.srv_uav[pass];
     let srv = srv_names.iter().map(lookup).collect::<Result<Vec<_>>>()?;
     let uav = uav_names.iter().map(lookup).collect::<Result<Vec<_>>>()?;
-    let smp = cfg.samplers[pass].iter().map(|s| samplers.get(s)).collect::<Result<Vec<_>>>()?;
+    let smp = cfg.samplers[pass]
+        .iter()
+        .map(|s| samplers.get(s))
+        .collect::<Result<Vec<_>>>()?;
     util::compute(
         device,
         spirv,
         "main",
-        &Bindings { cb: Some(cb), srv: &srv, uav: &uav, samplers: &smp, push_size },
+        &Bindings {
+            cb: Some(cb),
+            srv: &srv,
+            uav: &uav,
+            samplers: &smp,
+            push_size,
+        },
         label,
     )
 }
@@ -464,7 +522,15 @@ mod tests {
     #[test]
     fn tile_placement_clips_at_edges() {
         let p = TilePlacement::from_grid(3, 0, 64, 2, (400, 300));
-        assert_eq!(p, TilePlacement { dst_x: 384, dst_y: 0, width: 16, height: 128 });
+        assert_eq!(
+            p,
+            TilePlacement {
+                dst_x: 384,
+                dst_y: 0,
+                width: 16,
+                height: 128
+            }
+        );
         let push = tile_push(&p, (400, 300), 5, 8);
         assert_eq!(&push[0..4], &384u32.to_le_bytes());
         assert_eq!(&push[24..28], &5u32.to_le_bytes());

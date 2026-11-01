@@ -277,7 +277,9 @@ impl NativeEffect {
     pub fn from_mode(mode: &ModeSettings) -> Vec<NativeEffect> {
         let mut out = Vec::new();
         if mode.deband_enabled {
-            out.push(NativeEffect::Deband { strength: mode.deband_strength });
+            out.push(NativeEffect::Deband {
+                strength: mode.deband_strength,
+            });
         }
         if mode.effects_engine == lirtup_config::EffectsEngine::Native {
             if mode.anime4k_enabled {
@@ -296,7 +298,9 @@ impl NativeEffect {
             }
         }
         if mode.cas_enabled {
-            out.push(NativeEffect::Cas { strength: mode.cas_strength });
+            out.push(NativeEffect::Cas {
+                strength: mode.cas_strength,
+            });
         }
         if mode.bloom_enabled {
             out.push(NativeEffect::Bloom {
@@ -313,14 +317,20 @@ impl NativeEffect {
             });
         }
         if mode.grain_enabled {
-            out.push(NativeEffect::Grain { strength: mode.grain_strength, size: mode.grain_size });
+            out.push(NativeEffect::Grain {
+                strength: mode.grain_strength,
+                size: mode.grain_size,
+            });
         }
         if mode.lut_enabled {
             let preset = LutPreset::from_name(&mode.lut_preset).unwrap_or_else(|| {
                 tracing::warn!("unknown LUT preset '{}', using identity", mode.lut_preset);
                 LutPreset::Identity
             });
-            out.push(NativeEffect::Lut { intensity: mode.lut_intensity, preset });
+            out.push(NativeEffect::Lut {
+                intensity: mode.lut_intensity,
+                preset,
+            });
         }
         out
     }
@@ -391,14 +401,21 @@ impl NativeEffect {
     }
 
     /// Create the pass.
-    pub fn create(&self, device: &Arc<Device>, input: &Texture, output_size: (u32, u32)) -> Result<Box<dyn Pass>> {
+    pub fn create(
+        &self,
+        device: &Arc<Device>,
+        input: &Texture,
+        output_size: (u32, u32),
+    ) -> Result<Box<dyn Pass>> {
         Ok(Box::new(NativePass::new(device, *self, input, output_size)?))
     }
 }
 
 fn spirv(path: &str) -> Result<&'static [u8]> {
-    crate::assets::native_spirv(path)
-        .ok_or_else(|| EffectError::Asset { name: path.to_owned(), message: "not embedded".to_owned() })
+    crate::assets::native_spirv(path).ok_or_else(|| EffectError::Asset {
+        name: path.to_owned(),
+        message: "not embedded".to_owned(),
+    })
 }
 
 /// One dispatch of a native pass.
@@ -419,15 +436,31 @@ struct NativePass {
 }
 
 impl NativePass {
-    fn new(device: &Arc<Device>, effect: NativeEffect, input: &Texture, output_size: (u32, u32)) -> Result<NativePass> {
+    fn new(
+        device: &Arc<Device>,
+        effect: NativeEffect,
+        input: &Texture,
+        output_size: (u32, u32),
+    ) -> Result<NativePass> {
         let label = effect.label();
         let size = (input.width(), input.height());
         let cb = util::constant_buffer(device, 112, &format!("{label} cb"))?;
         let mut keep = Vec::new();
         let new_output = |device: &Arc<Device>, s: (u32, u32)| {
-            util::texture(device, s.0, s.1, Format::R8G8B8A8Unorm, &format!("{label} output"))
+            util::texture(
+                device,
+                s.0,
+                s.1,
+                Format::R8G8B8A8Unorm,
+                &format!("{label} output"),
+            )
         };
-        let single = |pipeline: ComputePipeline, out: (u32, u32)| vec![Step { pipeline, groups: util::groups(out, (16, 16)) }];
+        let single = |pipeline: ComputePipeline, out: (u32, u32)| {
+            vec![Step {
+                pipeline,
+                groups: util::groups(out, (16, 16)),
+            }]
+        };
 
         let (output, steps) = match effect {
             NativeEffect::Cas { .. }
@@ -444,7 +477,13 @@ impl NativePass {
                     device,
                     spirv(path)?,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[input], uav: &[input], samplers: &[], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[input],
+                        uav: &[input],
+                        samplers: &[],
+                        push_size: 0,
+                    },
                     label,
                 )?;
                 (input.clone(), single(p, size))
@@ -458,7 +497,13 @@ impl NativePass {
                     device,
                     spirv("effects/lut/lut.spv")?,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[input, &lut], uav: &[input], samplers: &[&linear], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[input, &lut],
+                        uav: &[input],
+                        samplers: &[&linear],
+                        push_size: 0,
+                    },
                     label,
                 )?;
                 keep.push(lut);
@@ -470,15 +515,27 @@ impl NativePass {
                     device,
                     spirv("effects/deband/deband.spv")?,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[input], uav: &[&out], samplers: &[], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[input],
+                        uav: &[&out],
+                        samplers: &[],
+                        push_size: 0,
+                    },
                     label,
                 )?;
                 (out, single(p, size))
             }
             NativeEffect::LumaSharpen { .. } | NativeEffect::CrtEasymode(_) => {
                 let (path, filter, out_size) = match effect {
-                    NativeEffect::LumaSharpen { .. } => ("effects/luma_sharpen/luma_sharpen.spv", Filter::Linear, size),
-                    _ => ("effects/crt_easymode/crt_easymode.spv", Filter::Point, effect.output_size(size, output_size)),
+                    NativeEffect::LumaSharpen { .. } => {
+                        ("effects/luma_sharpen/luma_sharpen.spv", Filter::Linear, size)
+                    }
+                    _ => (
+                        "effects/crt_easymode/crt_easymode.spv",
+                        Filter::Point,
+                        effect.output_size(size, output_size),
+                    ),
                 };
                 let out = new_output(device, out_size)?;
                 let smp = util::sampler(device, filter)?;
@@ -486,7 +543,13 @@ impl NativePass {
                     device,
                     spirv(path)?,
                     "main",
-                    &Bindings { cb: Some(&cb), srv: &[input], uav: &[&out], samplers: &[&smp], push_size: 0 },
+                    &Bindings {
+                        cb: Some(&cb),
+                        srv: &[input],
+                        uav: &[&out],
+                        samplers: &[&smp],
+                        push_size: 0,
+                    },
                     label,
                 )?;
                 (out, single(p, out_size))
@@ -503,14 +566,29 @@ impl NativePass {
                         device,
                         spirv(&format!("effects/anime4k/anime4k_upscale_s_pass{i}.spv"))?,
                         "main",
-                        &Bindings { cb: Some(&cb), srv, uav: &[uav], samplers, push_size: 0 },
+                        &Bindings {
+                            cb: Some(&cb),
+                            srv,
+                            uav: &[uav],
+                            samplers,
+                            push_size: 0,
+                        },
                         label,
                     )
                 };
                 let steps = vec![
-                    Step { pipeline: pass(1, &[input], &tex1, &[&point])?, groups: util::groups(size, (16, 16)) },
-                    Step { pipeline: pass(2, &[&tex1], &tex2, &[&point])?, groups: util::groups(size, (16, 16)) },
-                    Step { pipeline: pass(3, &[&tex2], &tex1, &[&point])?, groups: util::groups(size, (16, 16)) },
+                    Step {
+                        pipeline: pass(1, &[input], &tex1, &[&point])?,
+                        groups: util::groups(size, (16, 16)),
+                    },
+                    Step {
+                        pipeline: pass(2, &[&tex1], &tex2, &[&point])?,
+                        groups: util::groups(size, (16, 16)),
+                    },
+                    Step {
+                        pipeline: pass(3, &[&tex2], &tex1, &[&point])?,
+                        groups: util::groups(size, (16, 16)),
+                    },
                     Step {
                         pipeline: pass(4, &[input, &tex1], &out, &[&point, &linear])?,
                         groups: util::groups(out_size, (16, 16)),
@@ -521,7 +599,15 @@ impl NativePass {
             }
         };
 
-        let pass = NativePass { effect, input_size: size, output, cb, steps, frame: 0, _keep: keep };
+        let pass = NativePass {
+            effect,
+            input_size: size,
+            output,
+            cb,
+            steps,
+            frame: 0,
+            _keep: keep,
+        };
         pass.upload()?;
         Ok(pass)
     }
@@ -542,27 +628,53 @@ impl NativePass {
                 .f32(1.0 / oh as f32)
         };
         let cb = match self.effect {
-            NativeEffect::Cas { strength } => CbWriter::new().f32(clampf(strength, 0.0, 1.0)).u32(ow).u32(oh).u32(0),
-            NativeEffect::Deband { strength } => CbWriter::new().f32(clampf(strength, 0.0, 1.0)).u32(ow).u32(oh).u32(frame),
-            NativeEffect::Bloom { strength, threshold, radius } => CbWriter::new()
+            NativeEffect::Cas { strength } => CbWriter::new()
+                .f32(clampf(strength, 0.0, 1.0))
+                .u32(ow)
+                .u32(oh)
+                .u32(0),
+            NativeEffect::Deband { strength } => CbWriter::new()
+                .f32(clampf(strength, 0.0, 1.0))
+                .u32(ow)
+                .u32(oh)
+                .u32(frame),
+            NativeEffect::Bloom {
+                strength,
+                threshold,
+                radius,
+            } => CbWriter::new()
                 .f32(clampf(strength, 0.0, 1.0))
                 .u32(ow)
                 .u32(oh)
                 .f32(clampf(threshold, 0.0, 1.0))
                 .u32(radius.clamp(1, 16)),
-            NativeEffect::Vignette { strength, radius, falloff } => CbWriter::new()
+            NativeEffect::Vignette {
+                strength,
+                radius,
+                falloff,
+            } => CbWriter::new()
                 .f32(clampf(strength, 0.0, 1.0))
                 .u32(ow)
                 .u32(oh)
                 .f32(clampf(radius, 0.0, 2.0))
                 .f32(clampf(falloff, 0.1, 10.0)),
-            NativeEffect::Grain { strength, size } => {
-                CbWriter::new().f32(clampf(strength, 0.0, 1.0)).u32(ow).u32(oh).u32(frame).f32(size.max(1.0))
-            }
-            NativeEffect::Lut { intensity, .. } => {
-                CbWriter::new().f32(clampf(intensity, 0.0, 1.0)).u32(crate::lut::LUT_SIZE).u32(ow).u32(oh)
-            }
-            NativeEffect::LumaSharpen { strength, clamp, pattern, offset_bias } => sizes()
+            NativeEffect::Grain { strength, size } => CbWriter::new()
+                .f32(clampf(strength, 0.0, 1.0))
+                .u32(ow)
+                .u32(oh)
+                .u32(frame)
+                .f32(size.max(1.0)),
+            NativeEffect::Lut { intensity, .. } => CbWriter::new()
+                .f32(clampf(intensity, 0.0, 1.0))
+                .u32(crate::lut::LUT_SIZE)
+                .u32(ow)
+                .u32(oh),
+            NativeEffect::LumaSharpen {
+                strength,
+                clamp,
+                pattern,
+                offset_bias,
+            } => sizes()
                 .f32(clampf(strength, 0.0, 3.0))
                 .f32(clampf(clamp, 0.0, 1.0))
                 .i32(pattern.min(3) as i32)
@@ -606,7 +718,10 @@ impl Pass for NativePass {
 
     fn set_frame(&mut self, frame: u64, _time_s: f32) {
         // Only deband and grain animate (temporal dither and noise).
-        if matches!(self.effect, NativeEffect::Deband { .. } | NativeEffect::Grain { .. }) {
+        if matches!(
+            self.effect,
+            NativeEffect::Deband { .. } | NativeEffect::Grain { .. }
+        ) {
             self.frame = frame;
             if let Err(e) = self.upload() {
                 tracing::warn!("{}: cannot update constants: {e}", self.effect.label());
@@ -621,17 +736,22 @@ mod tests {
 
     #[test]
     fn from_mode_keeps_the_1x_order() {
-        let mut mode = ModeSettings::default();
-        mode.deband_enabled = true;
-        mode.anime4k_enabled = true;
-        mode.crt_enabled = true;
-        mode.cas_enabled = true;
-        mode.grain_enabled = true;
-        mode.lut_enabled = true;
-        mode.lut_preset = "sepia".to_owned();
-        mode.effects_engine = lirtup_config::EffectsEngine::Native;
+        let mut mode = ModeSettings {
+            deband_enabled: true,
+            anime4k_enabled: true,
+            crt_enabled: true,
+            cas_enabled: true,
+            grain_enabled: true,
+            lut_enabled: true,
+            lut_preset: "sepia".to_owned(),
+            effects_engine: lirtup_config::EffectsEngine::Native,
+            ..ModeSettings::default()
+        };
         let labels: Vec<_> = NativeEffect::from_mode(&mode).iter().map(|e| e.label()).collect();
-        assert_eq!(labels, ["deband", "anime4k", "crt_easymode", "cas", "grain", "lut"]);
+        assert_eq!(
+            labels,
+            ["deband", "anime4k", "crt_easymode", "cas", "grain", "lut"]
+        );
 
         mode.effects_engine = lirtup_config::EffectsEngine::Magpiefx;
         let labels: Vec<_> = NativeEffect::from_mode(&mode).iter().map(|e| e.label()).collect();
@@ -641,24 +761,45 @@ mod tests {
     #[test]
     fn output_sizes() {
         let crt = NativeEffect::CrtEasymode(CrtParams::default());
-        assert_eq!(NativeEffect::Anime4kS.output_size((640, 360), (1920, 1080)), (1280, 720));
+        assert_eq!(
+            NativeEffect::Anime4kS.output_size((640, 360), (1920, 1080)),
+            (1280, 720)
+        );
         assert_eq!(crt.output_size((640, 360), (1920, 1080)), (1920, 1080));
-        assert_eq!(NativeEffect::Cas { strength: 0.4 }.output_size((640, 360), (1920, 1080)), (640, 360));
+        assert_eq!(
+            NativeEffect::Cas { strength: 0.4 }.output_size((640, 360), (1920, 1080)),
+            (640, 360)
+        );
     }
 
     #[test]
     fn set_param_by_config_name() {
-        let mut e = NativeEffect::Bloom { strength: 0.1, threshold: 0.8, radius: 4 };
+        let mut e = NativeEffect::Bloom {
+            strength: 0.1,
+            threshold: 0.8,
+            radius: 4,
+        };
         assert!(e.set_param("bloom_radius", 6.0));
         assert!(!e.set_param("cas_strength", 1.0));
-        assert_eq!(e, NativeEffect::Bloom { strength: 0.1, threshold: 0.8, radius: 6 });
+        assert_eq!(
+            e,
+            NativeEffect::Bloom {
+                strength: 0.1,
+                threshold: 0.8,
+                radius: 6
+            }
+        );
         let mut crt = NativeEffect::CrtEasymode(CrtParams::default());
         assert!(crt.set_param("crt_gamma_input", 2.4));
     }
 
     #[test]
     fn crt_constants_are_28_words() {
-        let words = CrtParams::default().pack(CbWriter::new().f32s(&[0.0; 8])).u32(0).u32(0).u32(0);
+        let words = CrtParams::default()
+            .pack(CbWriter::new().f32s(&[0.0; 8]))
+            .u32(0)
+            .u32(0)
+            .u32(0);
         assert_eq!(words.len(), 112);
     }
 }

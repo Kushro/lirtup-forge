@@ -37,7 +37,7 @@ pub(crate) fn resize(src: &RgbaImage, width: u32, height: u32) -> RgbaImage {
                 let mut acc = [0u32; 4];
                 for sy in y0..y1 {
                     let row = &src.data[(sy * sw + x0) * 4..(sy * sw + x1) * 4];
-                    for px in row.chunks_exact(4) {
+                    for px in row.as_chunks::<4>().0 {
                         for c in 0..4 {
                             acc[c] += u32::from(px[c]);
                         }
@@ -104,6 +104,6 @@ mod tests {
     fn grow_keeps_solid_color() {
         let out = resize(&solid(2, 2, [10, 20, 30, 40]), 5, 3);
         assert_eq!((out.width, out.height), (5, 3));
-        assert!(out.data.chunks_exact(4).all(|p| p == [10, 20, 30, 40]));
+        assert!(out.data.as_chunks::<4>().0.iter().all(|p| *p == [10, 20, 30, 40]));
     }
 }

@@ -12,7 +12,11 @@ const fn luma(r: f64, g: f64, b: f64) -> f64 {
 }
 
 fn s_curve(v: f64) -> f64 {
-    if v < 0.5 { 2.0 * v * v } else { 1.0 - (-2.0 * v + 2.0).powf(2.0) / 2.0 }
+    if v < 0.5 {
+        2.0 * v * v
+    } else {
+        1.0 - (-2.0 * v + 2.0).powf(2.0) / 2.0
+    }
 }
 
 fn lofi(v: f64) -> f64 {
@@ -35,14 +39,22 @@ fn grade(preset: LutPreset, r: f64, g: f64, b: f64) -> [f64; 3] {
             let l = luma(r, g, b);
             [l + (r - l) * 1.2, l + (g - l) * 1.2, l + (b - l) * 1.2]
         }
-        LutPreset::Pastel => [(r * 0.95 + 0.08).min(1.0), (g * 0.95 + 0.08).min(1.0), (b * 0.95 + 0.08).min(1.0)],
+        LutPreset::Pastel => [
+            (r * 0.95 + 0.08).min(1.0),
+            (g * 0.95 + 0.08).min(1.0),
+            (b * 0.95 + 0.08).min(1.0),
+        ],
         LutPreset::Noir => {
             let l = ((luma(r, g, b) - 0.5) * 1.2 + 0.5).clamp(0.0, 1.0);
             [l, l, l]
         }
         LutPreset::Sepia => {
             let l = luma(r, g, b);
-            [(l * 1.12 + 0.08).min(1.0), (l * 0.95 + 0.04).min(1.0), (l * 0.78).min(1.0)]
+            [
+                (l * 1.12 + 0.08).min(1.0),
+                (l * 0.95 + 0.04).min(1.0),
+                (l * 0.78).min(1.0),
+            ]
         }
         LutPreset::Bleach => {
             let c = ((luma(r, g, b) - 0.5) * 1.3 + 0.5).clamp(0.0, 1.0);

@@ -165,9 +165,9 @@ fn strip_comments(source: &str) -> (String, bool) {
                 Some(j) => rest = &tail[j..], // keep the newline
                 None => return (out, false),
             }
-        } else if tail.starts_with("/*") {
-            match tail[2..].find("*/") {
-                Some(j) => rest = &tail[2 + j + 2..],
+        } else if let Some(body) = tail.strip_prefix("/*") {
+            match body.find("*/") {
+                Some(j) => rest = &body[j + 2..],
                 None => return (out, true),
             }
         } else {
@@ -228,7 +228,10 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn err(&self, message: impl Into<String>) -> MagpieError {
-        MagpieError::Parse { effect: self.effect.to_owned(), message: message.into() }
+        MagpieError::Parse {
+            effect: self.effect.to_owned(),
+            message: message.into(),
+        }
     }
 
     fn number(&self, text: &str, kind: ParamKind, what: &str) -> Result<f64> {
@@ -241,7 +244,10 @@ impl Ctx<'_> {
     }
 
     fn ints(&self, value: &str, what: &str) -> Result<Vec<i64>> {
-        value.split(',').map(|s| s.trim().parse::<i64>().map_err(|_| self.err(what.to_owned()))).collect()
+        value
+            .split(',')
+            .map(|s| s.trim().parse::<i64>().map_err(|_| self.err(what.to_owned())))
+            .collect()
     }
 }
 
@@ -309,7 +315,8 @@ fn resolve_parameter(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usiz
         if ["DEFAULT", "LABEL", "MIN", "MAX", "STEP"].contains(&key.as_str()) {
             opts.insert(key.clone(), value.clone());
         } else {
-            desc.warnings.push(format!("Parameter #{idx}: unknown directive '{key}'"));
+            desc.warnings
+                .push(format!("Parameter #{idx}: unknown directive '{key}'"));
         }
     }
     for req in ["DEFAULT", "MIN", "MAX", "STEP"] {
@@ -317,10 +324,20 @@ fn resolve_parameter(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usiz
             return Err(ctx.err(format!("Parameter #{idx}: missing '//!{req}'")));
         }
     }
-    let decl = DECL_RE.captures(&code).filter(|c| &c[1] == "float" || &c[1] == "int").ok_or_else(|| {
-        ctx.err(format!("Parameter #{idx}: expected 'float name;' or 'int name;', got '{}'", code.trim()))
-    })?;
-    let kind = if &decl[1] == "int" { ParamKind::Int } else { ParamKind::Float };
+    let decl = DECL_RE
+        .captures(&code)
+        .filter(|c| &c[1] == "float" || &c[1] == "int")
+        .ok_or_else(|| {
+            ctx.err(format!(
+                "Parameter #{idx}: expected 'float name;' or 'int name;', got '{}'",
+                code.trim()
+            ))
+        })?;
+    let kind = if &decl[1] == "int" {
+        ParamKind::Int
+    } else {
+        ParamKind::Float
+    };
     let name = decl[2].to_owned();
     let what = format!("Parameter '{name}'");
     let p = EffectParameter {
@@ -341,7 +358,10 @@ fn resolve_parameter(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usiz
 
 fn resolve_texture(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usize) -> Result<()> {
     let (directives, code) = take_directives(lines);
-    let mut tex = EffectTexture { format: "R8G8B8A8_UNORM".to_owned(), ..EffectTexture::default() };
+    let mut tex = EffectTexture {
+        format: "R8G8B8A8_UNORM".to_owned(),
+        ..EffectTexture::default()
+    };
     let mut seen = BTreeSet::new();
     for (key, value) in &directives[1..] {
         if !seen.insert(key.clone()) {
@@ -357,7 +377,9 @@ fn resolve_texture(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usize)
             }
             "WIDTH" => tex.width_expr = WS_RE.replace_all(value, "").into_owned(),
             "HEIGHT" => tex.height_expr = WS_RE.replace_all(value, "").into_owned(),
-            _ => desc.warnings.push(format!("Texture #{idx}: unknown directive '{key}'")),
+            _ => desc
+                .warnings
+                .push(format!("Texture #{idx}: unknown directive '{key}'")),
         }
     }
     if seen.contains("WIDTH") != seen.contains("HEIGHT") {
@@ -369,7 +391,12 @@ fn resolve_texture(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usize)
     let decl = DECL_RE
         .captures(&code)
         .filter(|c| &c[1] == "Texture2D")
-        .ok_or_else(|| ctx.err(format!("Texture #{idx}: expected 'Texture2D name;', got '{}'", code.trim())))?;
+        .ok_or_else(|| {
+            ctx.err(format!(
+                "Texture #{idx}: expected 'Texture2D name;', got '{}'",
+                code.trim()
+            ))
+        })?;
     let name = decl[2].to_owned();
 
     if name == "INPUT" {
@@ -400,7 +427,11 @@ fn resolve_texture(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usize)
 
 fn resolve_sampler(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usize) -> Result<()> {
     let (directives, code) = take_directives(lines);
-    let mut sam = EffectSampler { name: String::new(), filter: "POINT".to_owned(), address: "CLAMP".to_owned() };
+    let mut sam = EffectSampler {
+        name: String::new(),
+        filter: "POINT".to_owned(),
+        address: "CLAMP".to_owned(),
+    };
     let mut seen = BTreeSet::new();
     for (key, value) in &directives[1..] {
         if !seen.insert(key.clone()) {
@@ -420,7 +451,9 @@ fn resolve_sampler(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usize)
                 }
                 sam.address = value;
             }
-            _ => desc.warnings.push(format!("Sampler #{idx}: unknown directive '{key}'")),
+            _ => desc
+                .warnings
+                .push(format!("Sampler #{idx}: unknown directive '{key}'")),
         }
     }
     if !seen.contains("FILTER") {
@@ -429,7 +462,12 @@ fn resolve_sampler(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usize)
     let decl = DECL_RE
         .captures(&code)
         .filter(|c| &c[1] == "SamplerState")
-        .ok_or_else(|| ctx.err(format!("Sampler #{idx}: expected 'SamplerState name;', got '{}'", code.trim())))?;
+        .ok_or_else(|| {
+            ctx.err(format!(
+                "Sampler #{idx}: expected 'SamplerState name;', got '{}'",
+                code.trim()
+            ))
+        })?;
     sam.name = decl[2].to_owned();
     desc.samplers.push(sam);
     Ok(())
@@ -444,8 +482,11 @@ fn resolve_common(ctx: &Ctx, desc: &mut EffectDesc, lines: &[&str], idx: usize) 
     Ok(())
 }
 
+/// A `//!PASS` block before it is resolved: its number, directives and code.
+type RawPass = (u32, Vec<(String, String)>, String);
+
 fn resolve_passes(ctx: &Ctx, desc: &mut EffectDesc, blocks: &[Vec<&str>]) -> Result<()> {
-    let mut parsed: Vec<(u32, Vec<(String, String)>, String)> = Vec::new();
+    let mut parsed: Vec<RawPass> = Vec::new();
     for lines in blocks {
         let (mut directives, code) = take_directives(lines);
         let first = directives.remove(0);
@@ -461,12 +502,21 @@ fn resolve_passes(ctx: &Ctx, desc: &mut EffectDesc, blocks: &[Vec<&str>]) -> Res
         return Err(ctx.err("PASS numbers must be consecutive starting at 1"));
     }
 
-    let tex_index: BTreeMap<String, u32> =
-        desc.textures.iter().enumerate().map(|(i, t)| (t.name.clone(), i as u32)).collect();
+    let tex_index: BTreeMap<String, u32> = desc
+        .textures
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.name.clone(), i as u32))
+        .collect();
     let n_passes = parsed.len();
 
     for (i, (number, directives, code)) in parsed.into_iter().enumerate() {
-        let mut p = EffectPass { index: number, num_threads: (1, 1, 1), code, ..EffectPass::default() };
+        let mut p = EffectPass {
+            index: number,
+            num_threads: (1, 1, 1),
+            code,
+            ..EffectPass::default()
+        };
         let mut seen = BTreeSet::new();
         let mut available = tex_index.clone();
         for (key, value) in &directives {
@@ -486,7 +536,9 @@ fn resolve_passes(ctx: &Ctx, desc: &mut EffectDesc, blocks: &[Vec<&str>]) -> Res
                     let names: Vec<&str> = value.split(',').map(str::trim).collect();
                     if i == n_passes - 1 {
                         if names != ["OUTPUT"] {
-                            return Err(ctx.err(format!("Pass {number}: the last pass must write only OUTPUT")));
+                            return Err(
+                                ctx.err(format!("Pass {number}: the last pass must write only OUTPUT"))
+                            );
                         }
                         p.outputs.push(1);
                         continue;
@@ -496,7 +548,9 @@ fn resolve_passes(ctx: &Ctx, desc: &mut EffectDesc, blocks: &[Vec<&str>]) -> Res
                     }
                     for name in names {
                         match available.remove(name) {
-                            Some(j) if j > 1 && desc.textures[j as usize].source.is_empty() => p.outputs.push(j),
+                            Some(j) if j > 1 && desc.textures[j as usize].source.is_empty() => {
+                                p.outputs.push(j)
+                            }
                             _ => return Err(ctx.err(format!("Pass {number}: invalid output '{name}'"))),
                         }
                     }
@@ -526,7 +580,9 @@ fn resolve_passes(ctx: &Ctx, desc: &mut EffectDesc, blocks: &[Vec<&str>]) -> Res
                     _ => return Err(ctx.err(format!("Pass {number}: invalid STYLE '{value}'"))),
                 },
                 "DESC" => p.desc = value.clone(),
-                _ => desc.warnings.push(format!("Pass {number}: unknown directive '{key}'")),
+                _ => desc
+                    .warnings
+                    .push(format!("Pass {number}: unknown directive '{key}'")),
             }
         }
         if !seen.contains("IN") || !seen.contains("OUT") {
@@ -534,10 +590,14 @@ fn resolve_passes(ctx: &Ctx, desc: &mut EffectDesc, blocks: &[Vec<&str>]) -> Res
         }
         let explicit = seen.contains("BLOCK_SIZE") || seen.contains("NUM_THREADS");
         if p.ps_style && explicit {
-            return Err(ctx.err(format!("Pass {number}: PS style passes cannot set BLOCK_SIZE/NUM_THREADS")));
+            return Err(ctx.err(format!(
+                "Pass {number}: PS style passes cannot set BLOCK_SIZE/NUM_THREADS"
+            )));
         }
         if !p.ps_style && !(seen.contains("BLOCK_SIZE") && seen.contains("NUM_THREADS")) {
-            return Err(ctx.err(format!("Pass {number}: CS style passes need BLOCK_SIZE and NUM_THREADS")));
+            return Err(ctx.err(format!(
+                "Pass {number}: CS style passes need BLOCK_SIZE and NUM_THREADS"
+            )));
         }
         if p.desc.is_empty() {
             p.desc = format!("Pass {number}");
@@ -564,7 +624,11 @@ pub fn parse_effect(source: &str, name: &str) -> Result<EffectDesc> {
                 height_expr: "INPUT_HEIGHT".to_owned(),
                 source: String::new(),
             },
-            EffectTexture { name: "OUTPUT".to_owned(), format: "R8G8B8A8_UNORM".to_owned(), ..EffectTexture::default() },
+            EffectTexture {
+                name: "OUTPUT".to_owned(),
+                format: "R8G8B8A8_UNORM".to_owned(),
+                ..EffectTexture::default()
+            },
         ],
         ..EffectDesc::default()
     };
@@ -676,7 +740,9 @@ void Pass1(uint2 blockStart, uint3 tid) { }
 
     /// A minimal effect with `extra` blocks before one PS pass.
     fn with(extra: &str) -> String {
-        format!("//!MAGPIE EFFECT\n//!VERSION 4\n{extra}\n//!PASS 1\n//!STYLE PS\n//!IN INPUT\n//!OUT OUTPUT\nMF4 Pass1(float2 pos) {{ return 0; }}\n")
+        format!(
+            "//!MAGPIE EFFECT\n//!VERSION 4\n{extra}\n//!PASS 1\n//!STYLE PS\n//!IN INPUT\n//!OUT OUTPUT\nMF4 Pass1(float2 pos) {{ return 0; }}\n"
+        )
     }
 
     #[test]
@@ -689,7 +755,10 @@ void Pass1(uint2 blockStart, uint3 tid) { }
 
         assert_eq!(d.params.len(), 2);
         let s = d.param("strength").unwrap();
-        assert_eq!((s.kind, s.default, s.min, s.max, s.step), (ParamKind::Float, 0.5, 0.0, 1.0, 0.01));
+        assert_eq!(
+            (s.kind, s.default, s.min, s.max, s.step),
+            (ParamKind::Float, 0.5, 0.0, 1.0, 0.01)
+        );
         assert_eq!(s.label, "Strength");
         let t = d.param("taps").unwrap();
         assert_eq!((t.kind, t.default, t.label.as_str()), (ParamKind::Int, 2.0, ""));
@@ -700,7 +769,14 @@ void Pass1(uint2 blockStart, uint3 tid) { }
         assert_eq!(d.output().height_expr, "INPUT_HEIGHT*2");
         assert_eq!(d.textures[2].format, "R16G16B16A16_FLOAT");
 
-        assert_eq!(d.samplers, vec![EffectSampler { name: "sam".into(), filter: "LINEAR".into(), address: "WRAP".into() }]);
+        assert_eq!(
+            d.samplers,
+            vec![EffectSampler {
+                name: "sam".into(),
+                filter: "LINEAR".into(),
+                address: "WRAP".into()
+            }]
+        );
         assert_eq!(d.commons.len(), 1);
         assert!(!d.commons[0].contains("a comment"));
 
@@ -709,10 +785,16 @@ void Pass1(uint2 blockStart, uint3 tid) { }
         let p1 = &d.passes[0];
         assert_eq!((p1.index, p1.desc.as_str()), (1, "First"));
         assert_eq!((p1.inputs.clone(), p1.outputs.clone()), (vec![0], vec![2]));
-        assert_eq!((p1.block_size, p1.num_threads, p1.ps_style), ((8, 8), (64, 1, 1), false));
+        assert_eq!(
+            (p1.block_size, p1.num_threads, p1.ps_style),
+            ((8, 8), (64, 1, 1), false)
+        );
         let p2 = &d.passes[1];
         assert_eq!((p2.inputs.clone(), p2.outputs.clone()), (vec![0, 2], vec![1]));
-        assert_eq!((p2.block_size, p2.num_threads, p2.ps_style), ((16, 16), (64, 1, 1), true));
+        assert_eq!(
+            (p2.block_size, p2.num_threads, p2.ps_style),
+            ((16, 16), (64, 1, 1), true)
+        );
         assert_eq!(p2.desc, "Pass 2");
         assert!(p2.code.contains("MF4 Pass2"));
     }
@@ -754,8 +836,16 @@ void Pass1(uint2 blockStart, uint3 tid) { }
         assert!(err(&p("//!MIN 0\n//!MAX 1\n//!STEP 1\nfloat a;")).contains("missing '//!DEFAULT'"));
         assert!(err(&p("//!DEFAULT 2\n//!MIN 0\n//!MAX 1\n//!STEP 1\nfloat a;")).contains("outside"));
         assert!(err(&p("//!DEFAULT 1.5\n//!MIN 0\n//!MAX 2\n//!STEP 1\nint a;")).contains("invalid int"));
-        assert!(err(&p("//!DEFAULT 0\n//!DEFAULT 0\n//!MIN 0\n//!MAX 1\n//!STEP 1\nfloat a;")).contains("duplicated"));
-        assert!(err(&p("//!DEFAULT 0\n//!MIN 0\n//!MAX 1\n//!STEP 1\nfloat2 a;")).contains("expected 'float name;'"));
+        assert!(
+            err(&p(
+                "//!DEFAULT 0\n//!DEFAULT 0\n//!MIN 0\n//!MAX 1\n//!STEP 1\nfloat a;"
+            ))
+            .contains("duplicated")
+        );
+        assert!(
+            err(&p("//!DEFAULT 0\n//!MIN 0\n//!MAX 1\n//!STEP 1\nfloat2 a;"))
+                .contains("expected 'float name;'")
+        );
     }
 
     #[test]
@@ -769,7 +859,10 @@ void Pass1(uint2 blockStart, uint3 tid) { }
         assert!(err(&t("//!FORMAT R8_UNORM\nTexture2D OUTPUT;")).contains("OUTPUT texture"));
         // a SOURCE without FORMAT takes the file's format later
         let d = parse_effect(&t("//!SOURCE lut.dds\nTexture2D lut;"), "t").unwrap();
-        assert_eq!((d.textures[2].format.as_str(), d.textures[2].source.as_str()), ("", "lut.dds"));
+        assert_eq!(
+            (d.textures[2].format.as_str(), d.textures[2].source.as_str()),
+            ("", "lut.dds")
+        );
     }
 
     #[test]
@@ -779,12 +872,17 @@ void Pass1(uint2 blockStart, uint3 tid) { }
         assert!(err(&s("//!FILTER CUBIC\nSamplerState s;")).contains("invalid FILTER"));
         assert!(err(&s("//!FILTER POINT\n//!ADDRESS MIRROR\nSamplerState s;")).contains("invalid ADDRESS"));
         let d = parse_effect(&s("//!FILTER point\nSamplerState s;"), "t").unwrap();
-        assert_eq!((d.samplers[0].filter.as_str(), d.samplers[0].address.as_str()), ("POINT", "CLAMP"));
+        assert_eq!(
+            (d.samplers[0].filter.as_str(), d.samplers[0].address.as_str()),
+            ("POINT", "CLAMP")
+        );
     }
 
     #[test]
     fn duplicate_identifiers() {
-        let src = with("//!TEXTURE\n//!FORMAT R8_UNORM\nTexture2D a;\n//!SAMPLER\n//!FILTER POINT\nSamplerState a;");
+        let src = with(
+            "//!TEXTURE\n//!FORMAT R8_UNORM\nTexture2D a;\n//!SAMPLER\n//!FILTER POINT\nSamplerState a;",
+        );
         assert!(err(&src).contains("Duplicated identifiers: a"));
     }
 
@@ -799,13 +897,16 @@ void Pass1(uint2 blockStart, uint3 tid) { }
         assert!(e("//!PASS 1\n//!STYLE PS\n//!IN INPUT\n").contains("IN and OUT"));
         assert!(e("//!PASS 1\n//!STYLE XS\n//!IN INPUT\n//!OUT OUTPUT\n").contains("invalid STYLE"));
         assert!(e("//!PASS 1\n//!IN INPUT\n//!OUT OUTPUT\n").contains("need BLOCK_SIZE"));
-        assert!(e("//!PASS 1\n//!STYLE PS\n//!BLOCK_SIZE 8\n//!IN INPUT\n//!OUT OUTPUT\n").contains("cannot set"));
+        assert!(
+            e("//!PASS 1\n//!STYLE PS\n//!BLOCK_SIZE 8\n//!IN INPUT\n//!OUT OUTPUT\n").contains("cannot set")
+        );
         assert!(
             e("//!PASS 1\n//!STYLE PS\n//!IN INPUT\n//!OUT INPUT\n//!PASS 2\n//!STYLE PS\n//!IN t\n//!OUT OUTPUT\n")
                 .contains("invalid output")
         );
         assert!(
-            e("//!PASS 1\n//!BLOCK_SIZE 0\n//!NUM_THREADS 1\n//!IN INPUT\n//!OUT OUTPUT\n").contains("BLOCK_SIZE")
+            e("//!PASS 1\n//!BLOCK_SIZE 0\n//!NUM_THREADS 1\n//!IN INPUT\n//!OUT OUTPUT\n")
+                .contains("BLOCK_SIZE")
         );
         // the same texture cannot be read and written by one pass
         assert!(

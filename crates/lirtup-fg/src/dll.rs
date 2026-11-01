@@ -80,10 +80,10 @@ pub(crate) fn vdf_paths(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in text.lines() {
         let mut quoted = quoted_strings(line);
-        if quoted.next().as_deref() == Some("path") {
-            if let Some(path) = quoted.next() {
-                out.push(path);
-            }
+        if quoted.next().as_deref() == Some("path")
+            && let Some(path) = quoted.next()
+        {
+            out.push(path);
         }
     }
     out

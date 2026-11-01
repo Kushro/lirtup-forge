@@ -28,10 +28,15 @@ enum Token {
     End,
 }
 
-const OPS: [&str; 17] = ["<=", ">=", "==", "!=", "-", "+", "*", "/", "%", "^", "(", ")", "?", ":", ",", "<", ">"];
+const OPS: [&str; 17] = [
+    "<=", ">=", "==", "!=", "-", "+", "*", "/", "%", "^", "(", ")", "?", ":", ",", "<", ">",
+];
 
 fn error(text: &str, message: String) -> MagpieError {
-    MagpieError::Parse { effect: String::new(), message: format!("{message} in expression '{text}'") }
+    MagpieError::Parse {
+        effect: String::new(),
+        message: format!("{message} in expression '{text}'"),
+    }
 }
 
 fn tokenize(text: &str) -> Result<Vec<Token>> {
@@ -68,7 +73,9 @@ fn tokenize(text: &str) -> Result<Vec<Token>> {
                     i = j;
                 }
             }
-            let value = text[start..i].parse::<f64>().map_err(|_| error(text, format!("Bad number at {start}")))?;
+            let value = text[start..i]
+                .parse::<f64>()
+                .map_err(|_| error(text, format!("Bad number at {start}")))?;
             tokens.push(Token::Num(value));
             continue;
         }
@@ -114,7 +121,11 @@ impl Parser<'_> {
     }
 
     fn expect(&mut self, op: &str) -> Result<()> {
-        if self.accept(op) { Ok(()) } else { Err(error(self.text, format!("Expected '{op}'"))) }
+        if self.accept(op) {
+            Ok(())
+        } else {
+            Err(error(self.text, format!("Expected '{op}'")))
+        }
     }
 
     fn parse(&mut self) -> Result<f64> {
@@ -221,7 +232,10 @@ impl Parser<'_> {
                     self.expect(")")?;
                     return call(self.text, &name, &args);
                 }
-                self.vars.get(&name).copied().ok_or_else(|| error(self.text, format!("Unknown constant '{name}'")))
+                self.vars
+                    .get(&name)
+                    .copied()
+                    .ok_or_else(|| error(self.text, format!("Unknown constant '{name}'")))
             }
             Token::Op("(") => {
                 let result = self.expr()?;
@@ -236,7 +250,11 @@ impl Parser<'_> {
 
 fn call(text: &str, name: &str, args: &[f64]) -> Result<f64> {
     let one = || {
-        if args.len() == 1 { Ok(args[0]) } else { Err(error(text, format!("{name}() takes one argument"))) }
+        if args.len() == 1 {
+            Ok(args[0])
+        } else {
+            Err(error(text, format!("{name}() takes one argument")))
+        }
     };
     Ok(match name {
         "min" => args.iter().copied().fold(f64::INFINITY, f64::min),
@@ -267,7 +285,13 @@ fn call(text: &str, name: &str, args: &[f64]) -> Result<f64> {
 /// Evaluate `text` with the given variables (`INPUT_WIDTH`, ...).
 pub fn evaluate(text: &str, variables: &BTreeMap<String, f64>) -> Result<f64> {
     let text = text.trim();
-    Parser { text, tokens: tokenize(text)?, pos: 0, vars: variables }.parse()
+    Parser {
+        text,
+        tokens: tokenize(text)?,
+        pos: 0,
+        vars: variables,
+    }
+    .parse()
 }
 
 /// Evaluate a size expression and round it like Magpie (`lround`); the
@@ -275,7 +299,7 @@ pub fn evaluate(text: &str, variables: &BTreeMap<String, f64>) -> Result<f64> {
 pub fn evaluate_size(text: &str, variables: &BTreeMap<String, f64>) -> Result<u32> {
     let value = evaluate(text, variables)?;
     let size = (value + 0.5).floor();
-    if !(size > 0.0) || size > u32::MAX as f64 {
+    if size.is_nan() || size <= 0.0 || size > u32::MAX as f64 {
         return Err(error(text, format!("Size {value} is not positive")));
     }
     Ok(size as u32)
@@ -286,10 +310,14 @@ mod tests {
     use super::*;
 
     fn vars() -> BTreeMap<String, f64> {
-        [("INPUT_WIDTH", 1280.0), ("INPUT_HEIGHT", 720.0), ("OUTPUT_WIDTH", 2560.0)]
-            .into_iter()
-            .map(|(k, v)| (k.to_owned(), v))
-            .collect()
+        [
+            ("INPUT_WIDTH", 1280.0),
+            ("INPUT_HEIGHT", 720.0),
+            ("OUTPUT_WIDTH", 2560.0),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v))
+        .collect()
     }
 
     fn ev(text: &str) -> f64 {
@@ -314,13 +342,28 @@ mod tests {
         assert_eq!(ev("1 == 2 ? 1 : 2 < 3"), 1.0);
         assert_eq!(ev("max(INPUT_WIDTH, OUTPUT_WIDTH, 3)"), 2560.0);
         assert_eq!(ev("min(4, 2)"), 2.0);
-        assert_eq!(ev("round(2.5) + rint(2.5) + floor(1.9) + ceil(1.1)"), 3.0 + 2.0 + 1.0 + 2.0);
-        assert_eq!(ev("sign(-3) + abs(-2) + sqrt(16) + log2(8)"), -1.0 + 2.0 + 4.0 + 3.0);
+        assert_eq!(
+            ev("round(2.5) + rint(2.5) + floor(1.9) + ceil(1.1)"),
+            3.0 + 2.0 + 1.0 + 2.0
+        );
+        assert_eq!(
+            ev("sign(-3) + abs(-2) + sqrt(16) + log2(8)"),
+            -1.0 + 2.0 + 4.0 + 3.0
+        );
     }
 
     #[test]
     fn errors() {
-        for bad in ["INPUT_WIDTH *", "1 / 0", "FOO", "foo(1)", "1 $ 2", "(1", "1 2", "abs(1, 2)"] {
+        for bad in [
+            "INPUT_WIDTH *",
+            "1 / 0",
+            "FOO",
+            "foo(1)",
+            "1 $ 2",
+            "(1",
+            "1 2",
+            "abs(1, 2)",
+        ] {
             assert!(evaluate(bad, &vars()).is_err(), "{bad}");
         }
     }

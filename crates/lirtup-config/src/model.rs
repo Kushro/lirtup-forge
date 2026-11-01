@@ -1091,14 +1091,14 @@ impl Config {
         // Sampler
         range!(scaling.blur, above 0, 2);
         range!(scaling.antiring_strength, 0, 1);
-        if let Some(r) = self.scaling.kernel_radius {
-            if !(2..=10).contains(&r) {
-                warnings.push(ConfigWarning {
-                    key: "kernel_radius".into(),
-                    message: format!("must be 2 to 10, got {r}; using the automatic radius"),
-                });
-                self.scaling.kernel_radius = None;
-            }
+        if let Some(r) = self.scaling.kernel_radius
+            && !(2..=10).contains(&r)
+        {
+            warnings.push(ConfigWarning {
+                key: "kernel_radius".into(),
+                message: format!("must be 2 to 10, got {r}; using the automatic radius"),
+            });
+            self.scaling.kernel_radius = None;
         }
         // Effects
         range!(scaling.deband_strength, 0, 1);
@@ -1148,14 +1148,14 @@ impl Config {
         range!(capture_failure_delay, min 0);
         range!(swapchain_debounce, min 0);
 
-        if let FrameGenMultiplier::Fixed(n) = self.frame_gen_multiplier {
-            if !(1..=5).contains(&n) {
-                warnings.push(ConfigWarning {
-                    key: "frame_gen_multiplier".into(),
-                    message: format!("must be 1 to 5 or \"auto\", got {n}; frame generation is off"),
-                });
-                self.frame_gen_multiplier = FrameGenMultiplier::Fixed(1);
-            }
+        if let FrameGenMultiplier::Fixed(n) = self.frame_gen_multiplier
+            && !(1..=5).contains(&n)
+        {
+            warnings.push(ConfigWarning {
+                key: "frame_gen_multiplier".into(),
+                message: format!("must be 1 to 5 or \"auto\", got {n}; frame generation is off"),
+            });
+            self.frame_gen_multiplier = FrameGenMultiplier::Fixed(1);
         }
         if let Err(e) = self.output_geometry.parse() {
             warnings.push(ConfigWarning {
@@ -1349,8 +1349,10 @@ mod tests {
 
     #[test]
     fn black_variants_are_not_a_diff() {
-        let mut c = Config::default();
-        c.background_color = BackgroundColor::Css("#000".into());
+        let c = Config {
+            background_color: BackgroundColor::Css("#000".into()),
+            ..Config::default()
+        };
         assert!(c.to_diff_mapping().is_empty());
     }
 

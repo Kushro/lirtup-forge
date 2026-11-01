@@ -6,7 +6,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use lirtup_effects::util::{self, CbWriter};
-use lirtup_gpu::{AddressMode, Buffer, CommandRecorder, ComputePipeline, Device, Dispatch, Filter, Format, Texture};
+use lirtup_gpu::{
+    AddressMode, Buffer, CommandRecorder, ComputePipeline, Device, Dispatch, Filter, Format, Texture,
+};
 
 use crate::compiler::{CompileRequest, HlslCompiler, SpirvCache, Transform};
 use crate::dds::{self, DdsImage};
@@ -70,7 +72,15 @@ pub fn compile_effect(
     cache: &SpirvCache,
     fp16: bool,
 ) -> Result<CompiledEffect> {
-    compile_effect_with(entry, compilers, cache, &CompileOptions { fp16, ..CompileOptions::default() })
+    compile_effect_with(
+        entry,
+        compilers,
+        cache,
+        &CompileOptions {
+            fp16,
+            ..CompileOptions::default()
+        },
+    )
 }
 
 /// [`compile_effect`] with the red/blue swap folded into the shaders where
@@ -84,13 +94,27 @@ pub fn compile_effect_with(
     options: &CompileOptions,
 ) -> Result<CompiledEffect> {
     let source = crate::catalog::read_source(&entry.path)?;
-    compile_source(&entry.stem(), &source, entry.path.parent(), compilers, cache, options)
+    compile_source(
+        &entry.stem(),
+        &source,
+        entry.path.parent(),
+        compilers,
+        cache,
+        options,
+    )
 }
 
 /// The separate swap-R/B effect (`internal/SwapRB.hlsl`), for the sides a
 /// chain could not fold.
 pub fn compile_swap_rb(compilers: &[Box<dyn HlslCompiler>], cache: &SpirvCache) -> Result<CompiledEffect> {
-    compile_source("SwapRB", swizzle::swap_rb_source(), None, compilers, cache, &CompileOptions::default())
+    compile_source(
+        "SwapRB",
+        swizzle::swap_rb_source(),
+        None,
+        compilers,
+        cache,
+        &CompileOptions::default(),
+    )
 }
 
 /// Parse `source` and compile its passes; `include_dir` is the effect's
@@ -140,12 +164,28 @@ pub fn compile_source(
 /// the file's format; one with it must match, as in Magpie.
 fn load_sources(desc: &EffectDesc, effect_dir: Option<&Path>) -> Result<BTreeMap<usize, DdsImage>> {
     let mut sources = BTreeMap::new();
-    for (i, tex) in desc.textures.iter().enumerate().filter(|(_, t)| !t.source.is_empty()) {
-        let err = |message: String| MagpieError::Parse { effect: desc.name.clone(), message };
-        let dir = effect_dir.ok_or_else(|| err(format!("lookup texture '{}' needs the effect's folder", tex.source)))?;
+    for (i, tex) in desc
+        .textures
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| !t.source.is_empty())
+    {
+        let err = |message: String| MagpieError::Parse {
+            effect: desc.name.clone(),
+            message,
+        };
+        let dir = effect_dir.ok_or_else(|| {
+            err(format!(
+                "lookup texture '{}' needs the effect's folder",
+                tex.source
+            ))
+        })?;
         let path = dds::resolve_source_path(dir, &tex.source)?;
         if !path.is_file() {
-            return Err(err(format!("lookup texture '{}' of '{}' not found", tex.source, tex.name)));
+            return Err(err(format!(
+                "lookup texture '{}' of '{}' not found",
+                tex.source, tex.name
+            )));
         }
         let image = dds::load_image(&path)?;
         let format = dds::source_format(&tex.format, &image)
@@ -206,7 +246,14 @@ fn compile_pass(
     fp16: bool,
 ) -> Result<Option<Vec<u8>>> {
     let source = codegen::generate_pass_source(desc, index, fp16);
-    let request = CompileRequest { effect: &desc.name, pass: p.index, source: &source, entry: "__M", include_dir, fp16 };
+    let request = CompileRequest {
+        effect: &desc.name,
+        pass: p.index,
+        source: &source,
+        entry: "__M",
+        include_dir,
+        fp16,
+    };
     let sin = swap_input && p.inputs.contains(&0);
     let sout = swap_output && p.outputs.contains(&1);
     if !sin && !sout {
@@ -214,7 +261,14 @@ fn compile_pass(
     }
     let rewrite = move |text: &str| swizzle::rewrite(text, sin, sout).ok().map(|r| r.0);
     let key = format!("swaprb:{}{}", sin as u8, sout as u8);
-    cache.compile_with(compilers, &request, Some(&Transform { key: &key, apply: &rewrite }))
+    cache.compile_with(
+        compilers,
+        &request,
+        Some(&Transform {
+            key: &key,
+            apply: &rewrite,
+        }),
+    )
 }
 
 /// Whether FP16 variants should be used on this device (`fp16_wanted`).
@@ -223,7 +277,10 @@ fn compile_pass(
 /// 32-bit floats; anything else (`auto`, the default) uses 16-bit floats when
 /// the device has `shaderFloat16`.
 pub fn fp16_wanted(device: &Device) -> bool {
-    fp16_policy(std::env::var("UPSCALER_MAGPIEFX_FP16").ok().as_deref(), device.info().supports_fp16)
+    fp16_policy(
+        std::env::var("UPSCALER_MAGPIEFX_FP16").ok().as_deref(),
+        device.info().supports_fp16,
+    )
 }
 
 fn fp16_policy(env: Option<&str>, supported: bool) -> bool {
@@ -263,7 +320,10 @@ fn size_vars(input: (u32, u32), output: Option<(u32, u32)>) -> BTreeMap<String, 
 
 fn named(desc: &EffectDesc, e: MagpieError) -> MagpieError {
     match e {
-        MagpieError::Parse { effect, message } if effect.is_empty() => MagpieError::Parse { effect: desc.name.clone(), message },
+        MagpieError::Parse { effect, message } if effect.is_empty() => MagpieError::Parse {
+            effect: desc.name.clone(),
+            message,
+        },
         other => other,
     }
 }
@@ -280,7 +340,10 @@ impl MagpieEffect {
     ) -> Result<MagpieEffect> {
         let desc = effect.desc.clone();
         if effect.spirv.len() != desc.passes.len() {
-            return Err(MagpieError::Parse { effect: desc.name.clone(), message: "SPIR-V count does not match the passes".to_owned() });
+            return Err(MagpieError::Parse {
+                effect: desc.name.clone(),
+                message: "SPIR-V count does not match the passes".to_owned(),
+            });
         }
         let in_size = (input.width(), input.height());
         let out = MagpieEffect::output_size(effect, in_size, output_size)?;
@@ -288,8 +351,14 @@ impl MagpieEffect {
 
         let mut textures = vec![
             input.clone(),
-            util::texture(device, out.0, out.1, Format::R8G8B8A8Unorm, &format!("{} OUTPUT", desc.name))
-                .map_err(MagpieError::from)?,
+            util::texture(
+                device,
+                out.0,
+                out.1,
+                Format::R8G8B8A8Unorm,
+                &format!("{} OUTPUT", desc.name),
+            )
+            .map_err(MagpieError::from)?,
         ];
         for (i, tex) in desc.textures.iter().enumerate().skip(2) {
             let label = format!("{} {}", desc.name, tex.name);
@@ -310,7 +379,10 @@ impl MagpieEffect {
                 )
             };
             let format = formats::lookup(&tex.format)
-                .ok_or_else(|| MagpieError::Parse { effect: desc.name.clone(), message: format!("unknown format '{}'", tex.format) })?
+                .ok_or_else(|| MagpieError::Parse {
+                    effect: desc.name.clone(),
+                    message: format!("unknown format '{}'", tex.format),
+                })?
                 .format;
             textures.push(util::texture(device, w, h, format, &label)?);
         }
@@ -319,15 +391,27 @@ impl MagpieEffect {
             .samplers
             .iter()
             .map(|s| {
-                let filter = if s.filter == "LINEAR" { Filter::Linear } else { Filter::Point };
-                let address = if s.address == "WRAP" { AddressMode::Wrap } else { AddressMode::Clamp };
+                let filter = if s.filter == "LINEAR" {
+                    Filter::Linear
+                } else {
+                    Filter::Point
+                };
+                let address = if s.address == "WRAP" {
+                    AddressMode::Wrap
+                } else {
+                    AddressMode::Clamp
+                };
                 util::sampler_with(device, filter, address)
             })
             .collect::<lirtup_effects::Result<Vec<_>>>()?;
         let sampler_refs: Vec<_> = samplers.iter().collect();
 
         let mut fx = MagpieEffect {
-            cb: util::constant_buffer(device, codegen::constant_buffer_layout(&desc).len() * 8, &format!("{} cb", desc.name))?,
+            cb: util::constant_buffer(
+                device,
+                codegen::constant_buffer_layout(&desc).len() * 8,
+                &format!("{} cb", desc.name),
+            )?,
             desc: desc.clone(),
             textures,
             pipelines: Vec::new(),
@@ -342,7 +426,13 @@ impl MagpieEffect {
                 device,
                 spirv,
                 &entry,
-                &util::Bindings { cb: Some(&fx.cb), srv: &srv, uav: &uav, samplers: &sampler_refs, push_size: 0 },
+                &util::Bindings {
+                    cb: Some(&fx.cb),
+                    srv: &srv,
+                    uav: &uav,
+                    samplers: &sampler_refs,
+                    push_size: 0,
+                },
                 &format!("{} pass {}", desc.name, p.index),
             )?;
             let first = &fx.textures[p.outputs[0] as usize];
@@ -387,7 +477,11 @@ impl MagpieEffect {
 
     /// Current value of a parameter (its default when not overridden).
     pub fn param_value(&self, name: &str) -> f64 {
-        self.params.get(name).copied().or_else(|| self.desc.param(name).map(|p| p.default)).unwrap_or(0.0)
+        self.params
+            .get(name)
+            .copied()
+            .or_else(|| self.desc.param(name).map(|p| p.default))
+            .unwrap_or(0.0)
     }
 
     /// Store overrides: unknown names are ignored and values are clamped to
@@ -401,7 +495,12 @@ impl MagpieEffect {
             };
             let clamped = value.clamp(p.min, p.max);
             if clamped != *value {
-                tracing::warn!("MagpieFX {}: {name}={value} outside [{}, {}]", self.desc.name, p.min, p.max);
+                tracing::warn!(
+                    "MagpieFX {}: {name}={value} outside [{}, {}]",
+                    self.desc.name,
+                    p.min,
+                    p.max
+                );
             }
             self.params.insert(name.clone(), clamped);
         }
@@ -423,7 +522,11 @@ impl MagpieEffect {
         if let Some((_, rest)) = self.desc.passes.split_last() {
             for p in rest.iter().filter(|p| p.ps_style) {
                 let t = &self.textures[p.outputs[0] as usize];
-                cb = cb.u32(t.width()).u32(t.height()).f32(1.0 / t.width() as f32).f32(1.0 / t.height() as f32);
+                cb = cb
+                    .u32(t.width())
+                    .u32(t.height())
+                    .f32(1.0 / t.width() as f32)
+                    .f32(1.0 / t.height() as f32);
             }
         }
         for param in &self.desc.params {
@@ -440,7 +543,9 @@ impl MagpieEffect {
     }
 
     fn upload_constants(&self) -> Result<()> {
-        self.cb.write(0, &self.pack_constants()).map_err(lirtup_effects::EffectError::from)?;
+        self.cb
+            .write(0, &self.pack_constants())
+            .map_err(lirtup_effects::EffectError::from)?;
         Ok(())
     }
 }
@@ -450,7 +555,10 @@ impl MagpieEffect {
 /// compute pass because its upload only handled 4-byte texels).
 fn upload_lookup(device: &Arc<Device>, image: &DdsImage, label: &str) -> Result<Texture> {
     let format = formats::lookup(&image.format)
-        .ok_or_else(|| MagpieError::Texture { path: label.to_owned(), message: format!("unsupported format {}", image.format) })?
+        .ok_or_else(|| MagpieError::Texture {
+            path: label.to_owned(),
+            message: format!("unsupported format {}", image.format),
+        })?
         .format;
     let tex = util::texture(device, image.width, image.height, format, label)?;
     util::upload_texture(device, &tex, &image.data)?;
@@ -468,7 +576,12 @@ impl lirtup_effects::Pass for MagpieEffect {
 
     fn record(&self, recorder: &mut CommandRecorder) -> lirtup_effects::Result<()> {
         for (pipeline, groups) in &self.pipelines {
-            recorder.dispatch(&Dispatch { pipeline, groups: *groups, push: &[], timestamp: Some(&self.desc.name) });
+            recorder.dispatch(&Dispatch {
+                pipeline,
+                groups: *groups,
+                push: &[],
+                timestamp: Some(&self.desc.name),
+            });
         }
         Ok(())
     }
@@ -508,7 +621,11 @@ mod tests {
             if r.fp16 && fail_fp16 {
                 Err(Fake::failure(r, "half precision error"))
             } else {
-                Ok(if r.fp16 { b"SPIRV16".to_vec() } else { b"SPIRV32".to_vec() })
+                Ok(if r.fp16 {
+                    b"SPIRV16".to_vec()
+                } else {
+                    b"SPIRV32".to_vec()
+                })
             }
         }));
         struct Shared(Arc<Fake>);
@@ -525,7 +642,10 @@ mod tests {
         }
         let compilers: Vec<Box<dyn HlslCompiler>> = vec![Box::new(Shared(fake.clone()))];
         let cache = SpirvCache::new(dir.path().to_path_buf());
-        let options = CompileOptions { fp16, ..CompileOptions::default() };
+        let options = CompileOptions {
+            fp16,
+            ..CompileOptions::default()
+        };
         let effect = compile_source("Test", source, None, &compilers, &cache, &options).unwrap();
         let calls = fake.calls.lock().unwrap().clone();
         (effect, calls)
@@ -581,7 +701,11 @@ mod tests {
         let cache = SpirvCache::new(dir.path().to_path_buf());
         let compilers: Vec<Box<dyn HlslCompiler>> =
             vec![Box::new(Fake::new("dxc", |r| Ok(r.source.as_bytes().to_vec())))];
-        let both = CompileOptions { swap_input: true, swap_output: true, ..CompileOptions::default() };
+        let both = CompileOptions {
+            swap_input: true,
+            swap_output: true,
+            ..CompileOptions::default()
+        };
 
         let fx = compile_source("Test", &source(false), None, &compilers, &cache, &both).unwrap();
         assert!(fx.input_swapped() && fx.output_swapped());
@@ -590,7 +714,10 @@ mod tests {
         assert!(code.contains("OUTPUT[gxy] = __MP_SwapRB(Pass1(pos));"));
 
         // INPUT passed to a function: only OUTPUT is folded
-        let fxaa = source(false).replace("return (MF4)INPUT.Load(int3(pos * GetInputSize(), 0));", "return F(INPUT, pos);");
+        let fxaa = source(false).replace(
+            "return (MF4)INPUT.Load(int3(pos * GetInputSize(), 0));",
+            "return F(INPUT, pos);",
+        );
         let fx = compile_source("Fxaa", &fxaa, None, &compilers, &cache, &both).unwrap();
         assert!(!fx.input_swapped() && fx.output_swapped());
     }
@@ -599,7 +726,8 @@ mod tests {
     fn swap_rb_effect_compiles() {
         let dir = tempfile::tempdir().unwrap();
         let cache = SpirvCache::new(dir.path().to_path_buf());
-        let compilers: Vec<Box<dyn HlslCompiler>> = vec![Box::new(Fake::new("dxc", |_| Ok(vec![1, 2, 3, 4])))];
+        let compilers: Vec<Box<dyn HlslCompiler>> =
+            vec![Box::new(Fake::new("dxc", |_| Ok(vec![1, 2, 3, 4])))];
         let fx = compile_swap_rb(&compilers, &cache).unwrap();
         assert_eq!(fx.desc.name, "SwapRB");
         assert_eq!(fx.spirv.len(), 1);
@@ -609,14 +737,20 @@ mod tests {
     fn output_size_uses_the_expressions() {
         let (fx, _) = compile(&source(false), false, false);
         // no OUTPUT size: the chain decides
-        assert_eq!(MagpieEffect::output_size(&fx, (100, 50), (300, 200)).unwrap(), (300, 200));
+        assert_eq!(
+            MagpieEffect::output_size(&fx, (100, 50), (300, 200)).unwrap(),
+            (300, 200)
+        );
 
         let doubled = source(false).replace(
             "//!TEXTURE\nTexture2D INPUT;",
             "//!TEXTURE\nTexture2D INPUT;\n//!TEXTURE\n//!WIDTH INPUT_WIDTH * 2\n//!HEIGHT INPUT_HEIGHT * 2\nTexture2D OUTPUT;",
         );
         let (fx, _) = compile(&doubled, false, false);
-        assert_eq!(MagpieEffect::output_size(&fx, (100, 50), (300, 200)).unwrap(), (200, 100));
+        assert_eq!(
+            MagpieEffect::output_size(&fx, (100, 50), (300, 200)).unwrap(),
+            (200, 100)
+        );
     }
 
     #[test]
@@ -625,9 +759,14 @@ mod tests {
         let fx_dir = dir.path().join("fx");
         std::fs::create_dir_all(&fx_dir).unwrap();
         let png = fx_dir.join("lut.png");
-        image::RgbaImage::from_pixel(4, 2, image::Rgba([1, 2, 3, 4])).save(&png).unwrap();
+        image::RgbaImage::from_pixel(4, 2, image::Rgba([1, 2, 3, 4]))
+            .save(&png)
+            .unwrap();
         let src = source(false)
-            .replace("//!TEXTURE\nTexture2D INPUT;", "//!TEXTURE\nTexture2D INPUT;\n//!TEXTURE\n//!SOURCE lut.png\nTexture2D lut;")
+            .replace(
+                "//!TEXTURE\nTexture2D INPUT;",
+                "//!TEXTURE\nTexture2D INPUT;\n//!TEXTURE\n//!SOURCE lut.png\nTexture2D lut;",
+            )
             .replace("//!IN INPUT", "//!IN INPUT, lut");
         let path = fx_dir.join("Lut.hlsl");
         std::fs::write(&path, &src).unwrap();
@@ -637,7 +776,10 @@ mod tests {
         let fx = compile_effect(&entry, &compilers, &cache, false).unwrap();
         assert_eq!(fx.desc.name, "Lut");
         let img = &fx.sources()[&2];
-        assert_eq!((img.width, img.height, img.format.as_str()), (4, 2, "R8G8B8A8_UNORM"));
+        assert_eq!(
+            (img.width, img.height, img.format.as_str()),
+            (4, 2, "R8G8B8A8_UNORM")
+        );
 
         // a declared format that does not match the file
         let bad = src.replace("//!SOURCE lut.png", "//!SOURCE lut.png\n//!FORMAT R16_FLOAT");

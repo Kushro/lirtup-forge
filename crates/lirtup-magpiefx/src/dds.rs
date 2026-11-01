@@ -186,7 +186,10 @@ fn mask_format(kind: u32, bits: u32, m: [u32; 4]) -> Option<(&'static str, bool)
 }
 
 fn texture_error(message: impl Into<String>) -> MagpieError {
-    MagpieError::Texture { path: String::new(), message: message.into() }
+    MagpieError::Texture {
+        path: String::new(),
+        message: message.into(),
+    }
 }
 
 fn u32_at(data: &[u8], offset: usize) -> u32 {
@@ -197,7 +200,9 @@ fn legacy_format(flags: u32, fourcc: u32, bits: u32, masks: [u32; 4]) -> Result<
     if flags & DDPF_FOURCC != 0 {
         let code = fourcc.to_le_bytes();
         if let Some(bc) = compressed_fourcc(&code) {
-            return Err(texture_error(format!("block-compressed DDS ({bc}) is not supported")));
+            return Err(texture_error(format!(
+                "block-compressed DDS ({bc}) is not supported"
+            )));
         }
         if let Some(fmt) = d3dfmt_fourcc(fourcc) {
             return Ok((fmt, false));
@@ -236,7 +241,12 @@ pub fn parse_dds(data: &[u8]) -> Result<DdsImage> {
         return Err(texture_error(format!("invalid DDS pixel format size {pf_size}")));
     }
     let (pf_flags, fourcc, bits) = (u32_at(data, 80), u32_at(data, 84), u32_at(data, 88));
-    let masks = [u32_at(data, 92), u32_at(data, 96), u32_at(data, 100), u32_at(data, 104)];
+    let masks = [
+        u32_at(data, 92),
+        u32_at(data, 96),
+        u32_at(data, 100),
+        u32_at(data, 104),
+    ];
     let caps2 = u32_at(data, 112);
     if caps2 & DDSCAPS2_CUBEMAP != 0 {
         return Err(texture_error("cube map DDS textures are not supported"));
@@ -250,8 +260,12 @@ pub fn parse_dds(data: &[u8]) -> Result<DdsImage> {
         if data.len() < offset + DX10_SIZE {
             return Err(texture_error("truncated DDS DX10 header"));
         }
-        let (dxgi, dimension, misc, array_size) =
-            (u32_at(data, offset), u32_at(data, offset + 4), u32_at(data, offset + 8), u32_at(data, offset + 12));
+        let (dxgi, dimension, misc, array_size) = (
+            u32_at(data, offset),
+            u32_at(data, offset + 4),
+            u32_at(data, offset + 8),
+            u32_at(data, offset + 12),
+        );
         offset += DX10_SIZE;
         if dimension != DIMENSION_TEXTURE2D || misc & 0x4 != 0 {
             return Err(texture_error("only 2D DDS textures are supported"));
@@ -260,12 +274,18 @@ pub fn parse_dds(data: &[u8]) -> Result<DdsImage> {
             return Err(texture_error("DDS texture arrays are not supported"));
         }
         if let Some(bc) = bc_format(dxgi) {
-            return Err(texture_error(format!("block-compressed DDS ({bc}) is not supported")));
+            return Err(texture_error(format!(
+                "block-compressed DDS ({bc}) is not supported"
+            )));
         }
         match dxgi_format(dxgi) {
             Some("B8G8R8A8_UNORM") => ("R8G8B8A8_UNORM", true),
             Some(fmt) => (fmt, false),
-            None => return Err(texture_error(format!("unsupported DXGI format {dxgi} in DDS file"))),
+            None => {
+                return Err(texture_error(format!(
+                    "unsupported DXGI format {dxgi} in DDS file"
+                )));
+            }
         }
     } else {
         legacy_format(pf_flags, fourcc, bits, masks)?
@@ -278,33 +298,55 @@ pub fn parse_dds(data: &[u8]) -> Result<DdsImage> {
     }
     let needed = width as usize * height as usize * texel;
     if data.len() < offset + needed {
-        return Err(texture_error(format!("truncated DDS data ({} bytes, need {needed})", data.len() - offset)));
+        return Err(texture_error(format!(
+            "truncated DDS data ({} bytes, need {needed})",
+            data.len() - offset
+        )));
     }
     let mut texels = data[offset..offset + needed].to_vec();
     if swap_rb {
-        for px in texels.chunks_exact_mut(4) {
+        for px in texels.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
     }
-    Ok(DdsImage { width, height, format: format.to_owned(), data: texels })
+    Ok(DdsImage {
+        width,
+        height,
+        format: format.to_owned(),
+        data: texels,
+    })
 }
 
 /// Load a lookup texture from disk (by extension). Errors name the file.
 pub fn load_image(path: &Path) -> Result<DdsImage> {
-    let shown = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let shown = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let with_path = |e: MagpieError| match e {
-        MagpieError::Texture { message, .. } => MagpieError::Texture { path: shown.clone(), message },
+        MagpieError::Texture { message, .. } => MagpieError::Texture {
+            path: shown.clone(),
+            message,
+        },
         other => other,
     };
-    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     if ext == "dds" {
-        let data = std::fs::read(path)
-            .map_err(|e| MagpieError::Texture { path: path.display().to_string(), message: format!("cannot read: {e}") })?;
+        let data = std::fs::read(path).map_err(|e| MagpieError::Texture {
+            path: path.display().to_string(),
+            message: format!("cannot read: {e}"),
+        })?;
         return parse_dds(&data).map_err(with_path);
     }
     if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
         let img = image::open(path)
-            .map_err(|e| MagpieError::Texture { path: path.display().to_string(), message: format!("cannot read: {e}") })?
+            .map_err(|e| MagpieError::Texture {
+                path: path.display().to_string(),
+                message: format!("cannot read: {e}"),
+            })?
             .to_rgba8();
         return Ok(DdsImage {
             width: img.width(),
@@ -313,14 +355,20 @@ pub fn load_image(path: &Path) -> Result<DdsImage> {
             data: img.into_raw(),
         });
     }
-    Err(MagpieError::Texture { path: shown, message: format!("unsupported lookup texture type '.{ext}'") })
+    Err(MagpieError::Texture {
+        path: shown,
+        message: format!("unsupported lookup texture type '.{ext}'"),
+    })
 }
 
 /// The format to create the texture with, from the declared `//!FORMAT` and
 /// the file (`source_format`): a declared format must match the file.
 pub fn source_format(declared: &str, image: &DdsImage) -> Result<String> {
     if !declared.is_empty() && declared != image.format {
-        return Err(texture_error(format!("//!FORMAT {declared} does not match the file ({})", image.format)));
+        return Err(texture_error(format!(
+            "//!FORMAT {declared} does not match the file ({})",
+            image.format
+        )));
     }
     Ok(image.format.clone())
 }
@@ -329,14 +377,21 @@ pub fn source_format(declared: &str, image: &DdsImage) -> Result<String> {
 /// paths and paths that leave the folder are rejected (Magpie only looks
 /// next to the effect). `\` separators are accepted.
 pub fn resolve_source_path(effect_dir: &Path, source: &str) -> Result<PathBuf> {
-    let bad = |message: String| MagpieError::Texture { path: source.to_owned(), message };
+    let bad = |message: String| MagpieError::Texture {
+        path: source.to_owned(),
+        message,
+    };
     let normalized = source.replace('\\', "/");
     if source.trim().is_empty() || Path::new(&normalized).is_absolute() {
         return Err(bad("invalid //!SOURCE path".to_owned()));
     }
-    let base = effect_dir.canonicalize().unwrap_or_else(|_| effect_dir.to_path_buf());
+    let base = effect_dir
+        .canonicalize()
+        .unwrap_or_else(|_| effect_dir.to_path_buf());
     let joined = base.join(&normalized);
-    let path = joined.canonicalize().unwrap_or_else(|_| lexical_normalize(&joined));
+    let path = joined
+        .canonicalize()
+        .unwrap_or_else(|_| lexical_normalize(&joined));
     if !path.starts_with(&base) {
         return Err(bad("//!SOURCE path leaves the effect's directory".to_owned()));
     }
@@ -389,8 +444,8 @@ pub fn to_rgba_floats(image: &DdsImage) -> Result<Vec<f32>> {
     let d = &image.data;
     let mut out = Vec::with_capacity(n * 4);
     if kind == Kind::Packed {
-        for w in d.chunks_exact(4).take(n) {
-            let w = u32::from_le_bytes(w.try_into().expect("4 bytes"));
+        for w in d.as_chunks::<4>().0.iter().take(n) {
+            let w = u32::from_le_bytes(*w);
             out.extend_from_slice(&[
                 (w & 0x3FF) as f32 / 1023.0,
                 ((w >> 10) & 0x3FF) as f32 / 1023.0,
@@ -408,7 +463,9 @@ pub fn to_rgba_floats(image: &DdsImage) -> Result<Vec<f32>> {
             (Kind::Unorm, 1) => b[0] as f32 / 255.0,
             (Kind::Unorm, _) => u16::from_le_bytes(b.try_into().expect("2 bytes")) as f32 / 65535.0,
             (Kind::Snorm, 1) => (b[0] as i8 as f32 / 127.0).max(-1.0),
-            (Kind::Snorm, _) => (i16::from_le_bytes(b.try_into().expect("2 bytes")) as f32 / 32767.0).max(-1.0),
+            (Kind::Snorm, _) => {
+                (i16::from_le_bytes(b.try_into().expect("2 bytes")) as f32 / 32767.0).max(-1.0)
+            }
             (Kind::Packed, _) => unreachable!(),
         }
     };
@@ -442,7 +499,17 @@ mod tests {
 
     impl Dds {
         fn new(width: u32, height: u32) -> Dds {
-            Dds { width, height, flags: 0, fourcc: 0, bits: 0, masks: [0; 4], dx10: None, caps2: 0, depth: 0 }
+            Dds {
+                width,
+                height,
+                flags: 0,
+                fourcc: 0,
+                bits: 0,
+                masks: [0; 4],
+                dx10: None,
+                caps2: 0,
+                depth: 0,
+            }
         }
 
         fn fourcc(mut self, code: u32) -> Dds {
@@ -536,31 +603,53 @@ mod tests {
         // 0.5, -1, 2, 1, 0.25, 0, 65504, -0.125
         let data = halves(&[0x3800, 0xBC00, 0x4000, 0x3C00, 0x3400, 0x0000, 0x7BFF, 0xB000]);
         let img = parse_dds(&Dds::new(2, 1).fourcc(113).build(&data)).unwrap();
-        assert_eq!((img.width, img.height, img.format.as_str()), (2, 1, "R16G16B16A16_FLOAT"));
+        assert_eq!(
+            (img.width, img.height, img.format.as_str()),
+            (2, 1, "R16G16B16A16_FLOAT")
+        );
         assert_eq!(img.data, data);
         assert_eq!(floats(&img), [0.5, -1.0, 2.0, 1.0, 0.25, 0.0, 65504.0, -0.125]);
     }
 
     #[test]
     fn rgba8_masks() {
-        let dds = Dds::new(1, 1).masks(DDPF_RGB | DDPF_ALPHAPIXELS, 32, [0xFF, 0xFF00, 0xFF_0000, 0xFF00_0000]);
+        let dds = Dds::new(1, 1).masks(
+            DDPF_RGB | DDPF_ALPHAPIXELS,
+            32,
+            [0xFF, 0xFF00, 0xFF_0000, 0xFF00_0000],
+        );
         let img = parse_dds(&dds.build(&[10, 20, 30, 40])).unwrap();
         assert_eq!(img.format, "R8G8B8A8_UNORM");
-        approx(&floats(&img), &[10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0, 40.0 / 255.0]);
+        approx(
+            &floats(&img),
+            &[10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0, 40.0 / 255.0],
+        );
     }
 
     #[test]
     fn bgra8_masks_are_read_as_rgba() {
-        let dds = Dds::new(1, 1).masks(DDPF_RGB | DDPF_ALPHAPIXELS, 32, [0xFF_0000, 0xFF00, 0xFF, 0xFF00_0000]);
+        let dds = Dds::new(1, 1).masks(
+            DDPF_RGB | DDPF_ALPHAPIXELS,
+            32,
+            [0xFF_0000, 0xFF00, 0xFF, 0xFF00_0000],
+        );
         let img = parse_dds(&dds.build(&[10, 20, 30, 40])).unwrap();
         assert_eq!(img.format, "R8G8B8A8_UNORM");
         assert_eq!(img.data, [30, 20, 10, 40]);
-        approx(&floats(&img), &[30.0 / 255.0, 20.0 / 255.0, 10.0 / 255.0, 40.0 / 255.0]);
+        approx(
+            &floats(&img),
+            &[30.0 / 255.0, 20.0 / 255.0, 10.0 / 255.0, 40.0 / 255.0],
+        );
     }
 
     #[test]
     fn luminance_and_bump_formats() {
-        let l8 = parse_dds(&Dds::new(2, 1).masks(DDPF_LUMINANCE, 8, [0xFF, 0, 0, 0]).build(&[0, 255])).unwrap();
+        let l8 = parse_dds(
+            &Dds::new(2, 1)
+                .masks(DDPF_LUMINANCE, 8, [0xFF, 0, 0, 0])
+                .build(&[0, 255]),
+        )
+        .unwrap();
         assert_eq!(l8.format, "R8_UNORM");
         approx(&floats(&l8), &[0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0]);
 
@@ -570,7 +659,12 @@ mod tests {
         approx(&floats(&la), &[1.0, 0.0, 0.0, 1.0]);
 
         // -128 clamps to -1
-        let uv = parse_dds(&Dds::new(1, 1).masks(DDPF_BUMPDUDV, 16, [0xFF, 0xFF00, 0, 0]).build(&[0x80, 0x7F])).unwrap();
+        let uv = parse_dds(
+            &Dds::new(1, 1)
+                .masks(DDPF_BUMPDUDV, 16, [0xFF, 0xFF00, 0, 0])
+                .build(&[0x80, 0x7F]),
+        )
+        .unwrap();
         assert_eq!(uv.format, "R8G8_SNORM");
         approx(&floats(&uv), &[-1.0, 1.0, 0.0, 1.0]);
     }
@@ -582,11 +676,17 @@ mod tests {
         approx(&floats(&r16), &[0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0]);
 
         let r32 = parse_dds(&Dds::new(1, 1).dx10(41).build(&3.5f32.to_le_bytes())).unwrap();
-        assert_eq!((r32.format.as_str(), floats(&r32)), ("R32_FLOAT", vec![3.5, 0.0, 0.0, 1.0]));
+        assert_eq!(
+            (r32.format.as_str(), floats(&r32)),
+            ("R32_FLOAT", vec![3.5, 0.0, 0.0, 1.0])
+        );
 
         let rg: Vec<u8> = [1.5f32, -2.0].iter().flat_map(|f| f.to_le_bytes()).collect();
         let rg32 = parse_dds(&Dds::new(1, 1).dx10(16).build(&rg)).unwrap();
-        assert_eq!((rg32.format.as_str(), floats(&rg32)), ("R32G32_FLOAT", vec![1.5, -2.0, 0.0, 1.0]));
+        assert_eq!(
+            (rg32.format.as_str(), floats(&rg32)),
+            ("R32G32_FLOAT", vec![1.5, -2.0, 0.0, 1.0])
+        );
 
         let bgra = parse_dds(&Dds::new(1, 1).dx10(87).build(&[0, 0, 255, 255])).unwrap();
         assert_eq!(bgra.format, "R8G8B8A8_UNORM");
@@ -610,14 +710,21 @@ mod tests {
     #[test]
     fn rejected_files() {
         for code in [b"DXT1", b"DXT5", b"ATI2", b"BC4U"] {
-            let msg = message(parse_dds(&Dds::new(4, 4).fourcc(u32::from_le_bytes(*code)).build(&[0; 64])));
+            let msg = message(parse_dds(
+                &Dds::new(4, 4).fourcc(u32::from_le_bytes(*code)).build(&[0; 64]),
+            ));
             assert!(msg.contains("block-compressed"), "{msg}");
         }
         for dxgi in [71, 77, 98] {
-            assert!(message(parse_dds(&Dds::new(4, 4).dx10(dxgi).build(&[0; 64]))).contains("block-compressed"));
+            assert!(
+                message(parse_dds(&Dds::new(4, 4).dx10(dxgi).build(&[0; 64]))).contains("block-compressed")
+            );
         }
         assert_eq!(message(parse_dds(b"nope")), "not a DDS file");
-        assert_eq!(message(parse_dds(&Dds::new(1, 1).build(&[])[..100])), "not a DDS file");
+        assert_eq!(
+            message(parse_dds(&Dds::new(1, 1).build(&[])[..100])),
+            "not a DDS file"
+        );
         assert!(message(parse_dds(&Dds::new(4, 4).dx10(28).build(&[0; 8]))).contains("truncated DDS data"));
 
         let mut cube = Dds::new(1, 1).dx10(28);
@@ -626,14 +733,26 @@ mod tests {
         let mut volume = Dds::new(1, 1).dx10(28);
         volume.depth = 2;
         assert!(message(parse_dds(&volume.build(&[0; 4]))).contains("volume"));
-        assert!(message(parse_dds(&Dds::new(1, 1).dx10_full([28, 3, 0, 2]).build(&[0; 8]))).contains("arrays"));
+        assert!(
+            message(parse_dds(&Dds::new(1, 1).dx10_full([28, 3, 0, 2]).build(&[0; 8]))).contains("arrays")
+        );
         assert!(message(parse_dds(&Dds::new(1, 1).dx10_full([28, 3, 4, 1]).build(&[0; 4]))).contains("2D"));
         assert!(message(parse_dds(&Dds::new(1, 1).dx10_full([28, 2, 0, 1]).build(&[0; 4]))).contains("2D"));
 
-        assert!(message(parse_dds(&Dds::new(1, 1).masks(DDPF_RGB, 24, [0xFF, 0xFF00, 0xFF_0000, 0]).build(&[0; 4])))
-            .contains("unsupported DDS pixel format"));
-        assert!(message(parse_dds(&Dds::new(1, 1).fourcc(u32::from_le_bytes(*b"ABCD")).build(&[0; 4])))
-            .contains("FourCC 'ABCD'"));
+        assert!(
+            message(parse_dds(
+                &Dds::new(1, 1)
+                    .masks(DDPF_RGB, 24, [0xFF, 0xFF00, 0xFF_0000, 0])
+                    .build(&[0; 4])
+            ))
+            .contains("unsupported DDS pixel format")
+        );
+        assert!(
+            message(parse_dds(
+                &Dds::new(1, 1).fourcc(u32::from_le_bytes(*b"ABCD")).build(&[0; 4])
+            ))
+            .contains("FourCC 'ABCD'")
+        );
         assert!(message(parse_dds(&Dds::new(1, 1).dx10(90).build(&[0; 4]))).contains("DXGI format 90"));
         // R11G11B10 is an intermediate format but not a lookup texture format
         assert!(message(parse_dds(&Dds::new(1, 1).dx10(26).build(&[0; 4]))).contains("cannot be used"));
@@ -642,7 +761,12 @@ mod tests {
 
     #[test]
     fn source_format_must_match() {
-        let img = DdsImage { width: 1, height: 1, format: "R8_UNORM".into(), data: vec![0] };
+        let img = DdsImage {
+            width: 1,
+            height: 1,
+            format: "R8_UNORM".into(),
+            data: vec![0],
+        };
         assert_eq!(source_format("", &img).unwrap(), "R8_UNORM");
         assert_eq!(source_format("R8_UNORM", &img).unwrap(), "R8_UNORM");
         assert!(message(source_format("R16_FLOAT", &img).map(|_| img.clone())).contains("does not match"));
@@ -656,13 +780,18 @@ mod tests {
         assert_eq!(load_image(&dds).unwrap().format, "R16G16B16A16_FLOAT");
 
         let png = dir.path().join("a.png");
-        image::RgbImage::from_pixel(2, 1, image::Rgb([255, 0, 0])).save(&png).unwrap();
+        image::RgbImage::from_pixel(2, 1, image::Rgb([255, 0, 0]))
+            .save(&png)
+            .unwrap();
         // the extension is matched without case
         let upper = dir.path().join("b.PNG");
         std::fs::copy(&png, &upper).unwrap();
         assert_eq!(load_image(&upper).unwrap().format, "R8G8B8A8_UNORM");
         let img = load_image(&png).unwrap();
-        assert_eq!((img.width, img.height, img.format.as_str()), (2, 1, "R8G8B8A8_UNORM"));
+        assert_eq!(
+            (img.width, img.height, img.format.as_str()),
+            (2, 1, "R8G8B8A8_UNORM")
+        );
         assert_eq!(img.data, [255, 0, 0, 255, 255, 0, 0, 255]);
 
         let bad = dir.path().join("bad.dds");
@@ -682,8 +811,15 @@ mod tests {
         std::fs::create_dir_all(effect_dir.join("sub")).unwrap();
         std::fs::write(effect_dir.join("lut.dds"), b"").unwrap();
         let base = effect_dir.canonicalize().unwrap();
-        assert_eq!(resolve_source_path(&effect_dir, "lut.dds").unwrap(), base.join("lut.dds"));
-        assert!(resolve_source_path(&effect_dir, "sub\\lut.dds").unwrap().ends_with("sub/lut.dds"));
+        assert_eq!(
+            resolve_source_path(&effect_dir, "lut.dds").unwrap(),
+            base.join("lut.dds")
+        );
+        assert!(
+            resolve_source_path(&effect_dir, "sub\\lut.dds")
+                .unwrap()
+                .ends_with("sub/lut.dds")
+        );
         assert!(resolve_source_path(&effect_dir, "../x.dds").is_err());
         assert!(resolve_source_path(&effect_dir, "/etc/passwd").is_err());
         assert!(resolve_source_path(&effect_dir, " ").is_err());
@@ -696,7 +832,10 @@ mod tests {
             if entry.extension().is_some_and(|e| e == "dds") {
                 let img = load_image(&entry).unwrap_or_else(|e| panic!("{}: {e}", entry.display()));
                 assert!(crate::formats::lookup(&img.format).is_some(), "{}", img.format);
-                assert_eq!(to_rgba_floats(&img).unwrap().len(), (img.width * img.height * 4) as usize);
+                assert_eq!(
+                    to_rgba_floats(&img).unwrap().len(),
+                    (img.width * img.height * 4) as usize
+                );
                 count += 1;
             }
         }
@@ -707,7 +846,11 @@ mod tests {
         let mut out = Vec::new();
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
             let path = entry.path();
-            if path.is_dir() { out.extend(walk(&path)) } else { out.push(path) }
+            if path.is_dir() {
+                out.extend(walk(&path))
+            } else {
+                out.push(path)
+            }
         }
         out
     }

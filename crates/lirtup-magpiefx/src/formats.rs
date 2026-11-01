@@ -25,18 +25,48 @@ pub(crate) struct FormatInfo {
 
 macro_rules! row {
     ($name:literal, $fmt:ident, $srv:literal, $uav:literal, $spirv:literal) => {
-        FormatInfo { name: $name, format: Format::$fmt, srv_type: $srv, uav_type: $uav, spirv_format: $spirv }
+        FormatInfo {
+            name: $name,
+            format: Format::$fmt,
+            srv_type: $srv,
+            uav_type: $uav,
+            spirv_format: $spirv,
+        }
     };
 }
 
 /// The intermediate formats of MagpieFX (Magpie's `EffectHelper.h`).
 pub(crate) static FORMATS: &[FormatInfo] = &[
-    row!("R32G32B32A32_FLOAT", R32G32B32A32Float, "float4", "float4", "rgba32f"),
+    row!(
+        "R32G32B32A32_FLOAT",
+        R32G32B32A32Float,
+        "float4",
+        "float4",
+        "rgba32f"
+    ),
     row!("R16G16B16A16_FLOAT", R16G16B16A16Float, "MF4", "MF4", "rgba16f"),
-    row!("R16G16B16A16_UNORM", R16G16B16A16Unorm, "MF4", "unorm MF4", "rgba16"),
-    row!("R16G16B16A16_SNORM", R16G16B16A16Snorm, "MF4", "snorm MF4", "rgba16snorm"),
+    row!(
+        "R16G16B16A16_UNORM",
+        R16G16B16A16Unorm,
+        "MF4",
+        "unorm MF4",
+        "rgba16"
+    ),
+    row!(
+        "R16G16B16A16_SNORM",
+        R16G16B16A16Snorm,
+        "MF4",
+        "snorm MF4",
+        "rgba16snorm"
+    ),
     row!("R32G32_FLOAT", R32G32Float, "float2", "float2", "rg32f"),
-    row!("R10G10B10A2_UNORM", R10G10B10A2Unorm, "MF4", "unorm MF4", "rgb10a2"),
+    row!(
+        "R10G10B10A2_UNORM",
+        R10G10B10A2Unorm,
+        "MF4",
+        "unorm MF4",
+        "rgb10a2"
+    ),
     row!("R11G11B10_FLOAT", R11G11B10Float, "MF3", "MF3", "r11g11b10f"),
     row!("R8G8B8A8_UNORM", R8G8B8A8Unorm, "MF4", "unorm MF4", "rgba8"),
     row!("R8G8B8A8_SNORM", R8G8B8A8Snorm, "MF4", "snorm MF4", "rgba8snorm"),
@@ -62,7 +92,11 @@ pub(crate) fn info(name: &str) -> Option<&'static FormatInfo> {
 pub fn lookup(name: &str) -> Option<FormatDesc> {
     info(name).map(|f| {
         let last = f.srv_type.chars().last().unwrap_or('1');
-        FormatDesc { format: f.format, texel_type: f.srv_type, channels: last.to_digit(10).unwrap_or(1) }
+        FormatDesc {
+            format: f.format,
+            texel_type: f.srv_type,
+            channels: last.to_digit(10).unwrap_or(1),
+        }
     })
 }
 
@@ -73,7 +107,10 @@ mod tests {
     #[test]
     fn lookup_gives_channels() {
         let d = lookup("R16G16B16A16_FLOAT").unwrap();
-        assert_eq!((d.format, d.texel_type, d.channels), (Format::R16G16B16A16Float, "MF4", 4));
+        assert_eq!(
+            (d.format, d.texel_type, d.channels),
+            (Format::R16G16B16A16Float, "MF4", 4)
+        );
         assert_eq!(lookup("R32_FLOAT").unwrap().channels, 1);
         assert_eq!(lookup("R11G11B10_FLOAT").unwrap().channels, 3);
         assert!(lookup("B8G8R8A8_UNORM").is_none());

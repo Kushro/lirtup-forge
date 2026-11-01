@@ -89,7 +89,13 @@ pub fn constant_buffer_with(device: &Arc<Device>, data: CbWriter, label: &str) -
 }
 
 /// A plain 2D texture with the default usage.
-pub fn texture(device: &Arc<Device>, width: u32, height: u32, format: Format, label: &str) -> Result<Texture> {
+pub fn texture(
+    device: &Arc<Device>,
+    width: u32,
+    height: u32,
+    format: Format,
+    label: &str,
+) -> Result<Texture> {
     texture_array(device, width, height, 1, false, format, label)
 }
 
@@ -104,7 +110,9 @@ pub fn texture_array(
     label: &str,
 ) -> Result<Texture> {
     if width == 0 || height == 0 {
-        return Err(EffectError::Unsupported(format!("{label}: zero-sized texture {width}x{height}")));
+        return Err(EffectError::Unsupported(format!(
+            "{label}: zero-sized texture {width}x{height}"
+        )));
     }
     Ok(device.create_texture(&TextureDesc {
         width,
@@ -125,7 +133,11 @@ pub fn sampler(device: &Arc<Device>, filter: Filter) -> Result<Sampler> {
 
 /// A sampler with one filter and one address mode on all axes.
 pub fn sampler_with(device: &Arc<Device>, filter: Filter, address: AddressMode) -> Result<Sampler> {
-    Ok(device.create_sampler(&SamplerDesc { address: [address; 3], min: filter, mag: filter })?)
+    Ok(device.create_sampler(&SamplerDesc {
+        address: [address; 3],
+        min: filter,
+        mag: filter,
+    })?)
 }
 
 /// What [`compute`] binds.
@@ -153,9 +165,20 @@ pub fn compute(
     Ok(device.create_compute(&ComputeDesc {
         spirv,
         entry,
-        cbv: bindings.cb.map(|b| vec![Binding::Buffer(b.clone())]).unwrap_or_default(),
-        srv: bindings.srv.iter().map(|t| Binding::Texture((*t).clone())).collect(),
-        uav: bindings.uav.iter().map(|t| Binding::Texture((*t).clone())).collect(),
+        cbv: bindings
+            .cb
+            .map(|b| vec![Binding::Buffer(b.clone())])
+            .unwrap_or_default(),
+        srv: bindings
+            .srv
+            .iter()
+            .map(|t| Binding::Texture((*t).clone()))
+            .collect(),
+        uav: bindings
+            .uav
+            .iter()
+            .map(|t| Binding::Texture((*t).clone()))
+            .collect(),
         samplers: bindings.samplers.iter().map(|s| (*s).clone()).collect(),
         push_size: bindings.push_size,
         bindless_max: 0,
@@ -165,7 +188,11 @@ pub fn compute(
 
 /// Workgroups that cover `size` with `block`-sized groups.
 pub fn groups(size: (u32, u32), block: (u32, u32)) -> [u32; 3] {
-    [size.0.div_ceil(block.0).max(1), size.1.div_ceil(block.1).max(1), 1]
+    [
+        size.0.div_ceil(block.0).max(1),
+        size.1.div_ceil(block.1).max(1),
+        1,
+    ]
 }
 
 /// Upload tightly packed texels to every slice of `texture` (one slice after
@@ -177,7 +204,11 @@ pub fn upload_texture(device: &Arc<Device>, texture: &Texture, data: &[u8]) -> R
     if data.len() < slice_bytes * slices as usize {
         return Err(EffectError::Asset {
             name: texture.desc().label.clone(),
-            message: format!("{} bytes for {w}x{h}x{slices} texels, need {}", data.len(), slice_bytes * slices as usize),
+            message: format!(
+                "{} bytes for {w}x{h}x{slices} texels, need {}",
+                data.len(),
+                slice_bytes * slices as usize
+            ),
         });
     }
     let staging = device.create_buffer(&BufferDesc {
@@ -199,7 +230,9 @@ pub fn upload_texture(device: &Arc<Device>, texture: &Texture, data: &[u8]) -> R
         .collect();
     let mut recorder = device.recorder()?;
     recorder.copy_buffer_to_texture(&staging, texture, &regions);
-    device.submit(recorder, &SubmitOptions::default())?.wait(u64::MAX)?;
+    device
+        .submit(recorder, &SubmitOptions::default())?
+        .wait(u64::MAX)?;
     Ok(())
 }
 
@@ -210,10 +243,15 @@ pub fn spirv_entry_point(spirv: &[u8]) -> Option<String> {
     const MAGIC: u32 = 0x0723_0203;
     const OP_ENTRY_POINT: u32 = 15;
     const GL_COMPUTE: u32 = 5;
-    if spirv.len() % 4 != 0 || spirv.len() < 20 {
+    if !spirv.len().is_multiple_of(4) || spirv.len() < 20 {
         return None;
     }
-    let words: Vec<u32> = spirv.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    let words: Vec<u32> = spirv
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
     if words[0] != MAGIC {
         return None;
     }
@@ -225,7 +263,10 @@ pub fn spirv_entry_point(spirv: &[u8]) -> Option<String> {
             return None;
         }
         if opcode == OP_ENTRY_POINT && count >= 4 && words[i + 1] == GL_COMPUTE {
-            let bytes: Vec<u8> = words[i + 3..i + count].iter().flat_map(|w| w.to_le_bytes()).collect();
+            let bytes: Vec<u8> = words[i + 3..i + count]
+                .iter()
+                .flat_map(|w| w.to_le_bytes())
+                .collect();
             let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
             return String::from_utf8(bytes[..end].to_vec()).ok();
         }

@@ -87,7 +87,9 @@ impl TextRenderer {
             fill_rounded_rect(&mut canvas, width, height, style.radius as f32, bg);
         }
         for glyph in glyphs {
-            let Some(outlined) = self.font.outline_glyph(glyph) else { continue };
+            let Some(outlined) = self.font.outline_glyph(glyph) else {
+                continue;
+            };
             let bounds = outlined.px_bounds();
             outlined.draw(|gx, gy, coverage| {
                 let x = bounds.min.x as i32 + gx as i32;
@@ -134,7 +136,11 @@ fn fill_rounded_rect(canvas: &mut [[f32; 4]], width: u32, height: u32, radius: f
             let cx = px.clamp(r, width as f32 - r);
             let cy = py.clamp(r, height as f32 - r);
             let d = ((px - cx).powi(2) + (py - cy).powi(2)).sqrt();
-            let coverage = if r == 0.0 { 1.0 } else { (r - d + 0.5).clamp(0.0, 1.0) };
+            let coverage = if r == 0.0 {
+                1.0
+            } else {
+                (r - d + 0.5).clamp(0.0, 1.0)
+            };
             blend_over(&mut canvas[(y * width + x) as usize], color, coverage);
         }
     }
@@ -167,14 +173,24 @@ impl OverlayBlend {
         })?;
         let cb = util::constant_buffer(device, 16, "osd cb")?;
         let point = util::sampler(device, Filter::Point)?;
-        let spirv = crate::assets::native_spirv("misc/overlay_blender/overlay_blend.spv").ok_or_else(|| {
-            EffectError::Asset { name: "misc/overlay_blender/overlay_blend.spv".to_owned(), message: "not embedded".to_owned() }
-        })?;
+        let spirv =
+            crate::assets::native_spirv("misc/overlay_blender/overlay_blend.spv").ok_or_else(|| {
+                EffectError::Asset {
+                    name: "misc/overlay_blender/overlay_blend.spv".to_owned(),
+                    message: "not embedded".to_owned(),
+                }
+            })?;
         let pipeline = util::compute(
             device,
             spirv,
             "main",
-            &Bindings { cb: Some(&cb), srv: &[target, &image], uav: &[target], samplers: &[&point], push_size: 0 },
+            &Bindings {
+                cb: Some(&cb),
+                srv: &[target, &image],
+                uav: &[target],
+                samplers: &[&point],
+                push_size: 0,
+            },
             "osd",
         )?;
         Ok(OverlayBlend {
@@ -206,10 +222,15 @@ impl OverlayBlend {
         let row = w as usize * 4;
         self.staging.write_with(|mapped| {
             for y in 0..h as usize {
-                mapped[y * row..(y + 1) * row].copy_from_slice(&image.data[y * src_stride..y * src_stride + row]);
+                mapped[y * row..(y + 1) * row]
+                    .copy_from_slice(&image.data[y * src_stride..y * src_stride + row]);
             }
         })?;
-        let cb = CbWriter::new().i32(position.0).i32(position.1).i32(w as i32).i32(h as i32);
+        let cb = CbWriter::new()
+            .i32(position.0)
+            .i32(position.1)
+            .i32(w as i32)
+            .i32(h as i32);
         self.cb.write(0, &cb.finish())?;
         self.shown = Some((position.0, position.1, w, h));
         self.pending_upload.store(true, Ordering::Release);
@@ -227,12 +248,19 @@ impl Pass for OverlayBlend {
     }
 
     fn record(&self, recorder: &mut lirtup_gpu::CommandRecorder) -> Result<()> {
-        let Some((_, _, w, h)) = self.shown else { return Ok(()) };
+        let Some((_, _, w, h)) = self.shown else {
+            return Ok(());
+        };
         if self.pending_upload.swap(false, Ordering::AcqRel) {
             recorder.copy_buffer_to_texture(
                 &self.staging,
                 &self.image,
-                &[CopyRegion { src_row_length: w, width: w, height: h, ..CopyRegion::default() }],
+                &[CopyRegion {
+                    src_row_length: w,
+                    width: w,
+                    height: h,
+                    ..CopyRegion::default()
+                }],
             );
         }
         recorder.dispatch(&Dispatch {

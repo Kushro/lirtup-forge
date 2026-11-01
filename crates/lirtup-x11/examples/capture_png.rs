@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // BGRX → RGBA.
     let stride = width as usize * 4;
     let mut rgba = Vec::with_capacity(stride * height as usize);
-    for px in buffer[..stride * height as usize].chunks_exact(4) {
+    for px in buffer[..stride * height as usize].as_chunks::<4>().0 {
         rgba.extend_from_slice(&[px[2], px[1], px[0], 255]);
     }
     image::save_buffer(&out, &rgba, width, height, image::ExtendedColorType::Rgba8)?;

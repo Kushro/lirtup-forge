@@ -32,14 +32,25 @@ impl CatalogEntry {
     /// An entry for a `.hlsl` file outside the catalog (a path in
     /// `magpie_effects:`); named after its file stem, not verified.
     pub fn from_path(path: &Path) -> CatalogEntry {
-        let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        CatalogEntry { name, path: path.to_path_buf(), origin: EffectOrigin::User, verified: false }
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        CatalogEntry {
+            name,
+            path: path.to_path_buf(),
+            origin: EffectOrigin::User,
+            verified: false,
+        }
     }
 
     /// The effect's file stem (`Anime4K_Upscale_S`), the name the parser and
     /// the logs use.
     pub fn stem(&self) -> String {
-        self.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| self.name.clone())
+        self.path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.name.clone())
     }
 }
 
@@ -70,7 +81,10 @@ pub fn builtin_dir() -> PathBuf {
     PathBuf::from(SYSTEM_EFFECTS_DIR)
 }
 
-static REPORT: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/developer/magpiefx-report.md"));
+static REPORT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../docs/developer/magpiefx-report.md"
+));
 
 static VERIFIED: LazyLock<Vec<&'static str>> = LazyLock::new(|| parse_report(REPORT));
 
@@ -85,7 +99,10 @@ fn parse_report(report: &'static str) -> Vec<&'static str> {
             if cells.len() != 6 {
                 return None;
             }
-            let name = cells[1].strip_prefix('`')?.strip_suffix('`')?.strip_suffix(".hlsl")?;
+            let name = cells[1]
+                .strip_prefix('`')?
+                .strip_suffix('`')?
+                .strip_suffix(".hlsl")?;
             cells[4].starts_with("ok").then_some(name)
         })
         .collect();
@@ -102,14 +119,20 @@ pub fn verified_names() -> &'static [&'static str] {
 /// Every `.hlsl` under `root` as `(name, path)`, names with `/`.
 fn scan_root(root: &Path) -> Vec<(String, PathBuf)> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 walk(root, &path, out);
             } else if path.extension().is_some_and(|e| e == "hlsl") {
                 let rel = path.strip_prefix(root).unwrap_or(&path).with_extension("");
-                let name = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
+                let name = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
                 out.push((name, path));
             }
         }
@@ -140,7 +163,12 @@ impl Catalog {
         if let Some(user) = user_dir {
             for (name, path) in scan_root(user) {
                 entries.retain(|e| e.name != name);
-                entries.push(CatalogEntry { name, path, origin: EffectOrigin::User, verified: false });
+                entries.push(CatalogEntry {
+                    name,
+                    path,
+                    origin: EffectOrigin::User,
+                    verified: false,
+                });
             }
         }
         entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -151,22 +179,28 @@ impl Catalog {
     /// path of an entry, or (like 1.x `find_effect`) a file name anywhere in
     /// the tree, user effects first.
     pub fn find(&self, name_or_path: &str) -> Option<&CatalogEntry> {
-        let stem = name_or_path.strip_suffix(".hlsl").unwrap_or(name_or_path).replace('\\', "/");
+        let stem = name_or_path
+            .strip_suffix(".hlsl")
+            .unwrap_or(name_or_path)
+            .replace('\\', "/");
         if let Some(e) = self.entries.iter().find(|e| e.name == stem) {
             return Some(e);
         }
         let as_path = Path::new(name_or_path);
         let canonical = as_path.canonicalize().ok();
         if let Some(e) = self.entries.iter().find(|e| {
-            e.path == as_path || canonical.as_ref().is_some_and(|c| e.path.canonicalize().ok().as_ref() == Some(c))
+            e.path == as_path
+                || canonical
+                    .as_ref()
+                    .is_some_and(|c| e.path.canonicalize().ok().as_ref() == Some(c))
         }) {
             return Some(e);
         }
         let base = stem.rsplit('/').next().unwrap_or(&stem);
         let by_file = |origin| {
-            self.entries
-                .iter()
-                .find(|e| e.origin == origin && e.path.file_stem().is_some_and(|s| s.to_string_lossy() == base))
+            self.entries.iter().find(|e| {
+                e.origin == origin && e.path.file_stem().is_some_and(|s| s.to_string_lossy() == base)
+            })
         };
         by_file(EffectOrigin::User).or_else(|| by_file(EffectOrigin::Builtin))
     }
@@ -194,7 +228,10 @@ impl Catalog {
 /// Read an effect file (UTF-8, BOM dropped, as 1.x `utf-8-sig`).
 pub(crate) fn read_source(path: &Path) -> Result<String> {
     let source = std::fs::read_to_string(path)?;
-    Ok(source.strip_prefix('\u{feff}').map(str::to_owned).unwrap_or(source))
+    Ok(source
+        .strip_prefix('\u{feff}')
+        .map(str::to_owned)
+        .unwrap_or(source))
 }
 
 #[cfg(test)]
@@ -239,7 +276,11 @@ mod tests {
         std::fs::write(user.path().join("A.hlsl"), "y").unwrap();
         std::fs::write(user.path().join("Mine.hlsl"), "y").unwrap();
         let catalog = Catalog::scan_dirs(builtin.path(), Some(user.path()));
-        let names: Vec<_> = catalog.entries.iter().map(|e| (e.name.as_str(), e.origin)).collect();
+        let names: Vec<_> = catalog
+            .entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.origin))
+            .collect();
         assert_eq!(
             names,
             [

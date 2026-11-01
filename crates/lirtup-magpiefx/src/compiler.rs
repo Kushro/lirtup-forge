@@ -158,14 +158,24 @@ impl Glslang {
 /// `--version` of a binary, first non-empty line.
 fn version_of(path: &Path) -> Option<String> {
     let out = Command::new(path).arg("--version").output().ok()?;
-    let text = String::from_utf8_lossy(if out.stdout.is_empty() { &out.stderr } else { &out.stdout }).into_owned();
-    text.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_owned)
+    let text = String::from_utf8_lossy(if out.stdout.is_empty() {
+        &out.stderr
+    } else {
+        &out.stdout
+    })
+    .into_owned();
+    text.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_owned)
 }
 
 /// File name made of the effect and pass (`safe` of 1.x).
 fn safe_name(request: &CompileRequest<'_>) -> String {
     let name = format!("{}_Pass{}", request.effect, request.pass);
-    name.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect()
+    name.chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect()
 }
 
 /// Run a compiler on `request` in a temporary folder and return the output
@@ -206,7 +216,9 @@ fn run_compiler(
 
 fn signal_of(status: &std::process::ExitStatus) -> Option<i32> {
     use std::os::unix::process::ExitStatusExt;
-    status.signal().or_else(|| status.code().filter(|c| *c >= 128).map(|c| c - 128))
+    status
+        .signal()
+        .or_else(|| status.code().filter(|c| *c >= 128).map(|c| c - 128))
 }
 
 /// Run a preprocessor command and return the expanded text: from `out_file`
@@ -235,10 +247,18 @@ fn run_preprocessor(
         .map_err(|e| fail(format!("cannot run {}: {e}", exe.display())))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        let log = if stderr.is_empty() { String::from_utf8_lossy(&output.stdout).trim().to_owned() } else { stderr };
+        let log = if stderr.is_empty() {
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        } else {
+            stderr
+        };
         return Err(fail(log));
     }
-    if from_file { Ok(std::fs::read_to_string(&out)?) } else { Ok(String::from_utf8_lossy(&output.stdout).into_owned()) }
+    if from_file {
+        Ok(std::fs::read_to_string(&out)?)
+    } else {
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
 }
 
 fn with_include(mut args: Vec<String>, include_dir: Option<&Path>) -> Vec<String> {
@@ -268,13 +288,21 @@ impl HlslCompiler for Dxc {
             "dxc",
             &self.path,
             request,
-            |src, out| with_include(vec!["-P".into(), "-Fi".into(), out.into(), src.into()], request.include_dir),
+            |src, out| {
+                with_include(
+                    vec!["-P".into(), "-Fi".into(), out.into(), src.into()],
+                    request.include_dir,
+                )
+            },
             true,
         )
     }
 
     fn cache_key(&self, request: &CompileRequest<'_>) -> String {
-        format!("dxc {}", Dxc::args("SRC", "OUT", request.entry, request.include_dir, request.fp16).join(" "))
+        format!(
+            "dxc {}",
+            Dxc::args("SRC", "OUT", request.entry, request.include_dir, request.fp16).join(" ")
+        )
     }
 }
 
@@ -298,29 +326,43 @@ impl HlslCompiler for Glslang {
             "glslangValidator",
             &self.path,
             request,
-            |src, _| with_include(vec!["-E".into(), "-D".into(), "-S".into(), "comp".into(), src.into()], request.include_dir),
+            |src, _| {
+                with_include(
+                    vec!["-E".into(), "-D".into(), "-S".into(), "comp".into(), src.into()],
+                    request.include_dir,
+                )
+            },
             false,
         )
     }
 
     fn cache_key(&self, request: &CompileRequest<'_>) -> String {
-        format!("glslang {}", Glslang::args("SRC", "OUT", request.entry, request.include_dir, request.fp16).join(" "))
+        format!(
+            "glslang {}",
+            Glslang::args("SRC", "OUT", request.entry, request.include_dir, request.fp16).join(" ")
+        )
     }
 }
 
 /// First executable called `name` in `PATH`.
 fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|dir| dir.join(name)).find(|p| is_executable(p))
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|p| is_executable(p))
 }
 
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    path.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    path.metadata()
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 fn find_dxc() -> Option<PathBuf> {
-    std::env::var_os("DXC").map(PathBuf::from).filter(|p| p.is_file()).or_else(|| which("dxc"))
+    std::env::var_os("DXC")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .or_else(|| which("dxc"))
 }
 
 fn find_glslang() -> Option<PathBuf> {
@@ -335,13 +377,21 @@ fn find_glslang() -> Option<PathBuf> {
 /// glslang as the fallback the 3 Denoise effects need). Empty when there is
 /// none (or the one asked for in `UPSCALER_MAGPIEFX_COMPILER` is missing).
 pub fn detect_compilers() -> Vec<Box<dyn HlslCompiler>> {
-    let wanted = std::env::var("UPSCALER_MAGPIEFX_COMPILER").unwrap_or_default().to_lowercase();
-    let wanted = if wanted.is_empty() { "auto".to_owned() } else { wanted };
+    let wanted = std::env::var("UPSCALER_MAGPIEFX_COMPILER")
+        .unwrap_or_default()
+        .to_lowercase();
+    let wanted = if wanted.is_empty() {
+        "auto".to_owned()
+    } else {
+        wanted
+    };
     let mut found: Vec<Box<dyn HlslCompiler>> = Vec::new();
     if wanted == "auto" || wanted == "dxc" {
         match find_dxc() {
             Some(path) => found.push(Box::new(Dxc { path })),
-            None if wanted == "dxc" => tracing::warn!("dxc requested but not found (install directx-shader-compiler or set DXC)"),
+            None if wanted == "dxc" => {
+                tracing::warn!("dxc requested but not found (install directx-shader-compiler or set DXC)")
+            }
             None => {}
         }
     }
@@ -382,8 +432,14 @@ impl SpirvCache {
 
     /// Compile with the first compiler that succeeds, reading and writing the
     /// cache.
-    pub fn compile(&self, compilers: &[Box<dyn HlslCompiler>], request: &CompileRequest<'_>) -> Result<Vec<u8>> {
-        Ok(self.compile_with(compilers, request, None)?.expect("no transform to decline"))
+    pub fn compile(
+        &self,
+        compilers: &[Box<dyn HlslCompiler>],
+        request: &CompileRequest<'_>,
+    ) -> Result<Vec<u8>> {
+        Ok(self
+            .compile_with(compilers, request, None)?
+            .expect("no transform to decline"))
     }
 
     /// [`SpirvCache::compile`] with a rewrite of the preprocessed source.
@@ -413,8 +469,13 @@ impl SpirvCache {
                             continue;
                         }
                     };
-                    let Some(rewritten) = (t.apply)(&expanded) else { return Ok(None) };
-                    compiler.compile(&CompileRequest { source: &rewritten, ..request.clone() })
+                    let Some(rewritten) = (t.apply)(&expanded) else {
+                        return Ok(None);
+                    };
+                    compiler.compile(&CompileRequest {
+                        source: &rewritten,
+                        ..request.clone()
+                    })
                 }
             };
             match result {
@@ -453,7 +514,12 @@ impl SpirvCache {
     }
 
     /// Cache file of a request.
-    fn entry_path(&self, compiler: &dyn HlslCompiler, request: &CompileRequest<'_>, transform: Option<&str>) -> PathBuf {
+    fn entry_path(
+        &self,
+        compiler: &dyn HlslCompiler,
+        request: &CompileRequest<'_>,
+        transform: Option<&str>,
+    ) -> PathBuf {
         let mut parts: Vec<&[u8]> = Vec::new();
         let key = compiler.cache_key(request);
         let includes = include_digest(request.include_dir);
@@ -501,7 +567,9 @@ fn digest(parts: &[&[u8]]) -> String {
 /// Digest of the `.hlsli` and `.h` files next to the effect (they may be
 /// `#include`d).
 fn include_digest(dir: Option<&Path>) -> String {
-    let Some(entries) = dir.and_then(|d| std::fs::read_dir(d).ok()) else { return String::new() };
+    let Some(entries) = dir.and_then(|d| std::fs::read_dir(d).ok()) else {
+        return String::new();
+    };
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
@@ -511,11 +579,17 @@ fn include_digest(dir: Option<&Path>) -> String {
     let contents: Vec<(Vec<u8>, Vec<u8>)> = files
         .iter()
         .map(|p| {
-            let name = p.file_name().map(|n| n.to_string_lossy().as_bytes().to_vec()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().as_bytes().to_vec())
+                .unwrap_or_default();
             (name, std::fs::read(p).unwrap_or_default())
         })
         .collect();
-    let parts: Vec<&[u8]> = contents.iter().flat_map(|(n, c)| [n.as_slice(), c.as_slice()]).collect();
+    let parts: Vec<&[u8]> = contents
+        .iter()
+        .flat_map(|(n, c)| [n.as_slice(), c.as_slice()])
+        .collect();
     digest(&parts)
 }
 
@@ -525,11 +599,13 @@ pub(crate) mod tests {
 
     use super::*;
 
+    type Answer = Box<dyn Fn(&CompileRequest<'_>) -> Result<Vec<u8>> + Send + Sync>;
+
     /// A compiler that records requests and answers from a closure.
     pub(crate) struct Fake {
         pub name: &'static str,
         pub calls: Mutex<Vec<(u32, bool)>>,
-        pub answer: Box<dyn Fn(&CompileRequest<'_>) -> Result<Vec<u8>> + Send + Sync>,
+        pub answer: Answer,
     }
 
     impl Fake {
@@ -537,7 +613,11 @@ pub(crate) mod tests {
             name: &'static str,
             answer: impl Fn(&CompileRequest<'_>) -> Result<Vec<u8>> + Send + Sync + 'static,
         ) -> Fake {
-            Fake { name, calls: Mutex::new(Vec::new()), answer: Box::new(answer) }
+            Fake {
+                name,
+                calls: Mutex::new(Vec::new()),
+                answer: Box::new(answer),
+            }
         }
 
         pub(crate) fn failure(request: &CompileRequest<'_>, log: &str) -> MagpieError {
@@ -570,7 +650,14 @@ pub(crate) mod tests {
     }
 
     fn request(source: &str, fp16: bool) -> CompileRequest<'_> {
-        CompileRequest { effect: "Test", pass: 1, source, entry: "__M", include_dir: None, fp16 }
+        CompileRequest {
+            effect: "Test",
+            pass: 1,
+            source,
+            entry: "__M",
+            include_dir: None,
+            fp16,
+        }
     }
 
     #[test]
@@ -617,18 +704,24 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache = SpirvCache::new(dir.path().to_path_buf());
         let compilers: Vec<Box<dyn HlslCompiler>> = vec![
-            Box::new(Fake::new("dxc", |r| Err(Fake::failure(r, "variable length arrays")))),
+            Box::new(Fake::new("dxc", |r| {
+                Err(Fake::failure(r, "variable length arrays"))
+            })),
             Box::new(Fake::new("glslangValidator", |_| Ok(b"GLSLANG".to_vec()))),
         ];
-        assert_eq!(cache.compile(&compilers, &request("x", false)).unwrap(), b"GLSLANG");
+        assert_eq!(
+            cache.compile(&compilers, &request("x", false)).unwrap(),
+            b"GLSLANG"
+        );
     }
 
     #[test]
     fn errors_say_glslang_is_missing() {
         let dir = tempfile::tempdir().unwrap();
         let cache = SpirvCache::new(dir.path().to_path_buf());
-        let compilers: Vec<Box<dyn HlslCompiler>> =
-            vec![Box::new(Fake::new("dxc", |r| Err(Fake::failure(r, "variable length arrays"))))];
+        let compilers: Vec<Box<dyn HlslCompiler>> = vec![Box::new(Fake::new("dxc", |r| {
+            Err(Fake::failure(r, "variable length arrays"))
+        }))];
         match cache.compile(&compilers, &request("x", false)) {
             Err(MagpieError::Compile { log, compiler, .. }) => {
                 assert_eq!(compiler, "dxc");
@@ -637,7 +730,10 @@ pub(crate) mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert!(matches!(cache.compile(&[], &request("x", false)), Err(MagpieError::NoCompiler)));
+        assert!(matches!(
+            cache.compile(&[], &request("x", false)),
+            Err(MagpieError::NoCompiler)
+        ));
     }
 
     #[test]
@@ -647,11 +743,28 @@ pub(crate) mod tests {
         let compilers: Vec<Box<dyn HlslCompiler>> =
             vec![Box::new(Fake::new("dxc", |r| Ok(r.source.as_bytes().to_vec())))];
         let upper = |s: &str| Some(s.to_uppercase());
-        let t = Transform { key: "upper", apply: &upper };
-        assert_eq!(cache.compile_with(&compilers, &request("abc", false), Some(&t)).unwrap().unwrap(), b"ABC");
+        let t = Transform {
+            key: "upper",
+            apply: &upper,
+        };
+        assert_eq!(
+            cache
+                .compile_with(&compilers, &request("abc", false), Some(&t))
+                .unwrap()
+                .unwrap(),
+            b"ABC"
+        );
         let no = |_: &str| None;
-        let t = Transform { key: "no", apply: &no };
-        assert_eq!(cache.compile_with(&compilers, &request("abc", false), Some(&t)).unwrap(), None);
+        let t = Transform {
+            key: "no",
+            apply: &no,
+        };
+        assert_eq!(
+            cache
+                .compile_with(&compilers, &request("abc", false), Some(&t))
+                .unwrap(),
+            None
+        );
     }
 
     #[test]

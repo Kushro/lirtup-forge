@@ -39,7 +39,7 @@ enum CliCommand {
     /// Scale a window (the 1.x `upscale`).
     Run {
         #[command(flatten)]
-        config: ConfigArgs,
+        config: Box<ConfigArgs>,
 
         /// Program to launch and scale.
         #[arg(last = true)]
@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn run(config: ConfigArgs, program: Vec<String>) -> anyhow::Result<()> {
+fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<()> {
     todo!("front K")
 }
 

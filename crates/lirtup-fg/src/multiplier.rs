@@ -107,7 +107,7 @@ impl AutoMultiplier {
             self.last_switch = Some(now);
             return first;
         };
-        if !(game_fps >= MIN_FPS) {
+        if game_fps.is_nan() || game_fps < MIN_FPS {
             self.candidate = None;
             return current;
         }

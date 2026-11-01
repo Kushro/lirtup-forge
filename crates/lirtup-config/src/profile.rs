@@ -126,13 +126,13 @@ impl Match {
                 message,
             })
         };
-        if let Some(re) = &self.title_regex {
-            if let Err(e) = regex::Regex::new(re) {
-                warn(
-                    "title_regex",
-                    format!("invalid regex, the profile never matches ({e})"),
-                );
-            }
+        if let Some(re) = &self.title_regex
+            && let Err(e) = regex::Regex::new(re)
+        {
+            warn(
+                "title_regex",
+                format!("invalid regex, the profile never matches ({e})"),
+            );
         }
         for (key, interval) in [("width", &self.width), ("height", &self.height)] {
             if let Some(Err(e)) = interval.as_ref().map(Interval::parse) {
@@ -212,11 +212,11 @@ impl Interval {
                 .find(|(_, c)| matches!(c, '-' | ','))
                 .map(|(i, _)| (i, 1))
         });
-        if let Some((i, len)) = range {
-            if let (Some(a), Some(b)) = (num(&s[..i]), num(&s[i + len..])) {
-                let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
-                return Ok(IntervalOp::Range(lo, hi));
-            }
+        if let Some((i, len)) = range
+            && let (Some(a), Some(b)) = (num(&s[..i]), num(&s[i + len..]))
+        {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            return Ok(IntervalOp::Range(lo, hi));
         }
         let ops = ["<=", ">=", "<", ">"];
         for op in ops {
@@ -377,7 +377,10 @@ mod tests {
             interval("1080,720").parse().unwrap(),
             IntervalOp::Range(720.0, 1080.0)
         );
-        assert!(interval("480 < =").parse().is_err());
+        // 1.x strips the spaces first, so its "malformed" docstring example
+        // `480 < =` is really `480<=` and parses (same here).
+        assert_eq!(interval("480 < =").parse().unwrap(), IntervalOp::Ge(480.0));
+        assert!(interval("<=>480").parse().is_err());
         assert!(interval("abc").parse().is_err());
         assert!(interval("").parse().is_err());
     }

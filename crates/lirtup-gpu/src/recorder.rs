@@ -449,7 +449,7 @@ impl CommandRecorder {
                 pipeline.label()
             )));
         }
-        if dispatch.push.len() as u32 > pipeline.push_size() || dispatch.push.len() % 4 != 0 {
+        if dispatch.push.len() as u32 > pipeline.push_size() || !dispatch.push.len().is_multiple_of(4) {
             return self.fail(GpuError::Invalid(format!(
                 "dispatch '{}': {} push constant bytes (pipeline takes {})",
                 pipeline.label(),
@@ -643,7 +643,7 @@ fn check_buffer_region(r: &CopyRegion, buffer_size: u64, dst: &Texture) -> Resul
             "copy region {r:?} reads {needed} bytes from a {buffer_size}-byte buffer"
         )));
     }
-    if r.src_offset % bpt != 0 {
+    if !r.src_offset.is_multiple_of(bpt) {
         return Err(GpuError::Invalid(format!(
             "copy region {r:?}: offset not texel aligned"
         )));
@@ -769,7 +769,7 @@ fn timestamps_from_ticks(names: &[String], ticks: &[u64], period_ns: f32, mask: 
     let ms = |from: u64, to: u64| (to.wrapping_sub(from) & mask) as f64 * period_ns as f64 / 1e6;
     let dispatches: Vec<(String, f64)> = names
         .iter()
-        .zip(ticks.chunks_exact(2))
+        .zip(ticks.as_chunks::<2>().0)
         .map(|(name, pair)| (name.clone(), ms(pair[0], pair[1])))
         .collect();
     let total_ms = match (ticks.first(), ticks.last()) {

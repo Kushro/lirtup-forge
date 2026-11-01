@@ -12,7 +12,10 @@
 
 /// HLSL of the swap-R/B pass (a MagpieFX effect, `internal/SwapRB.hlsl`).
 pub fn swap_rb_source() -> &'static str {
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/upscaler/magpiefx/internal/SwapRB.hlsl"))
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../src/upscaler/magpiefx/internal/SwapRB.hlsl"
+    ))
 }
 
 /// The function the rewritten source calls.
@@ -193,7 +196,9 @@ fn rewrite_inner(s: &str, names: &[&str], used: &mut (bool, bool)) -> SwapResult
                 pos = close;
                 continue;
             }
-            return Err(SwapUnsupported("INPUT used as a value (e.g. passed to a function)".to_owned()));
+            return Err(SwapUnsupported(
+                "INPUT used as a value (e.g. passed to a function)".to_owned(),
+            ));
         }
 
         // OUTPUT
@@ -220,7 +225,9 @@ fn rewrite_inner(s: &str, names: &[&str], used: &mut (bool, bool)) -> SwapResult
                 continue;
             }
         }
-        return Err(SwapUnsupported("OUTPUT used as a value (e.g. passed to a function)".to_owned()));
+        return Err(SwapUnsupported(
+            "OUTPUT used as a value (e.g. passed to a function)".to_owned(),
+        ));
     }
 }
 

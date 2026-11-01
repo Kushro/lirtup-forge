@@ -272,7 +272,7 @@ impl ComputePipeline {
         if foreign {
             return Err(invalid("a resource belongs to another device".into()));
         }
-        if desc.push_size % 4 != 0 {
+        if !desc.push_size.is_multiple_of(4) {
             return Err(invalid(format!(
                 "push size {} is not a multiple of 4",
                 desc.push_size

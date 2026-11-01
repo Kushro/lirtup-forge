@@ -44,13 +44,13 @@ pub fn merge_layer(base: &mut Mapping, top: &Mapping) {
         if value.is_null() {
             continue;
         }
-        if key.as_str() == Some("hotkeys") {
-            if let (Some(Value::Mapping(base_hk)), Value::Mapping(top_hk)) = (base.get_mut(key), value) {
-                for (action, binding) in top_hk {
-                    base_hk.insert(action.clone(), binding.clone());
-                }
-                continue;
+        if key.as_str() == Some("hotkeys")
+            && let (Some(Value::Mapping(base_hk)), Value::Mapping(top_hk)) = (base.get_mut(key), value)
+        {
+            for (action, binding) in top_hk {
+                base_hk.insert(action.clone(), binding.clone());
             }
+            continue;
         }
         base.insert(key.clone(), value.clone());
     }

@@ -46,9 +46,13 @@ fn muladd_source() -> String {
         for m in 2..=4 {
             out.push(format!("MF{m} MulAdd(MF{n} x, MF{n}x{m} y, MF{m} a) {{"));
             out.push(format!("\tMF{m} result = a;"));
-            for r in 0..n {
+            for (r, comp) in comps.iter().enumerate().take(n) {
                 let swz: Vec<String> = (0..m).map(|c| format!("m{r}{c}")).collect();
-                out.push(format!("\tresult = mad(x.{}, y._{}, result);", comps[r], swz.join("_")));
+                out.push(format!(
+                    "\tresult = mad(x.{}, y._{}, result);",
+                    comp,
+                    swz.join("_")
+                ));
             }
             out.push("\treturn result;".to_owned());
             out.push("}".to_owned());
@@ -87,7 +91,11 @@ pub fn constant_buffer_layout(desc: &EffectDesc) -> Vec<CbEntry> {
     members
         .into_iter()
         .map(|(ty, name)| {
-            let entry = CbEntry { name, ty: ty.to_owned(), offset };
+            let entry = CbEntry {
+                name,
+                ty: ty.to_owned(),
+                offset,
+            };
             offset += if ty.ends_with('2') { 8 } else { 4 };
             entry
         })
@@ -156,10 +164,16 @@ fn ps_entry(desc: &EffectDesc, p: &EffectPass) -> String {
     let (size, pt) = if last {
         ("__outputSize".to_owned(), "__outputPt".to_owned())
     } else {
-        (format!("__pass{}OutputSize", p.index), format!("__pass{}OutputPt", p.index))
+        (
+            format!("__pass{}OutputSize", p.index),
+            format!("__pass{}OutputPt", p.index),
+        )
     };
     let call = if p.outputs.len() <= 1 {
-        format!("{}[gxy] = Pass{}(pos);", desc.textures[p.outputs[0] as usize].name, p.index)
+        format!(
+            "{}[gxy] = Pass{}(pos);",
+            desc.textures[p.outputs[0] as usize].name, p.index
+        )
     } else {
         let decls: String = p
             .outputs
@@ -174,7 +188,12 @@ fn ps_entry(desc: &EffectDesc, p: &EffectPass) -> String {
             .enumerate()
             .map(|(i, o)| format!("{}[gxy] = c{i};", desc.textures[*o as usize].name))
             .collect();
-        format!("{{\n{decls}\tPass{}(pos, {});\n\t{}\n\t}}", p.index, args.join(", "), stores.join(" "))
+        format!(
+            "{{\n{decls}\tPass{}(pos, {});\n\t{}\n\t}}",
+            p.index,
+            args.join(", "),
+            stores.join(" ")
+        )
     };
     format!(
         "[numthreads(64, 1, 1)]
@@ -241,14 +260,22 @@ pub fn generate_pass_source(desc: &EffectDesc, pass_index: usize, fp16: bool) ->
     parts.push(macros(p, fp16).join("\n") + "\n");
 
     let mut cb = vec!["cbuffer __CB1 : register(b0) {".to_owned()];
-    cb.extend(constant_buffer_layout(desc).into_iter().map(|e| format!("\t{} {};", e.ty, e.name)));
+    cb.extend(
+        constant_buffer_layout(desc)
+            .into_iter()
+            .map(|e| format!("\t{} {};", e.ty, e.name)),
+    );
     cb.push("};\n".to_owned());
     parts.push(cb.join("\n"));
 
     let mut decls = Vec::new();
     for (i, t) in p.inputs.iter().enumerate() {
         let tex = &desc.textures[*t as usize];
-        decls.push(format!("Texture2D<{}> {} : register(t{i});", resource_type(srv_type(&tex.format)), tex.name));
+        decls.push(format!(
+            "Texture2D<{}> {} : register(t{i});",
+            resource_type(srv_type(&tex.format)),
+            tex.name
+        ));
     }
     for (i, t) in p.outputs.iter().enumerate() {
         let tex = &desc.textures[*t as usize];
@@ -276,7 +303,11 @@ pub fn generate_pass_source(desc: &EffectDesc, pass_index: usize, fp16: bool) ->
         parts.push(common.trim_end_matches('\n').to_owned() + "\n");
     }
     parts.push(p.code.trim_end_matches('\n').to_owned() + "\n");
-    parts.push(if p.ps_style { ps_entry(desc, p) } else { cs_entry(p) });
+    parts.push(if p.ps_style {
+        ps_entry(desc, p)
+    } else {
+        cs_entry(p)
+    });
     parts.join("\n")
 }
 
@@ -310,7 +341,10 @@ mod tests {
         assert!(lines.contains(&"#define MF min16float".to_owned()));
         assert!(lines.contains(&"#define MF1 min16float1".to_owned()));
         assert!(lines.contains(&"#define MF4x4 min16float4x4".to_owned()));
-        assert_eq!(lines.iter().filter(|l| l.starts_with("#define MF")).count(), 1 + 4 + 16);
+        assert_eq!(
+            lines.iter().filter(|l| l.starts_with("#define MF")).count(),
+            1 + 4 + 16
+        );
     }
 
     #[test]
@@ -324,7 +358,11 @@ mod tests {
         // textures stay 32-bit
         assert!(fp16.contains("Texture2D<float4> INPUT : register(t0);"));
         assert!(!fp16.contains("min16float4> "));
-        assert_eq!(fp16.replace("min16float", "float").replace("#define MP_FP16\n", ""), fp32);
+        assert_eq!(
+            fp16.replace("min16float", "float")
+                .replace("#define MP_FP16\n", ""),
+            fp32
+        );
     }
 
     #[test]
@@ -336,7 +374,10 @@ mod tests {
             //!PASS 2\n//!STYLE PS\n//!IN t\n//!OUT OUTPUT\nMF4 Pass2(float2 pos) { return 0; }\n";
         let desc = parse_effect(src, "t").unwrap();
         let layout = constant_buffer_layout(&desc);
-        let names: Vec<_> = layout.iter().map(|e| (e.name.as_str(), e.ty.as_str(), e.offset)).collect();
+        let names: Vec<_> = layout
+            .iter()
+            .map(|e| (e.name.as_str(), e.ty.as_str(), e.offset))
+            .collect();
         assert_eq!(
             names,
             [
@@ -362,7 +403,12 @@ mod tests {
 
     #[test]
     fn cs_entry_block_start() {
-        let mut p = EffectPass { index: 3, block_size: (16, 16), num_threads: (64, 1, 1), ..EffectPass::default() };
+        let mut p = EffectPass {
+            index: 3,
+            block_size: (16, 16),
+            num_threads: (64, 1, 1),
+            ..EffectPass::default()
+        };
         assert!(cs_entry(&p).contains("Pass3((gid.xy << 4), tid);"));
         p.block_size = (16, 8);
         assert!(cs_entry(&p).contains("Pass3(gid.xy * uint2(16, 8), tid);"));

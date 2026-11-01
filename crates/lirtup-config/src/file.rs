@@ -122,12 +122,11 @@ fn normalize_options(options: &Mapping) -> Mapping {
             out.insert("hotkeys".into(), Value::Mapping(diff));
         }
     }
-    if let Some(color @ Value::Sequence(_)) = out.get("background_color") {
-        if let Ok(color @ BackgroundColor::Bgra(_)) =
+    if let Some(color @ Value::Sequence(_)) = out.get("background_color")
+        && let Ok(color @ BackgroundColor::Bgra(_)) =
             serde_yaml_ng::from_value::<BackgroundColor>(color.clone())
-        {
-            out.insert("background_color".into(), Value::String(color.to_hex()));
-        }
+    {
+        out.insert("background_color".into(), Value::String(color.to_hex()));
     }
     out
 }
@@ -148,10 +147,10 @@ fn rotate_backups(path: &Path) {
     let _ = std::fs::remove_file(backup_path(path, MAX_BACKUPS));
     for n in (1..MAX_BACKUPS).rev() {
         let src = backup_path(path, n);
-        if src.is_file() {
-            if let Err(e) = std::fs::rename(&src, backup_path(path, n + 1)) {
-                tracing::debug!("backup rotation of {}: {e}", src.display());
-            }
+        if src.is_file()
+            && let Err(e) = std::fs::rename(&src, backup_path(path, n + 1))
+        {
+            tracing::debug!("backup rotation of {}: {e}", src.display());
         }
     }
     if let Err(e) = std::fs::copy(path, backup_path(path, 1)) {

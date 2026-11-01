@@ -210,13 +210,17 @@ fn run(gpu: Option<&str>, debug: bool) -> lirtup_gpu::Result<bool> {
     // Half floats: 1.0 = 0x3c00, 0.5 = 0x3800, 0.25 = 0x3400.
     let half: Vec<u16> = out
         .download()?
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     check(
         "dispatch wrote the clear color",
-        half.chunks_exact(4)
-            .all(|t| t == [0x3c00, 0x3800, 0x3400, 0x3c00]),
+        half.as_chunks::<4>()
+            .0
+            .iter()
+            .all(|t| *t == [0x3c00, 0x3800, 0x3400, 0x3c00]),
     );
 
     // 3. External memory and semaphores (what lsfg needs), if supported.
@@ -257,8 +261,10 @@ fn run(gpu: Option<&str>, debug: bool) -> lirtup_gpu::Result<bool> {
             shared
                 .texture()
                 .download()?
-                .chunks_exact(4)
-                .all(|t| t == [255, 0, 0, 255]),
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|t| *t == [255, 0, 0, 255]),
         );
     } else {
         println!("skip external memory (not supported)");
