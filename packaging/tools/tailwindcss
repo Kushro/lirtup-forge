@@ -1,0 +1,15 @@
+#!/bin/sh
+# Stand-in for `tailwindcss` that `dx` runs when NO_DOWNLOADS=1 is set (dx
+# 0.7.10 otherwise downloads its own Tailwind 4.1.5). It runs the Tailwind of
+# crates/lirtup-ui/package.json (4.3.3, from crates/lirtup-ui/node_modules)
+# with --minify, so dx writes exactly the committed assets/tailwind.css.
+# dx runs it with the crate as working directory.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ui="$here/../../crates/lirtup-ui"
+bin="$ui/node_modules/.bin/tailwindcss"
+if [ ! -x "$bin" ]; then
+    echo "tailwindcss: run 'npm ci' in crates/lirtup-ui first" >&2
+    exit 1
+fi
+exec "$bin" "$@" --minify

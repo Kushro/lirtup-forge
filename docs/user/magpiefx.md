@@ -1,6 +1,6 @@
 # MagpieFX effects
 
-The upscaler can run effects written for [Magpie](https://github.com/Blinue/Magpie)
+LirtUp Forge runs effects written for [Magpie](https://github.com/Blinue/Magpie)
 in its MagpieFX format (`.hlsl` files with `//!` directives, version 4). The
 effects are loaded unmodified: the loader reads the directives, generates
 one compute shader per pass, compiles it to SPIR-V at runtime and runs all
@@ -14,7 +14,7 @@ size (e.g. `Anime4K_Upscale_S`, 2x) hands a larger image to the scaler.
 
 The Magpie effects come in two engines, and only the selected one runs
 (`effects_engine` in the config, `--effects-engine` on the CLI, or *Engine*
-in the GUI's Effects tab):
+in the GUI's mode editor):
 
 | | Native | MagpieFX |
 |---|---|---|
@@ -33,7 +33,7 @@ Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, dxc):
 
 The rest of this page is about the MagpieFX engine.
 
-## Requirements
+## Compilers
 
 One of these compilers must be installed:
 
@@ -55,14 +55,16 @@ is the default.
 The package bundles all 117 effects of Magpie's `src/Effects`: Anime4K,
 ACNet, ArtCNN, CuNNy2, FSRCNNX, NNEDI3, RAVU, k7_modernAnime, the CRT and
 pixel-art families, FSR, NIS, CAS, FXAA, SMAA, xBRZ, the classic scalers and
-more (`upscale --list-magpie-effects` prints them). Any other MagpieFX effect
+more (`lirtup list effects` prints them). They are installed in
+`/usr/share/lirtup/effects` (inside the AppImage, in its own tree;
+`LIRTUP_EFFECTS_DIR` points elsewhere). Any other MagpieFX effect
 can be copied to `~/.config/linux-rt-upscaler/effects/` (with the `.hlsli`
 files it includes and the lookup textures it reads) or given as a path.
 
 ```bash
-upscale --list-magpie-effects
-upscale --magpie-effect LumaSharpen:sharpStrength=1.0 -t "My game"
-upscale --magpie-effect Anime4K_Upscale_S --magpie-effect CRT_Easymode -t "My game"
+lirtup list effects
+lirtup run --magpie-effect LumaSharpen:sharpStrength=1.0 -t "My game"
+lirtup run --magpie-effect Anime4K_Upscale_S --magpie-effect CRT_Easymode -t "My game"
 ```
 
 In the YAML configuration:
@@ -84,19 +86,12 @@ chain keeps working.
 
 ## Measuring performance
 
-- In the app: `--magpie-profile` (or `magpie_profile: true`) logs the median
-  GPU time per effect every 5 seconds, measured with Vulkan timestamps around
-  each dispatch.
-- Headless: `scripts/magpiefx-bench.py` runs effects on an image and prints
-  the median GPU time per frame and per pass:
-
-  ```bash
-  python scripts/magpiefx-bench.py docs/assets/comparisons/fatamoru/original.png \
-      LumaSharpen Anime4K_Upscale_S CRT_Easymode --resize 1280x720 --target 2560x1440
-  ```
-
-- `scripts/magpiefx-compile-all.py MAGPIE/src/Effects --run` tries every
-  effect of a Magpie checkout and prints a compatibility table.
+- In the GUI: *Measure on my GPU* in *Scaling modes* times every effect on
+  your GPU; the costs on the effect cards then come from it.
+- While scaling: the stats panel (`Alt`+`Shift`+`I`) shows the GPU time of
+  each effect, and `--magpie-profile` (or `magpie_profile: true`) logs the
+  median GPU time per effect every 5 seconds.
+- Without a window: `lirtup bench` is the measurement the GUI runs.
 
 ## Lookup textures (`//!SOURCE`)
 

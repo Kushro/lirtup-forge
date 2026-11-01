@@ -1,0 +1,34 @@
+{
+  "comment": "Parity cases of lirtup-effects against 1.x. scripts/rust-parity-refs.py writes refs/<name>.png from this list; tests/parity.rs compares. Params use the config field names.",
+  "input": { "width": 160, "height": 96 },
+  "max_diff": 1,
+  "cases": [
+    { "name": "deband", "effect": "deband", "params": { "deband_strength": 0.5 } },
+    { "name": "cas", "effect": "cas", "input": "rgba16f", "params": { "cas_strength": 0.6 } },
+    { "name": "bloom", "effect": "bloom", "input": "rgba16f", "params": { "bloom_strength": 0.3, "bloom_threshold": 0.6, "bloom_radius": 4 } },
+    { "name": "vignette", "effect": "vignette", "input": "rgba16f", "params": { "vignette_strength": 0.5, "vignette_radius": 0.3, "vignette_falloff": 2.0 } },
+    { "name": "grain", "effect": "grain", "params": { "grain_strength": 0.15, "grain_size": 1.0 } },
+    { "name": "lut_warm", "effect": "lut", "preset": "warm", "params": { "lut_intensity": 1.0 } },
+    { "name": "lut_noir", "effect": "lut", "preset": "noir", "params": { "lut_intensity": 0.7 } },
+    { "name": "luma_sharpen", "effect": "luma_sharpen", "params": { "luma_sharpen_strength": 0.65, "luma_sharpen_clamp": 0.035, "luma_sharpen_pattern": 1, "luma_sharpen_offset_bias": 1.0 } },
+    { "name": "anime4k", "effect": "anime4k" },
+    { "name": "crt_easymode", "effect": "crt_easymode", "dst": [320, 192] },
+
+    { "name": "scaler_copy", "scaler": "copy", "dst": [160, 96] },
+    { "name": "scaler_lanczos_up", "scaler": "lanczos", "dst": [320, 192] },
+    { "name": "scaler_lanczos_down", "scaler": "lanczos", "dst": [120, 72] },
+    { "name": "scaler_catmull_rom_down", "scaler": "catmull_rom", "dst": [120, 72] },
+    { "name": "scaler_fsr_up", "scaler": "fsr", "dst": [320, 192] },
+    { "name": "scaler_nis_up", "scaler": "nis", "dst": [320, 192] },
+
+    { "name": "srcnn_veryfast", "srcnn": "veryfast" },
+    { "name": "srcnn_faster", "srcnn": "faster" },
+    { "name": "srcnn_fast", "srcnn": "fast" },
+    { "name": "srcnn_3x12", "srcnn": "3x12" },
+    { "name": "srcnn_4x12", "srcnn": "4x12" },
+    { "name": "srcnn_4x16", "srcnn": "4x16" },
+    { "name": "srcnn_4x24", "srcnn": "4x24" },
+    { "name": "srcnn_4x32", "srcnn": "4x32" },
+    { "name": "srcnn_8x32", "srcnn": "8x32" }
+  ]
+}

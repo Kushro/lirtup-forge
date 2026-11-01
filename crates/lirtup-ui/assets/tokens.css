@@ -1,0 +1,112 @@
+/* Generated from design/tokens.json by scripts/gen-tokens.py; do not edit
+   by hand. The theme from the seed color (theme.rs) overrides the colors
+   in the root element's style. */
+
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --primary: #A7C8FF;
+  --on-primary: #04305F;
+  --primary-container: #244777;
+  --on-primary-container: #D5E3FF;
+  --secondary: #BDC7DC;
+  --on-secondary: #273141;
+  --secondary-container: #3D4758;
+  --on-secondary-container: #D9E3F8;
+  --tertiary: #FFB68C;
+  --on-tertiary: #522300;
+  --tertiary-container: #723609;
+  --on-tertiary-container: #FFDBC9;
+  --error: #FFB4AB;
+  --on-error: #690005;
+  --error-container: #93000A;
+  --on-error-container: #FFDAD6;
+  --success: #92D69E;
+  --success-container: #0A5227;
+  --on-success-container: #ADF3B8;
+  --surface: #111318;
+  --surface-dim: #111318;
+  --surface-bright: #37393E;
+  --surface-container-lowest: #0C0E13;
+  --surface-container-low: #191C20;
+  --surface-container: #1D2024;
+  --surface-container-high: #282A2F;
+  --surface-container-highest: #33353A;
+  --on-surface: #E1E2E9;
+  --on-surface-variant: #C4C6CF;
+  --outline: #8E9199;
+  --outline-variant: #43474E;
+  --inverse-surface: #E1E2E9;
+  --inverse-on-surface: #2E3035;
+  --inverse-primary: #3E5F90;
+  --scrim: rgba(0,0,0,.6);
+  --glass: rgba(29,32,36,.86);
+  --glass-content: #E1E2E9;
+  --state-hover: rgba(225,226,233,.08);
+  --state-pressed: rgba(225,226,233,.10);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --primary: #3E5F90;
+  --on-primary: #FFFFFF;
+  --primary-container: #D5E3FF;
+  --on-primary-container: #244777;
+  --secondary: #555F71;
+  --on-secondary: #FFFFFF;
+  --secondary-container: #D9E3F8;
+  --on-secondary-container: #3D4758;
+  --tertiary: #904D20;
+  --on-tertiary: #FFFFFF;
+  --tertiary-container: #FFDBC9;
+  --on-tertiary-container: #723609;
+  --error: #BA1A1A;
+  --on-error: #FFFFFF;
+  --error-container: #FFDAD6;
+  --on-error-container: #93000A;
+  --success: #2A6B3D;
+  --success-container: #ADF3B8;
+  --on-success-container: #0A5227;
+  --surface: #F9F9FF;
+  --surface-dim: #D9DAE0;
+  --surface-bright: #F9F9FF;
+  --surface-container-lowest: #FFFFFF;
+  --surface-container-low: #F3F3FA;
+  --surface-container: #EDEDF4;
+  --surface-container-high: #E7E8EE;
+  --surface-container-highest: #E1E2E9;
+  --on-surface: #191C20;
+  --on-surface-variant: #43474E;
+  --outline: #74777F;
+  --outline-variant: #C4C6CF;
+  --inverse-surface: #2E3035;
+  --inverse-on-surface: #F0F0F7;
+  --inverse-primary: #A7C8FF;
+  --scrim: rgba(0,0,0,.4);
+  --glass: rgba(29,32,36,.86);
+  --glass-content: #E1E2E9;
+  --state-hover: rgba(25,28,32,.08);
+  --state-pressed: rgba(25,28,32,.10);
+}
+
+:root {
+  --shape-xs: 4px;
+  --shape-sm: 8px;
+  --shape-md: 12px;
+  --shape-lg: 16px;
+  --shape-lg-inc: 20px;
+  --shape-xl: 28px;
+  --shape-xl-inc: 32px;
+  --shape-xxl: 48px;
+  --shape-full: 9999px;
+  --font-brand: "Google Sans Flex", "Roboto Flex", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --ease-fast-spatial: cubic-bezier(0.42, 1.67, 0.21, 0.90);
+  --dur-fast-spatial: 350ms;
+  --ease-spatial: cubic-bezier(0.38, 1.21, 0.22, 1.00);
+  --dur-spatial: 500ms;
+  --ease-slow-spatial: cubic-bezier(0.39, 1.29, 0.35, 0.98);
+  --dur-slow-spatial: 650ms;
+  --ease-effects: cubic-bezier(0.31, 0.94, 0.34, 1.00);
+  --dur-effects: 200ms;
+  --dur-fast-effects: 150ms;
+}

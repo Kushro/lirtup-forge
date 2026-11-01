@@ -1,23 +1,39 @@
 # Configuration
 
-## YAML configuration file
+## Files
 
-To persist any custom settings, both CLI and GUI interfaces share a YAML configuration file located in `~/.config/linux-rt-upscaler/config.yaml`.
+The GUI and the command line share these files, the same folder as 1.x:
 
-The configuration file stores your custom settings and profiles. You only need to include options that differ from the built-in defaults, missing values fall back automatically.
+| File | What |
+| --- | --- |
+| `~/.config/linux-rt-upscaler/config.yaml` | The default settings (*Default* in the GUI) and the profiles |
+| `~/.config/linux-rt-upscaler/modes/<id>.yaml` | The scaling modes (new in 2.0) |
+| `~/.config/linux-rt-upscaler/gui-config.yaml` | The settings of the GUI itself |
+| `~/.config/linux-rt-upscaler/effects/` | Your MagpieFX effects |
+| `~/.cache/linux-rt-upscaler/magpiefx/` | Compiled MagpieFX shaders |
 
-You can also specify a different file with the `--config <path>` option.
+You only need to write the options that differ from the defaults. Another file
+can be used with `-c <path>` (`lirtup run -c`, `lirtup serve -c`,
+`lirtup-gui -c`). Keys that 2.0 does not know are kept when the GUI saves, so
+the file stays readable by other versions.
+
+The commented [`config-example.yaml`](https://github.com/Kushro/lirtup-forge/blob/main/config-example.yaml)
+describes every option.
 
 ### Settings precedence
 
-Settings are merged in this order, from lowest to highest priority:
+From lowest to highest priority:
 
-1. Built-in defaults.
-2. Top-level options in `config.yaml`.
-3. Profile options, when a profile matches or is selected manually.
-4. Command-line arguments (e.g. `--model 4x24`).
+1. built-in defaults;
+2. top-level options of `config.yaml`;
+3. the scaling mode named by `mode:` (the profile's, else the top-level one);
+4. the options of the profile that matches the window (or the one picked with
+   `-p`);
+5. command-line flags (`-m 4x24`, `--set key=value`…).
 
-In other words, a profile can override a top-level option, and a CLI argument can override both.
+A profile can override a top-level option, and a flag can override both.
+Hotkeys are merged key by key. A mode field written loose in a profile (for
+example `model:` next to `mode:`) wins over the mode, as in 1.x files.
 
 ### Example
 
@@ -42,10 +58,8 @@ With this configuration:
 - Most windows use `8x32` and 4x upscaling (top-level options).
 - Windows up to 1920x1080 (matching the profile) use `4x24` and 2x upscaling (profile options override top-level ones).
 
-!!! note "Config references"
-
-    - This extensive [configuration file example](https://github.com/baronsmv/linux-rt-upscaler/blob/main/config-example.yaml) details each possible option, along with profile examples.
-    - For more details on the `Config` dataclass parsed from the configuration file, see the [Config API page](../api/classes/config.md).
+In 2.0 the model and `double_upscale` usually live in a [scaling mode](#scaling-modes)
+instead; files written this way keep working.
 
 ## Profiles
 
@@ -131,7 +145,7 @@ profiles:
 
 ### Overlay mode
 
-The overlay is the Qt window that displays the upscaled result on top of the target window. It supports these modes:
+The overlay is the window that shows the scaled image over the target window. It supports these modes:
 
 | Mode               | Description                                                                                                                                                                                                  |
 |--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -145,3 +159,45 @@ The overlay is the Qt window that displays the upscaled result on top of the tar
     **Keyboard events are never forwarded**, regardless of overlay mode.
 
     If you need to use the keyboard (or any other peripheral input besides the mouse) in the target application, keep its window always focused. On a single monitor, `always-on-top` works well for this since the overlay cannot be focused, keeping the focus on the target window instead.
+
+## Scaling modes
+
+A mode file holds the processing fields: `model`, `double_upscale`, the
+sampling options, `effects_engine`, the Magpie effects and the finishing
+touches, plus a `name` (and an optional `description`) for the GUI. The
+file name is the mode's id, which `mode:` names:
+
+```yaml
+# ~/.config/linux-rt-upscaler/modes/anime-sharp.yaml
+name: Anime sharp
+model: 4x24
+double_upscale: false
+effects_engine: magpiefx
+magpie_effects:
+  - name: LumaSharpen
+    params:
+      sharpStrength: 0.8
+```
+
+```yaml
+# config.yaml
+mode: predeterminado      # the mode of every window without a profile
+profiles:
+  Visual novels:
+    match:
+      title_contains: "Novel"
+    options:
+      mode: anime-sharp
+```
+
+The GUI creates and edits these files in *Scaling modes*. A 1.x file has no
+modes; the GUI offers to move its fields into modes the first time
+([Migrating from 1.x](migration.md)).
+
+## GUI settings
+
+`gui-config.yaml` holds the language, the theme and its seed color, the tray
+options (`show_tray_icon`, `close_to_tray`, `minimize_to_tray`,
+`start_hidden`), `keep_running_after_exit`, the delay of deferred scaling
+(`start_delay_s`), and the zoom, fonts and refresh intervals of *Settings* ▸
+*Style*. Edit them from the GUI.

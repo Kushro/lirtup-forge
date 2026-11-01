@@ -5,9 +5,9 @@
 # ===================================================================
 
 set root_dir (dirname (dirname (status --current-filename)))
-set project_dir "$root_dir/src/upscaler"
+set project_dir "$root_dir/crates/lirtup-effects/models"
 
-set cunny_dir "$project_dir/srcnn/cunny"
+set cunny_dir "$project_dir/cunny"
 set models 3x12 4x12 4x16 4x24 4x32 8x32 fast faster veryfast
 
 for model in $models

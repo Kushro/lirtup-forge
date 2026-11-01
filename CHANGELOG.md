@@ -1,6 +1,66 @@
 # Changelog
 
-## 1.3.0 (unreleased)
+## 2.0.0 (2026-11-01)
+
+LirtUp Forge is rewritten in Rust, with a new GUI in Dioxus. 2.0 replaces
+the Python app (1.x) under the same package name (`linux-rt-upscaler`) and
+reads the same files in `~/.config/linux-rt-upscaler/`. The 1.x code stays in
+the `py_historical_backup` branch. See `docs/user/migration.md`.
+
+### Changed
+
+- **Two programs.** `lirtup` is the scaler and the command line (`run`,
+  `serve`, `ctl`, `list`, `bench`, `migrate`); `lirtup-gui` is the GUI. The
+  GUI talks to `lirtup serve` over a Unix socket, so the daemon keeps
+  scaling with the GUI closed. `upscale` and `upscale-gui` are gone.
+- **New GUI** (Material 3 Expressive): Inicio with live previews of the
+  windows, profiles with visible inheritance and a floating save bar,
+  scaling modes, Ajustes, light and dark themes from a seed color (the 1.x
+  palettes become seeds), Spanish and English.
+- **Scaling modes**: model, sampling, effects engine and chain, and final
+  touches live in `modes/<id>.yaml`, and profiles name one. 1.x files work
+  as they are; `lirtup migrate` (or the GUI on its first run) moves the loose
+  fields into modes, with a backup in `config.yaml.1x.bak`.
+- The command line: `lirtup run [options] [program args]`; lists are
+  `lirtup list windows|gpus|monitors|effects|models`; `-V` is the version
+  and `-v` more logging; out-of-range values warn and fall back to the
+  default instead of exiting.
+- `--select` numbers the windows from 0 sorted by title, and `q` cancels,
+  as 1.x.
+
+### Added
+
+- **The bar over the game**, drawn in Vulkan (pin, stats, crop,
+  screenshot, frame generation multiplier, fps, hide, to window, stop):
+  it shows at the top edge or with Alt+Shift+D, and drags the window in
+  windowed mode. The stats panel and the OSD use the same design.
+- **Tray** with four states, its menu (stop, restart, profile, frame
+  generation, daemon), close or minimize to the tray, start hidden; desktop
+  notifications with «Detener»; one GUI instance.
+- **Daemon** in `lirtup serve`: scales the first window that matches a
+  profile, and «keep running after exit».
+- `Restart` with the lsfg-vk layer resumes the session in the new process.
+- `lirtup migrate`, `lirtup-gui -c`, profile reordering (Ctrl+Shift+↑/↓),
+  changing a profile's icon after creating it, Ctrl+Q, F2 and Supr.
+- `follow_focus` applies the profile of the newly focused window and, if
+  the window closes, waits for the next one.
+- Captures: `{timestamp:...}` takes any `strftime` code, in local time.
+
+### Fixed (against 1.x behavior kept in 2.0)
+
+- `pause_on_focus_loss` acts only in the always-on-top and top-transparent
+  modes, as 1.x; `swapchain_debounce`, `magpie_profile`, `log_level` and
+  `log_file` work again.
+- Vulkan windows on KWin with XWayland capture as black, as in 1.x: a
+  limitation of the X server, documented in `docs/user/troubleshooting.md`.
+
+### Removed
+
+- The Python package, its API (`upscaler.api`), the PyPI wheels and
+  `scripts/desktop_integration.sh`. The shaders, CuNNy models, Magpie
+  effects and the lsfg C++ core now live in the crates.
+
+## 1.3.0 (not released; its changes ship in 2.0.0)
 
 ### Added
 

@@ -2,8 +2,8 @@ docs_dir: docs
 site_name: LirtUp Forge
 repo_url: https://github.com/Kushro/lirtup-forge
 repo_name: Kushro/lirtup-forge
-site_description: A real-time SRCNN upscaler for any X-Window (fork of linux-rt-upscaler).
-site_author: baronsmv
+site_description: LirtUp Forge, a real-time SRCNN upscaler for X11 windows (fork of linux-rt-upscaler).
+site_author: Luis Coronado
 theme:
   name: material
   features:
@@ -35,14 +35,6 @@ theme:
         name: Switch to light mode
 plugins:
   - search
-  - mkdocstrings:
-      handlers:
-        python:
-          paths: [ src ]
-          options:
-            heading_level: 2
-            show_source: false
-            show_root_heading: true
 markdown_extensions:
   - admonition
   - pymdownx.details
@@ -55,22 +47,18 @@ nav:
   - Home: index.md
   - User Guide:
       - Installation: user/installation.md
-      - Graphical User Interface (GUI): user/gui.md
-      - Command-Line Interface (CLI): user/cli.md
+      - Migrating from 1.x: user/migration.md
+      - Graphical Interface: user/gui.md
+      - Scaling Modes: user/modes.md
       - Controls: user/controls.md
+      - Tray and Daemon: user/tray-daemon.md
+      - Command Line: user/cli.md
       - Configuration: user/configuration.md
       - MagpieFX Effects: user/magpiefx.md
-  - API Reference:
-      - API Overview: api/overview.md
-      - Classes:
-          - UpscalerSession: api/classes/upscaler_session.md
-          - WindowInfo: api/classes/window_info.md
-          - Config: api/classes/config.md
-      - Modules:
-          - Window Acquisition: api/modules/acquisition.md
-          - Exceptions: api/modules/exceptions.md
+      - Troubleshooting: user/troubleshooting.md
   - Developer:
       - Overview: developer/overview.md
+      - Rust Rewrite: developer/rust-refactor-analysis.md
       - MagpieFX Report: developer/magpiefx-report.md
       - Frame Generation Analysis: developer/frame-generation-analysis.md
       - Architecture:

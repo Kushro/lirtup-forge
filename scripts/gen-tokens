@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# The design tokens of lirtup-gui, from design/tokens.json and its seed:
+#   1. theme.rs computes the color roles from the seed (material-colors),
+#   2. gen-tokens-icons.py cuts Material Symbols to the icons the GUI names,
+#   3. gen-tokens.py merges the colors into tokens.json and writes
+#      assets/tokens.css and design/tokens.rs,
+#   4. contrast.py measures the result.
+# Run it after changing tokens.json, its seed, or the icons the GUI uses.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+colors="$(mktemp)"
+trap 'rm -f "$colors"' EXIT
+LIRTUP_THEME_DUMP="$colors" cargo test -q -p lirtup-ui --bin lirtup-gui -- theme::tests::tokens_json_matches_the_seed --exact >/dev/null
+python3 scripts/gen-tokens-icons.py
+python3 scripts/gen-tokens.py --colors "$colors"
+python3 scripts/contrast.py

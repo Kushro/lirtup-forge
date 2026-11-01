@@ -1,0 +1,82 @@
+# Maintainer: Luis Coronado <luisoctavius7 at gmail dot com>
+#
+# LirtUp Forge 2.0 (Rust). It keeps the package name of the Python 1.x
+# (linux-rt-upscaler) and replaces it. The layout is the one of
+# packaging/linux/install-tree.sh: binaries in /usr/lib/lirtup, launchers in
+# /usr/bin, MagpieFX effects in /usr/share/lirtup/effects.
+
+pkgname=linux-rt-upscaler
+pkgver=2.0.0
+pkgrel=1
+pkgdesc='LirtUp Forge: real-time SRCNN upscaler for X11 windows, with Magpie effects and frame generation'
+arch=('x86_64')
+url='https://github.com/Kushro/lirtup-forge'
+license=('GPL-3.0-or-later')
+depends=(
+    'fontconfig'
+    'gcc-libs'
+    'glibc'
+    'gtk3'
+    'hicolor-icon-theme'
+    'libayatana-appindicator'
+    'libxcb'
+    'ttf-dejavu'
+    'vulkan-icd-loader'
+    'webkit2gtk-4.1'
+    'xdg-utils'
+    'xdotool'
+)
+makedepends=(
+    'cargo'
+    'dioxus-cli'
+    'git'
+    'npm'
+    'vulkan-headers'
+)
+optdepends=(
+    'directx-shader-compiler: compile the MagpieFX effects (dxc, preferred)'
+    'glslang: compile the MagpieFX effects without dxc, and the 3 Anime4K Denoise effects'
+    'lsfg-vk: frame generation through the lsfg-vk Vulkan layer'
+)
+# The lsfg C++ core is built by the cc crate; makepkg's -flto would end up in
+# a static archive that rustc links without LTO.
+options=('!lto')
+source=("$pkgname::git+$url.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+# The version of dioxus in Cargo.lock: dx must be the same one.
+_dioxus_version() {
+    sed -n '/^name = "dioxus"$/{n;s/^version = "\(.*\)"$/\1/p;q}' Cargo.lock
+}
+
+prepare() {
+    cd "$pkgname"
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
+    # Tailwind of package.json (dx would download its own, older one).
+    npm ci --prefix crates/lirtup-ui --no-audit --no-fund
+}
+
+build() {
+    cd "$pkgname"
+    export CARGO_TARGET_DIR=target
+
+    local want have
+    want=$(_dioxus_version)
+    have=$(dx --version | awk '{print $2}')
+    if [[ $have != "$want" ]]; then
+        error "dx $have found; this build needs dioxus-cli $want (the dioxus of Cargo.lock)"
+        return 1
+    fi
+
+    cargo build --frozen --release -p lirtup-cli
+    # NO_DOWNLOADS makes dx run the tailwindcss of PATH: packaging/tools
+    # has one that runs the Tailwind installed by npm ci, minified.
+    NO_DOWNLOADS=1 PATH="$PWD/packaging/tools:$PATH" \
+        dx build --release -p lirtup-ui --desktop
+}
+
+package() {
+    cd "$pkgname"
+    CARGO_TARGET_DIR=target sh packaging/linux/install-tree.sh "$pkgdir" /usr
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
