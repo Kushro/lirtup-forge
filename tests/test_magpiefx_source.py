@@ -137,7 +137,9 @@ def test_upload_shader_writes_the_texture_format(fmt, image_format, store):
     assert f"MP_IMAGE_FORMAT({image_format}) {store} __dst : register(u1);" in src
     assert "RWByteAddressBuffer __src : register(u0);" in src
     assert "MF" not in src
-    components = {"float4": "xyzw", "float2": "xy", "float": "x"}[store.split()[-1].rstrip(">")]
+    # Texel type inside the brackets, after an optional unorm/snorm
+    texel = store[store.index("<") + 1 : -1].split()[-1]
+    components = {"float4": "xyzw", "float2": "xy", "float": "x"}[texel]
     assert f"__dst[id.xy] = v.{components};" in src
 
 
