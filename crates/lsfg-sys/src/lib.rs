@@ -2,7 +2,8 @@
 //!
 //! Declarations are written by hand (the API is seven functions; no
 //! bindgen). The safe wrapper is `lirtup_fg::native`. Read the header for the
-//! ownership and threading rules: on success lsfg owns the fds passed in.
+//! ownership and threading rules: on success lsfg owns the fds passed in;
+//! after a failure the caller must not close them either (leak them).
 
 #![allow(unsafe_code)]
 

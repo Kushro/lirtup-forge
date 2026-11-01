@@ -21,7 +21,11 @@
  *
  * File descriptors: on success lsfg takes ownership of every fd passed in
  * (Vulkan import semantics); the caller must not close them. On failure the
- * caller still owns them.
+ * fds that lsfg had not imported yet are still the caller's, but the caller
+ * cannot tell which: some may already belong to the driver. Do not close any
+ * of them after a failure (leaking a few fds on an error path is safe;
+ * closing one the driver owns is not). Argument checks (LSFG_ERR_ARGUMENT,
+ * LSFG_ERR_STATE) happen before any import.
  *
  * License: GPL-3.0-or-later (the workspace); lsfg-vk is MIT, the shader
  * loader GPL-3.0.
