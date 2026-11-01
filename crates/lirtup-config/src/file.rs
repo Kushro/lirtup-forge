@@ -12,7 +12,7 @@ use crate::{BackgroundColor, ConfigError, ConfigWarning, Mapping, Profile, Value
 pub const MAX_BACKUPS: u32 = 5;
 
 /// The parsed `config.yaml`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConfigFile {
     /// Where it was read from (and is saved to).
     pub path: PathBuf,

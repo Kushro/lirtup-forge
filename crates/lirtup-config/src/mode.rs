@@ -27,7 +27,7 @@ pub struct Mode {
 }
 
 /// All modes of a `modes/` folder, keyed by id (file stem), sorted by id.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ModeStore {
     /// Folder the modes were read from.
     pub dir: PathBuf,

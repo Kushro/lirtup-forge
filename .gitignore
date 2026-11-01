@@ -159,3 +159,6 @@ config.yaml
 
 # Parity references: generated per GPU by scripts/rust-parity-refs.py
 crates/*/tests/fixtures/parity/refs/
+
+# Tailwind toolchain of lirtup-gui (package.json)
+crates/lirtup-ui/node_modules
