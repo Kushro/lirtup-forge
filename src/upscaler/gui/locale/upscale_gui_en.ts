@@ -2791,6 +2791,36 @@ Use Stop from the tray menu to return.</source>
       <comment>Tray message if a window was already being upscaled and no window title was available to show.</comment>
       <translation type="unfinished" />
     </message>
+    <message>
+        <source>Profile</source>
+        <comment>Tray submenu</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Restart</source>
+        <comment>Tray menu: restart upscaling with current settings</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Upscale the same window again with the current settings.</source>
+        <comment>Tray menu tooltip</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Global (auto-match)</source>
+        <comment>Tray menu: global settings, no profile</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Switch to</source>
+        <comment>Tray submenu: upscale another window</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Upscaling: {0}</source>
+        <comment>Tray menu header; {0} is a window title</comment>
+        <translation type="unfinished" />
+    </message>
   </context>
   <context>
     <name>WindowGridManager</name>
