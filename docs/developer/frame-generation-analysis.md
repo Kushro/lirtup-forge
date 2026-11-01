@@ -251,7 +251,7 @@ Hallazgos (verificado):
 3. **Error de lirtup encontrado:** si `vkCreateSwapchainKHR` falla (acá porque la capa no arrancó),
    el proceso se cae con un abort o un segfault en `vk_Swapchain_dealloc`, llamado desde
    `vk_Device_create_swapchain_impl` (`src/upscaler/vulkan/lib`). Debería lanzar `SwapchainError`.
-   **Arreglado** (`745d80fd`): la superficie se destruía dos veces, en
+   **Arreglado** (`038cb5df`): la superficie se destruía dos veces, en
    `vk_Device_create_swapchain_impl` y en `vk_Swapchain_dealloc`, y el handle se escribía en
    `self->swapchain` aunque la creación fallara. Ahora se crea en una variable local y sólo
    `dealloc` libera. Con la DLL vieja, lirtup termina con «Failed to create swapchain (error -3)»
