@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::BackgroundColor;
 use crate::hotkeys::default_hotkeys;
-use crate::{ConfigWarning, Mapping};
+use crate::{ConfigWarning, Mapping, Value};
 
 // -------------------------------------------------------------------------
 // Enums
@@ -329,7 +329,52 @@ pub enum Geometry {
 impl OutputGeometry {
     /// Parse the geometry string.
     pub fn parse(&self) -> Result<Geometry, crate::ConfigError> {
-        todo!("front C: port validate_geometry")
+        let s = self.0.trim();
+        let invalid = || crate::ConfigError::Invalid {
+            key: "output_geometry".into(),
+            message: format!(
+                "invalid geometry {s:?} (allowed: stretch, fit, cover, 50%, 50%!, 1920x, 1920x!, \
+                 x1080, x1080!, 1920x1080, 1920x1080!, 1920x1080^)"
+            ),
+        };
+        let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+        let int = |t: &str| digits(t).then(|| t.parse::<u32>().ok()).flatten();
+        match s {
+            "fit" => return Ok(Geometry::Fit),
+            "stretch" => return Ok(Geometry::Stretch),
+            "cover" => return Ok(Geometry::Cover),
+            _ => {}
+        }
+        let (body, bang) = match s.strip_suffix('!') {
+            Some(body) => (body, true),
+            None => (s, false),
+        };
+        if let Some(pct) = body.strip_suffix('%') {
+            let (whole, frac) = pct.split_once('.').unwrap_or((pct, "0"));
+            if digits(whole) && digits(frac) {
+                let percent = pct.parse::<f32>().map_err(|_| invalid())?;
+                return Ok(Geometry::Percent { percent, force: bang });
+            }
+            return Err(invalid());
+        }
+        if let Some(height) = body.strip_prefix('x') {
+            let height = int(height).ok_or_else(invalid)?;
+            return Ok(Geometry::Height { height, force: bang });
+        }
+        if let Some(width) = body.strip_suffix('x') {
+            let width = int(width).ok_or_else(invalid)?;
+            return Ok(Geometry::Width { width, force: bang });
+        }
+        let (body, flag) = match s.strip_suffix(['!', '^']) {
+            Some(body) => (body, s.chars().last()),
+            None => (s, None),
+        };
+        let (w, h) = body.split_once('x').ok_or_else(invalid)?;
+        Ok(Geometry::Size {
+            width: int(w).ok_or_else(invalid)?,
+            height: int(h).ok_or_else(invalid)?,
+            flag,
+        })
     }
 }
 
@@ -870,14 +915,78 @@ impl Config {
     /// default and yields a [`ConfigWarning`]; the rest of the file still
     /// loads. Unknown keys go to [`Config::extra`].
     pub fn from_mapping(map: &Mapping) -> (Config, Vec<ConfigWarning>) {
-        todo!("front C")
+        let mut map = map.clone();
+        let hotkeys = map.remove("hotkeys");
+        // Internal, never read from a file.
+        map.remove("config_file");
+        let (mut config, mut warnings) = crate::util::tolerant::<Config>(&map, "");
+        config.hotkeys = default_hotkeys();
+        match hotkeys {
+            None | Some(Value::Null) => {}
+            Some(Value::Mapping(entries)) => {
+                for (action, binding) in entries {
+                    let action = crate::util::key_string(&action);
+                    match binding {
+                        Value::String(binding) => {
+                            config.hotkeys.insert(action, binding);
+                        }
+                        // `null` unbinds, as an empty string does.
+                        Value::Null => {
+                            config.hotkeys.insert(action, String::new());
+                        }
+                        other => warnings.push(ConfigWarning {
+                            key: format!("hotkeys.{action}"),
+                            message: format!(
+                                "invalid value {}, using the default",
+                                crate::util::display(&other)
+                            ),
+                        }),
+                    }
+                }
+            }
+            Some(other) => warnings.push(ConfigWarning {
+                key: "hotkeys".into(),
+                message: format!(
+                    "expected a mapping, found {}; using the defaults",
+                    crate::util::display(&other)
+                ),
+            }),
+        }
+        (config, warnings)
     }
 
     /// The keys that differ from [`Config::default`], as `to_dict(diff_only=True)`
     /// does: skips `program`, `log_level`, `log_file`, `config_file`; colors as
     /// hex; `hotkeys` only with the bindings that differ.
     pub fn to_diff_mapping(&self) -> Mapping {
-        todo!("front C")
+        const SKIPPED: [&str; 4] = ["program", "log_level", "log_file", "hotkeys"];
+        let current = crate::util::to_mapping(self);
+        let defaults = crate::util::to_mapping(&Config::default());
+        let mut diff = Mapping::new();
+        for (key, value) in current {
+            let name = key.as_str().unwrap_or_default();
+            if SKIPPED.contains(&name) {
+                continue;
+            }
+            if name == "background_color" {
+                if self.background_color.to_rgba() != Config::default().background_color.to_rgba() {
+                    diff.insert(key, Value::String(self.background_color.to_hex()));
+                }
+                continue;
+            }
+            if defaults.get(&key) != Some(&value) {
+                diff.insert(key, value);
+            }
+        }
+        let hotkeys = crate::hotkeys::diff_hotkeys(&self.hotkeys);
+        if !hotkeys.is_empty() {
+            let map = hotkeys
+                .into_iter()
+                .map(|(k, v)| (Value::String(k), Value::String(v)))
+                .collect();
+            diff.insert("hotkeys".into(), Value::Mapping(map));
+        }
+        diff
     }
 
     /// The crop of the four `crop_*` fields.
@@ -893,12 +1002,373 @@ impl Config {
     /// Parsed hotkeys. Unknown actions and unparsable strings yield warnings
     /// and are skipped.
     pub fn hotkey_bindings(&self) -> (Vec<(crate::HotkeyAction, crate::Hotkey)>, Vec<ConfigWarning>) {
-        todo!("front C")
+        let mut bindings = Vec::new();
+        let mut warnings = Vec::new();
+        for (name, binding) in &self.hotkeys {
+            let key = format!("hotkeys.{name}");
+            let Ok(action) = name.parse::<crate::HotkeyAction>() else {
+                warnings.push(ConfigWarning {
+                    key,
+                    message: "unknown hotkey action, ignored".into(),
+                });
+                continue;
+            };
+            if binding.trim().is_empty() {
+                continue;
+            }
+            match binding.parse::<crate::Hotkey>() {
+                Ok(hotkey) => bindings.push((action, hotkey)),
+                Err(e) => warnings.push(ConfigWarning {
+                    key,
+                    message: format!("{e}, ignored"),
+                }),
+            }
+        }
+        bindings.sort_by_key(|(action, _)| crate::HotkeyAction::ALL.iter().position(|a| a == action));
+        (bindings, warnings)
     }
 
     /// Check value ranges (the 1.x `validators.py`), clamping where 1.x
     /// clamps.
     pub fn validate(&mut self) -> Vec<ConfigWarning> {
-        todo!("front C")
+        let defaults = Config::default();
+        let mut warnings = Vec::new();
+
+        // A value outside `lo..=hi` (or the exclusive form) goes back to its
+        // default; 1.x refused to start instead.
+        macro_rules! range {
+            ($($path:ident).+, $lo:expr, $hi:expr) => {
+                range!(@check $($path).+, |v: f64| v >= $lo as f64 && v <= $hi as f64,
+                    format!("must be {} to {}", $lo, $hi))
+            };
+            ($($path:ident).+, min $lo:expr) => {
+                range!(@check $($path).+, |v: f64| v >= $lo as f64, format!("must be >= {}", $lo))
+            };
+            ($($path:ident).+, above $lo:expr) => {
+                range!(@check $($path).+, |v: f64| v > $lo as f64, format!("must be > {}", $lo))
+            };
+            ($($path:ident).+, above $lo:expr, $hi:expr) => {
+                range!(@check $($path).+, |v: f64| v > $lo as f64 && v <= $hi as f64,
+                    format!("must be > {} and <= {}", $lo, $hi))
+            };
+            (@check $($path:ident).+, $ok:expr, $what:expr) => {{
+                let ok = $ok;
+                if !ok(self.$($path).+ as f64) {
+                    let key = stringify!($($path).+).replace(" ", "").trim_start_matches("scaling.").to_owned();
+                    warnings.push(ConfigWarning {
+                        key,
+                        message: format!("{}, got {}; using the default {}", $what, self.$($path).+,
+                            defaults.$($path).+),
+                    });
+                    self.$($path).+ = defaults.$($path).+;
+                }
+            }};
+        }
+        macro_rules! opt_range {
+            ($field:ident, $ok:expr, $what:expr) => {
+                if let Some(v) = self.$field {
+                    let ok = $ok;
+                    if !ok(v as f64) {
+                        warnings.push(ConfigWarning {
+                            key: stringify!($field).into(),
+                            message: format!("{}, got {v}; ignored", $what),
+                        });
+                        self.$field = None;
+                    }
+                }
+            };
+        }
+
+        // Timing and window detection
+        range!(daemon_poll_interval, min 0.1);
+        range!(focus_poll_interval, min 0.01);
+        range!(pipeline_poll_interval, min 0.01);
+        range!(target_delay, min 0);
+        range!(pid_timeout, min 0);
+        range!(class_timeout, min 0);
+        range!(total_timeout, min 0);
+        range!(starting_phase, 1, 2);
+        // Sampler
+        range!(scaling.blur, above 0, 2);
+        range!(scaling.antiring_strength, 0, 1);
+        if let Some(r) = self.scaling.kernel_radius {
+            if !(2..=10).contains(&r) {
+                warnings.push(ConfigWarning {
+                    key: "kernel_radius".into(),
+                    message: format!("must be 2 to 10, got {r}; using the automatic radius"),
+                });
+                self.scaling.kernel_radius = None;
+            }
+        }
+        // Effects
+        range!(scaling.deband_strength, 0, 1);
+        range!(scaling.cas_strength, 0, 1);
+        range!(scaling.bloom_strength, 0, 1);
+        range!(scaling.bloom_threshold, 0, 1);
+        range!(scaling.bloom_radius, 1, 16);
+        range!(scaling.vignette_strength, 0, 1);
+        range!(scaling.vignette_radius, 0, 2);
+        range!(scaling.vignette_falloff, 0.1, 10);
+        range!(scaling.grain_strength, 0, 1);
+        range!(scaling.grain_size, 1, 10);
+        range!(scaling.lut_intensity, 0, 1);
+        range!(scaling.luma_sharpen_strength, 0, 3);
+        range!(scaling.luma_sharpen_clamp, 0, 1);
+        range!(scaling.luma_sharpen_pattern, 0, 3);
+        range!(scaling.luma_sharpen_offset_bias, 0, 6);
+        range!(scaling.crt_sharpness_h, 0, 1);
+        range!(scaling.crt_sharpness_v, 0, 1);
+        range!(scaling.crt_mask_strength, 0, 1);
+        range!(scaling.crt_mask_dot_width, 1, 100);
+        range!(scaling.crt_mask_dot_height, 1, 100);
+        range!(scaling.crt_mask_stagger, 0, 100);
+        range!(scaling.crt_mask_size, 1, 100);
+        range!(scaling.crt_scanline_strength, 0, 1);
+        range!(scaling.crt_scanline_beam_width_min, 0.5, 5);
+        range!(scaling.crt_scanline_beam_width_max, 0.5, 5);
+        range!(scaling.crt_scanline_bright_min, 0, 1);
+        range!(scaling.crt_scanline_bright_max, 0, 1);
+        range!(scaling.crt_scanline_cutoff, 1, 1000);
+        range!(scaling.crt_gamma_input, 0.1, 5);
+        range!(scaling.crt_gamma_output, 0.1, 5);
+        range!(scaling.crt_bright_boost, 1, 2);
+        range!(scaling.crt_dilation, 0, 1);
+        // Display and overlay
+        opt_range!(scale_factor, |v: f64| v > 0.0, "must be > 0");
+        opt_range!(max_fps, |v: f64| v >= 1.0, "must be >= 1");
+        range!(overlay_opacity_min, 0, 1);
+        range!(overlay_opacity_max, 0, 1);
+        range!(osd_duration, min 0);
+        // Frame generation
+        range!(frame_gen_flow_scale, 0.25, 1);
+        // Tiles and errors
+        range!(tile_size, min 1);
+        range!(area_threshold, 0, 1);
+        range!(max_capture_failures, min 1);
+        range!(capture_failure_delay, min 0);
+        range!(swapchain_debounce, min 0);
+
+        if let FrameGenMultiplier::Fixed(n) = self.frame_gen_multiplier {
+            if !(1..=5).contains(&n) {
+                warnings.push(ConfigWarning {
+                    key: "frame_gen_multiplier".into(),
+                    message: format!("must be 1 to 5 or \"auto\", got {n}; frame generation is off"),
+                });
+                self.frame_gen_multiplier = FrameGenMultiplier::Fixed(1);
+            }
+        }
+        if let Err(e) = self.output_geometry.parse() {
+            warnings.push(ConfigWarning {
+                key: "output_geometry".into(),
+                message: format!("{e}; using \"fit\""),
+            });
+            self.output_geometry = defaults.output_geometry.clone();
+        }
+        if self.background_color.try_rgba().is_none() {
+            warnings.push(ConfigWarning {
+                key: "background_color".into(),
+                message: format!("invalid color {:?}; using black", self.background_color),
+            });
+            self.background_color = defaults.background_color.clone();
+        }
+        warnings
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(yaml: &str) -> Mapping {
+        serde_yaml_ng::from_str(yaml).unwrap()
+    }
+
+    fn geometry(s: &str) -> Result<Geometry, crate::ConfigError> {
+        OutputGeometry(s.into()).parse()
+    }
+
+    #[test]
+    fn geometry_grammar() {
+        assert_eq!(geometry("fit").unwrap(), Geometry::Fit);
+        assert_eq!(geometry(" cover ").unwrap(), Geometry::Cover);
+        assert_eq!(
+            geometry("150%").unwrap(),
+            Geometry::Percent {
+                percent: 150.0,
+                force: false
+            }
+        );
+        assert_eq!(
+            geometry("62.5%!").unwrap(),
+            Geometry::Percent {
+                percent: 62.5,
+                force: true
+            }
+        );
+        assert_eq!(
+            geometry("1920x").unwrap(),
+            Geometry::Width {
+                width: 1920,
+                force: false
+            }
+        );
+        assert_eq!(
+            geometry("x1080!").unwrap(),
+            Geometry::Height {
+                height: 1080,
+                force: true
+            }
+        );
+        assert_eq!(
+            geometry("1920x1080^").unwrap(),
+            Geometry::Size {
+                width: 1920,
+                height: 1080,
+                flag: Some('^')
+            }
+        );
+        assert_eq!(
+            geometry("1920x1080").unwrap(),
+            Geometry::Size {
+                width: 1920,
+                height: 1080,
+                flag: None
+            }
+        );
+        for bad in ["", "big", "x", "1920x1080x", "%", "1920^", "-5%", "1920 x 1080"] {
+            assert!(geometry(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn empty_mapping_is_default() {
+        let (config, warnings) = Config::from_mapping(&Mapping::new());
+        assert!(warnings.is_empty());
+        assert_eq!(config, Config::default());
+    }
+
+    #[test]
+    fn mode_keys_are_flattened_not_extra() {
+        let (config, warnings) =
+            Config::from_mapping(&map("model: 4x12\ncas_enabled: true\nfuture_key: 3\n"));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(config.scaling.model, Model::M4x12);
+        assert!(config.scaling.cas_enabled);
+        assert_eq!(config.extra.len(), 1);
+        assert!(config.extra.contains_key("future_key"));
+        for key in MODE_KEYS {
+            assert!(!config.extra.contains_key(*key));
+        }
+    }
+
+    #[test]
+    fn mode_keys_match_mode_settings() {
+        let map = crate::util::to_mapping(&ModeSettings::default());
+        let keys: Vec<&str> = map.keys().filter_map(Value::as_str).collect();
+        assert_eq!(keys, MODE_KEYS);
+    }
+
+    #[test]
+    fn bad_values_keep_defaults() {
+        let (config, warnings) = Config::from_mapping(&map(
+            "model: huge\ntile_size: -3\nshow_stats: true\nmax_fps: null\n",
+        ));
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert_eq!(config.scaling.model, Model::Fast);
+        assert_eq!(config.tile_size, 64);
+        assert!(config.show_stats);
+    }
+
+    #[test]
+    fn enum_spellings() {
+        let (c, w) = Config::from_mapping(&map(
+            "overlay_mode: top-transparent\nlog_level: WARNING\nframe_gen_multiplier: auto\n\
+             vulkan_present_mode: mailbox\ngpu: 1\nmonitor: DP-1\nframe_gen_engine: native\n",
+        ));
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(c.overlay_mode, OverlayMode::TopTransparent);
+        assert_eq!(c.log_level, LogLevel::Warning);
+        assert_eq!(c.frame_gen_multiplier, FrameGenMultiplier::Auto);
+        assert_eq!(c.vulkan_present_mode, PresentMode::Mailbox);
+        assert_eq!(c.gpu, Some(GpuSelector::Index(1)));
+        assert_eq!(c.monitor, MonitorSelector::Name("DP-1".into()));
+        assert_eq!(c.frame_gen_engine, FrameGenEngine::Native);
+        let (c, _) = Config::from_mapping(&map("frame_gen_multiplier: 6\n"));
+        assert_eq!(c.frame_gen_multiplier, FrameGenMultiplier::Fixed(1));
+    }
+
+    #[test]
+    fn magpie_effects_both_forms() {
+        let (c, w) = Config::from_mapping(&map(
+            "magpie_effects:\n- name: Lanczos\n  params: {}\n- \"CAS:sharpness=0.5\"\n",
+        ));
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(c.scaling.magpie_effects.len(), 2);
+        assert!(
+            matches!(&c.scaling.magpie_effects[0], MagpieEffectSpec::Full { name, .. } if name == "Lanczos")
+        );
+    }
+
+    #[test]
+    fn hotkeys_merge_over_defaults() {
+        let (c, w) = Config::from_mapping(&map("hotkeys:\n  zoom_in: Ctrl+Plus\n  zoom_out: null\n"));
+        assert!(w.is_empty());
+        assert_eq!(c.hotkeys["zoom_in"], "Ctrl+Plus");
+        assert_eq!(c.hotkeys["zoom_out"], "");
+        assert_eq!(c.hotkeys["toggle_scaling"], "Alt+Shift+S");
+        let (bindings, warnings) = c.hotkey_bindings();
+        assert!(warnings.is_empty());
+        assert_eq!(bindings.len(), crate::HotkeyAction::ALL.len() - 1);
+        assert_eq!(bindings[0].0, crate::HotkeyAction::StartFullscreen);
+    }
+
+    #[test]
+    fn diff_mapping() {
+        assert!(Config::default().to_diff_mapping().is_empty());
+        let mut c = Config::default();
+        c.scaling.bloom_strength = 0.05;
+        c.scaling.model = Model::M8x32;
+        c.background_color = BackgroundColor::Css("red".into());
+        c.log_level = LogLevel::Debug;
+        c.hotkeys.insert("zoom_in".into(), "Ctrl+Plus".into());
+        let diff = c.to_diff_mapping();
+        assert_eq!(diff.len(), 4, "{diff:?}");
+        assert_eq!(diff["model"], Value::from("8x32"));
+        assert_eq!(
+            serde_yaml_ng::to_string(&diff["bloom_strength"]).unwrap().trim(),
+            "0.05"
+        );
+        assert_eq!(diff["background_color"], Value::from("#ff0000"));
+        assert_eq!(diff["hotkeys"]["zoom_in"], Value::from("Ctrl+Plus"));
+        // And it reads back to the same config.
+        let (back, w) = Config::from_mapping(&diff);
+        assert!(w.is_empty());
+        assert_eq!(back.scaling, c.scaling);
+        assert_eq!(back.hotkeys, c.hotkeys);
+    }
+
+    #[test]
+    fn black_variants_are_not_a_diff() {
+        let mut c = Config::default();
+        c.background_color = BackgroundColor::Css("#000".into());
+        assert!(c.to_diff_mapping().is_empty());
+    }
+
+    #[test]
+    fn validate_resets_out_of_range() {
+        let mut c = Config::default();
+        c.scaling.blur = 0.0;
+        c.scaling.kernel_radius = Some(20);
+        c.frame_gen_flow_scale = 2.0;
+        c.output_geometry = OutputGeometry("huge".into());
+        c.starting_phase = 3;
+        let w = c.validate();
+        assert_eq!(w.len(), 5, "{w:?}");
+        assert_eq!(c.scaling.blur, 1.0);
+        assert_eq!(c.scaling.kernel_radius, None);
+        assert_eq!(c.frame_gen_flow_scale, 1.0);
+        assert_eq!(c.output_geometry.0, "fit");
+        assert_eq!(w[0].key, "starting_phase");
+        assert!(Config::default().validate().is_empty());
     }
 }

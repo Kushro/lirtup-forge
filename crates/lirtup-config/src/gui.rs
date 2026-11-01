@@ -113,11 +113,98 @@ impl GuiConfig {
     /// values: they fall back to the defaults and numbers are clamped to the
     /// 1.x bounds (`_OVERRIDE_BOUNDS`). Only I/O on an existing file errors.
     pub fn load(path: Option<&std::path::Path>) -> Result<GuiConfig, ConfigError> {
-        todo!("front C")
+        let default_path = crate::paths::gui_config_path();
+        let path = path.unwrap_or(&default_path);
+        let map = match crate::util::read_mapping(path) {
+            Ok(Some(map)) => map,
+            Ok(None) => return Ok(GuiConfig::default()),
+            Err(e @ ConfigError::Io { .. }) => return Err(e),
+            Err(e) => {
+                tracing::warn!("{e}; using the default GUI settings");
+                return Ok(GuiConfig::default());
+            }
+        };
+        let (mut config, warnings) = crate::util::tolerant::<GuiConfig>(&map, "gui.");
+        for w in warnings {
+            tracing::warn!("{}: {}", w.key, w.message);
+        }
+        config.clamp();
+        Ok(config)
     }
 
     /// Write (temporary file + rename), keeping unknown keys.
     pub fn save(&self, path: Option<&std::path::Path>) -> Result<(), ConfigError> {
-        todo!("front C")
+        let default_path = crate::paths::gui_config_path();
+        let path = path.unwrap_or(&default_path);
+        let map = crate::util::to_mapping(self);
+        crate::util::write_atomic(path, &crate::util::to_yaml(&map, path)?)
+    }
+
+    /// Clamp the numbers to the 1.x bounds (`_OVERRIDE_BOUNDS`);
+    /// `tile_columns` 0 (automatic) is allowed.
+    pub fn clamp(&mut self) {
+        let clamp = |v: &mut u32, lo: u32, hi: u32, name: &str| {
+            let c = (*v).clamp(lo, hi);
+            if c != *v {
+                tracing::warn!("gui.{name}: {} is out of {lo} to {hi}, using {c}", *v);
+                *v = c;
+            }
+        };
+        clamp(&mut self.zoom, 50, 250, "zoom");
+        clamp(&mut self.font_scale, 80, 150, "font_scale");
+        if self.tile_columns != 0 {
+            clamp(&mut self.tile_columns, 1, 8, "tile_columns");
+        }
+        clamp(&mut self.auto_refresh_ms, 250, 30_000, "auto_refresh_ms");
+        clamp(
+            &mut self.tile_preview_interval_ms,
+            16,
+            1000,
+            "tile_preview_interval_ms",
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_file_is_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = GuiConfig::load(Some(&dir.path().join("gui-config.yaml"))).unwrap();
+        assert_eq!(c, GuiConfig::default());
+    }
+
+    #[test]
+    fn reads_1x_file_and_keeps_unknown_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui-config.yaml");
+        std::fs::write(
+            &path,
+            "palette:\n  text: '#cccccc'\npalette_preset: Auto\nzoom: 400\nfont_scale: big\n\
+             tile_columns: 0\ntheme: dark\nauto_refresh_ms: 10\n",
+        )
+        .unwrap();
+        let c = GuiConfig::load(Some(&path)).unwrap();
+        assert_eq!(c.zoom, 250);
+        assert_eq!(c.font_scale, 100);
+        assert_eq!(c.tile_columns, 0);
+        assert_eq!(c.theme, Theme::Dark);
+        assert_eq!(c.auto_refresh_ms, 250);
+        assert!(c.extra.contains_key("palette"));
+        assert!(c.extra.contains_key("palette_preset"));
+
+        c.save(Some(&path)).unwrap();
+        let back = GuiConfig::load(Some(&path)).unwrap();
+        assert_eq!(back, c);
+    }
+
+    #[test]
+    fn broken_yaml_is_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui-config.yaml");
+        std::fs::write(&path, "zoom: [\n").unwrap();
+        assert_eq!(GuiConfig::load(Some(&path)).unwrap(), GuiConfig::default());
     }
 }

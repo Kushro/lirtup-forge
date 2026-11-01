@@ -24,10 +24,6 @@
 //! keys are kept (in [`Config::extra`] and in the raw mappings) so a save never
 //! drops what another version wrote.
 
-// Round 0 stubs: the bodies are `todo!()`. The front removes this when it
-// fills them in.
-#![allow(unused_variables)]
-
 pub mod cli;
 pub mod color;
 pub mod error;
@@ -39,6 +35,7 @@ pub mod model;
 pub mod paths;
 pub mod profile;
 pub mod resolve;
+mod util;
 
 pub use color::BackgroundColor;
 pub use error::{ConfigError, ConfigWarning};

@@ -137,7 +137,12 @@ pub fn default_hotkeys() -> BTreeMap<String, String> {
 /// Only the bindings that differ from the defaults (`diff_hotkeys`), for
 /// saving.
 pub fn diff_hotkeys(hotkeys: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    todo!("front C")
+    let defaults = default_hotkeys();
+    hotkeys
+        .iter()
+        .filter(|(action, binding)| defaults.get(*action) != Some(*binding))
+        .map(|(action, binding)| (action.clone(), binding.clone()))
+        .collect()
 }
 
 /// Modifier keys of a [`Hotkey`]. Bit values are the X11 modifier masks
@@ -165,7 +170,27 @@ impl Modifiers {
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }
+
+    /// The modifier named `name` (`Ctrl`, `Control`, `Alt`, `Shift`, `Super`,
+    /// `Win`; any case), if it is one.
+    pub fn from_name(name: &str) -> Option<Modifiers> {
+        match name.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => Some(Modifiers::CONTROL),
+            "alt" => Some(Modifiers::ALT),
+            "shift" => Some(Modifiers::SHIFT),
+            "super" | "win" => Some(Modifiers::SUPER),
+            _ => None,
+        }
+    }
 }
+
+/// Display and save order of the modifiers (`MODIFIER_ORDER` of 1.x).
+const MODIFIER_ORDER: [(Modifiers, &str); 4] = [
+    (Modifiers::CONTROL, "Ctrl"),
+    (Modifiers::ALT, "Alt"),
+    (Modifiers::SHIFT, "Shift"),
+    (Modifiers::SUPER, "Super"),
+];
 
 impl std::ops::BitOr for Modifiers {
     type Output = Modifiers;
@@ -193,7 +218,30 @@ impl FromStr for Hotkey {
     type Err = crate::ConfigError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!("front C: port parse_hotkey from utils/hotkeys.py")
+        let invalid = |message: &str| crate::ConfigError::Invalid {
+            key: format!("hotkey {s:?}"),
+            message: message.into(),
+        };
+        let mut modifiers = Modifiers::default();
+        let mut key: Option<&str> = None;
+        for raw in s.split('+') {
+            let token = raw.trim();
+            if token.is_empty() {
+                return Err(invalid("empty token"));
+            }
+            if let Some(m) = Modifiers::from_name(token) {
+                modifiers = modifiers | m;
+            } else if key.is_none() {
+                key = Some(token);
+            } else {
+                return Err(invalid("more than one key name"));
+            }
+        }
+        let key = key.ok_or_else(|| invalid("no key name"))?;
+        Ok(Hotkey {
+            modifiers,
+            key: key.to_owned(),
+        })
     }
 }
 
@@ -213,6 +261,58 @@ impl From<Hotkey> for String {
 
 impl fmt::Display for Hotkey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("front C")
+        for (modifier, name) in MODIFIER_ORDER {
+            if self.modifiers.contains(modifier) {
+                write!(f, "{name}+")?;
+            }
+        }
+        f.write_str(&self.key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_and_display() {
+        let h: Hotkey = "Alt+Shift+S".parse().unwrap();
+        assert_eq!(h.modifiers, Modifiers::ALT | Modifiers::SHIFT);
+        assert_eq!(h.key, "S");
+        assert_eq!(h.to_string(), "Alt+Shift+S");
+        let h: Hotkey = " shift + ctrl + Plus ".parse().unwrap();
+        assert_eq!(h.to_string(), "Ctrl+Shift+Plus");
+        let h: Hotkey = "Win+F5".parse().unwrap();
+        assert_eq!(h.to_string(), "Super+F5");
+        let h: Hotkey = "Escape".parse().unwrap();
+        assert!(h.modifiers.is_empty());
+    }
+
+    #[test]
+    fn parse_errors() {
+        assert!("".parse::<Hotkey>().is_err());
+        assert!("Alt++S".parse::<Hotkey>().is_err());
+        assert!("Alt+Shift".parse::<Hotkey>().is_err());
+        assert!("A+B".parse::<Hotkey>().is_err());
+    }
+
+    #[test]
+    fn every_default_parses() {
+        for action in HotkeyAction::ALL {
+            let h: Hotkey = action.default_binding().parse().unwrap();
+            assert_eq!(h.to_string(), action.default_binding());
+            assert_eq!(action.as_str().parse::<HotkeyAction>().unwrap(), action);
+        }
+    }
+
+    #[test]
+    fn diff_keeps_only_changes() {
+        let mut hk = default_hotkeys();
+        hk.insert("zoom_in".into(), "Ctrl+Plus".into());
+        hk.insert("future_action".into(), "Alt+X".into());
+        let diff = diff_hotkeys(&hk);
+        assert_eq!(diff.len(), 2);
+        assert_eq!(diff["zoom_in"], "Ctrl+Plus");
+        assert!(diff_hotkeys(&default_hotkeys()).is_empty());
     }
 }
