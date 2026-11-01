@@ -93,6 +93,20 @@ class ExtrasTab(SettingsTab):
             ),
         )
         self._osd_duration.setEnabled(self._config.show_osd)
+        self._add_cb(
+            self.tr("Stats panel", "Label of setting (must be short)"),
+            self._config.show_stats,
+            self._on_stats_enabled,
+            baseline=self.baseline_config.show_stats,
+            field="show_stats",
+            help=self.tr(
+                "Experimental. Start upscaling with a panel that shows frame "
+                "rates, GPU times and the active processing chain.\n"
+                "Show or hide it at any time with the 'Show stats' hotkey "
+                "(Alt+Shift+I by default).",
+                "Description of a setting (tooltip)",
+            ),
+        )
 
     def _on_dir_changed(self, path: str) -> None:
         self._config.screenshot_dir = path
@@ -106,6 +120,10 @@ class ExtrasTab(SettingsTab):
         enabled = bool(state)
         self._config.show_osd = enabled
         self._osd_duration.setEnabled(enabled)
+        self.config_changed.emit()
+
+    def _on_stats_enabled(self, state: int):
+        self._config.show_stats = bool(state)
         self.config_changed.emit()
 
     def _on_osd_duration(self, value: float):

@@ -894,6 +894,17 @@ Default: 0.30.</source>
       <comment>Description of a setting (tooltip)</comment>
       <translation type="unfinished" />
     </message>
+    <message>
+        <source>Stats panel</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Experimental. Start upscaling with a panel that shows frame rates, GPU times and the active processing chain.
+Show or hide it at any time with the 'Show stats' hotkey (Alt+Shift+I by default).</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
   </context>
   <context>
     <name>FilterBar</name>
@@ -1252,6 +1263,16 @@ Turn off to manually select a window from the grid.</source>
       <source>Move the content to the right.</source>
       <comment>Hotkey action description (tooltip)</comment>
       <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Show stats</source>
+        <comment>Hotkey action label</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Show or hide the stats panel (frame rates, GPU times and the active processing chain). Experimental.</source>
+        <comment>Hotkey action description (tooltip)</comment>
+        <translation type="unfinished" />
     </message>
   </context>
   <context>

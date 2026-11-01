@@ -1087,6 +1087,14 @@ saves to 'fast/14-30-22.png'.
         help="""How long (seconds) OSD messages stay visible.
 Default: %(default)s.""",
     )
+    osd_group.add_argument(
+        "--show-stats",
+        action="store_true",
+        default=DEFAULT_CONFIG.show_stats,
+        help="""Start with the stats panel visible (experimental): frame
+rates, GPU times and the active processing chain. Toggle it
+with the toggle_stats hotkey (default: Alt+Shift+I).""",
+    )
 
     # ----------------------------------------------------------------------
     # Vulkan Performance Options

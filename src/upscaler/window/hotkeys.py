@@ -21,6 +21,7 @@ class HotkeyManager(QObject):
     exit_app = Signal()
 
     screenshot = Signal()
+    toggle_stats = Signal()
 
     cycle_model = Signal()
     cycle_geometry = Signal()

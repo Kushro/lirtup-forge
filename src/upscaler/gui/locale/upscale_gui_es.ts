@@ -939,6 +939,18 @@ Predeterminado: 0.30.</translation>
         <comment>Description of a setting (tooltip)</comment>
         <translation>Cuántos segundos permanecen visibles los mensajes en pantalla antes de desvanecerse.</translation>
     </message>
+        <message>
+            <source>Stats panel</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Panel de estadísticas</translation>
+        </message>
+        <message>
+            <source>Experimental. Start upscaling with a panel that shows frame rates, GPU times and the active processing chain.
+Show or hide it at any time with the 'Show stats' hotkey (Alt+Shift+I by default).</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Experimental. Empieza a escalar con un panel que muestra los fps, los tiempos de GPU y la cadena de procesamiento activa.
+Muéstralo u ocúltalo en cualquier momento con el atajo «Mostrar estadísticas» (Alt+Shift+I por defecto).</translation>
+        </message>
 </context>
 <context>
     <name>FilterBar</name>
@@ -1307,6 +1319,16 @@ Desactive esta opción para seleccionar manualmente una ventana de la cuadrícul
         <comment>Hotkey action description (tooltip)</comment>
         <translation>Mueve el contenido hacia la derecha.</translation>
     </message>
+        <message>
+            <source>Show stats</source>
+            <comment>Hotkey action label</comment>
+            <translation>Mostrar estadísticas</translation>
+        </message>
+        <message>
+            <source>Show or hide the stats panel (frame rates, GPU times and the active processing chain). Experimental.</source>
+            <comment>Hotkey action description (tooltip)</comment>
+            <translation>Muestra u oculta el panel de estadísticas (fps, tiempos de GPU y la cadena de procesamiento activa). Experimental.</translation>
+        </message>
 </context>
 <context>
     <name>MainWindow</name>

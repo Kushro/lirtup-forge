@@ -517,6 +517,12 @@ show_osd: true
 # Default: 1.5
 osd_duration: 1.5
 
+# Start with the stats panel visible (experimental): frame rates, GPU times and
+# the active processing chain, in the top-left corner. Show or hide it at any
+# time with the toggle_stats hotkey (Alt+Shift+I by default).
+# Default: false
+show_stats: false
+
 # ------------------------------------------------------------------------------
 # Vulkan Performance Options (Advanced)
 # ------------------------------------------------------------------------------

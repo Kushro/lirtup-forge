@@ -65,6 +65,14 @@ class HotkeysTab(SettingsTab):
                     "Hotkey action description (tooltip)",
                 ),
             ),
+            "toggle_stats": (
+                self.tr("Show stats", "Hotkey action label"),
+                self.tr(
+                    "Show or hide the stats panel (frame rates, GPU times "
+                    "and the active processing chain). Experimental.",
+                    "Hotkey action description (tooltip)",
+                ),
+            ),
             "cycle_model": (
                 self.tr("Change model", "Hotkey action label"),
                 self.tr(

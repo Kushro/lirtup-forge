@@ -6,7 +6,7 @@ import threading
 import time
 from enum import Enum, auto
 from queue import Empty, Queue
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import shiboken6
 from PySide6.QtCore import QObject, Signal
@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, Signal
 from .controller import PipelineController
 from .osd import OSDManager
 from .presenter import Presenter
+from .stats import StatsHUD, StatsRow
 from .swapchain import SwapchainManager
 from .upscale import UpscalerLike, create_upscaler_like
 from .utils import collect_dirty_tile_coords, extract_expanded_tiles
@@ -149,6 +150,9 @@ class Pipeline(QObject):
         )
         self.osd = OSDManager(osd_texts, self._screen_width, self._screen_height)
 
+        # Stats panel (experimental), toggled with the toggle_stats hotkey
+        self.stats = StatsHUD(self._screen_height, visible=config.show_stats)
+
         # Presenter: Lanczos scaling + OSD blending + swapchain present
         self.presenter = Presenter(
             screen_width=self._screen_width,
@@ -159,6 +163,7 @@ class Pipeline(QObject):
             config=self.config,
             osd_manager=self.osd,
             swapchain_manager=self._swapchain_manager,
+            stats_hud=self.stats,
         )
         self._last_present_state_hash: Optional[int] = None
         self._presenter_params_stale = True
@@ -249,6 +254,8 @@ class Pipeline(QObject):
             self.presenter = None
         if self.osd is not None:
             self.osd.close()
+        if self.stats is not None:
+            self.stats.close()
             self.osd = None
         if self._swapchain_manager is not None:
             self._swapchain_manager.close()
@@ -384,6 +391,7 @@ class Pipeline(QObject):
 
         # If we get here, capture succeeded, so reset the counter
         self._consecutive_capture_failures = 0
+        self.stats.record_capture(is_dirty)
 
         if not self._running:
             return
@@ -391,6 +399,8 @@ class Pipeline(QObject):
         # --- 2. OSD / opacity update ---------------------------------------
         osd_tex, needs_redraw = self.osd.update()
         if needs_redraw:
+            is_dirty = True
+        if self.stats.update(self._stats_rows):
             is_dirty = True
 
         # Check overlay validity before using it
@@ -417,11 +427,13 @@ class Pipeline(QObject):
                 self._wake_event.clear()
                 return
             self.presenter.present_unchanged()
+            self.stats.record_present()
             rect = self.presenter.get_scaling_rect(self._scale_factor)
             self.overlay.update_scaling_rect.emit(*rect)
             return
 
         # Full render path, mark the state as clean for the next frame
+        render_start = time.perf_counter()
         self._presenter_params_stale = False
         self._last_present_state_hash = current_hash
 
@@ -476,6 +488,7 @@ class Pipeline(QObject):
         # --- 5. Present ----------------------------------------------------
         self.presenter.set_upscaled_source(src_tex)
         self.presenter.present()
+        self.stats.record_present((time.perf_counter() - render_start) * 1000)
 
         # --- 6. Update mouse mapping for event forwarding -------------------
         rect = self.presenter.get_scaling_rect(self._scale_factor)
@@ -535,6 +548,7 @@ class Pipeline(QObject):
                 or new_h != self.presenter.screen_height
             ):
                 self.presenter.resize(new_w, new_h)
+                self.stats.resize(new_h)
             self._swapchain_manager.recreate(new_w, new_h)
             self.update_content_dimensions()
             self.osd.clear_compute_cache()
@@ -730,6 +744,77 @@ class Pipeline(QObject):
     # ----------------------------------------------------------------------
     # Internal helpers
     # ----------------------------------------------------------------------
+    def _stats_rows(self) -> List[StatsRow]:
+        """Rows of the stats panel: rates, then the processing chain."""
+        c = self.config
+        captured, new_frames, presented, render_ms = self.stats.rates()
+        rows: List[StatsRow] = [
+            ("Game", f"{new_frames:5.1f} fps new  ({captured:.0f}/s polled)"),
+            (
+                "Shown",
+                f"{presented:5.1f} fps"
+                + (f"  render {render_ms:.1f} ms" if render_ms is not None else ""),
+            ),
+        ]
+
+        status = framegen.status()
+        if status == framegen.FrameGenStatus.ACTIVE:
+            m = framegen.active_multiplier()
+            rows.append(("Frame gen", f"x{m} lsfg-vk  ~{new_frames * m:.0f} fps est."))
+        elif status == framegen.FrameGenStatus.EXTERNAL:
+            rows.append(("Frame gen", "lsfg-vk (LSFGVK_* env)"))
+
+        def gpu(label: str) -> str:
+            ms = self.stats.gpu_ms(label)
+            return f"  {ms:.2f} ms" if ms is not None else ""
+
+        if self.win_info is not None:
+            crop = (self._crop_top, self._crop_bottom, self._crop_left, self._crop_right)
+            source = f"{self.crop_width}x{self.crop_height}"
+            if any(crop):
+                source += "  crop T{} B{} L{} R{}".format(*crop)
+            rows.append(("Source", source))
+
+        if self.upscaler_mgr is not None:
+            mode = "tiles" if self.upscaler_mgr.use_tile else "full frame"
+            factor = "x4" if c.double_upscale else "x2"
+            rows.append(("Upscale", f"{c.model} {factor}  {mode}"))
+
+        effects = self.presenter.active_effects()
+        engine = "MagpieFX" if c.effects_engine == "magpiefx" else "Native"
+        for i, (name, label) in enumerate(effects):
+            rows.append(("Effects" if i == 0 else "", f"{name}{gpu(label)}"))
+        if effects:
+            rows.append(("", f"({engine})"))
+
+        rows.append(
+            (
+                "Output",
+                f"{self.presenter.screen_width}x{self.presenter.screen_height}  "
+                f"{c.output_geometry}  {c.upsampler}/{c.downsampler}",
+            )
+        )
+        post = [
+            name
+            for name, on in (
+                ("Deband", c.deband_enabled),
+                ("CAS", c.cas_enabled),
+                ("Bloom", c.bloom_enabled),
+                ("Vignette", c.vignette_enabled),
+                (f"LUT {c.lut_preset}", c.lut_enabled),
+                ("Grain", c.grain_enabled),
+            )
+            if on
+        ]
+        rows.append(("Post", ", ".join(post) if post else "none"))
+
+        present = c.vulkan_present_mode
+        if c.present_on_change_only or framegen.is_active():
+            present += ", new frames only"
+        rows.append(("Present", present))
+        rows.append(("Profile", self.profile_name or "none"))
+        return rows
+
     def _compute_present_state_hash(self) -> int:
         """Return a hash of all config and geometry state that affects screen output."""
         c = self.config
