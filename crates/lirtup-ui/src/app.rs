@@ -559,12 +559,23 @@ fn Drawer(rail: bool) -> Element {
     let s = store.read();
     let route = s.route.clone();
     let running = s.running_profile();
-    let profiles: Vec<(ProfileRef, bool)> = s
+    let profiles: Vec<(ProfileRef, bool, Option<String>)> = s
         .profiles()
         .into_iter()
         .map(|p| {
             let dirty = s.profile_dirty(&p);
-            (p, dirty)
+            let image = match &p {
+                ProfileRef::Named(name) => s
+                    .config
+                    .file
+                    .profiles
+                    .get(name)
+                    .and_then(|pr| pr.extra.get("icon"))
+                    .and_then(|v| v.as_str())
+                    .and_then(icon_data_url),
+                ProfileRef::Default => None,
+            };
+            (p, dirty, image)
         })
         .collect();
     drop(s);
@@ -589,11 +600,11 @@ fn Drawer(rail: bool) -> Element {
                 onclick: go(Route::Modes { id: None }),
             }
             NavHeader { label: t!("nav-profiles") }
-            for (profile, dirty) in profiles {
+            for (profile, dirty, image) in profiles {
                 NavItem {
                     key: "{profile_key(&profile)}",
                     label: profile_label(&profile),
-                    icon: profile_icon(&profile),
+                    icon: profile_icon(&profile, image),
                     selected: route.profile() == Some(&profile),
                     dirty,
                     running: running.as_ref() == Some(&profile),
@@ -625,7 +636,30 @@ fn profile_label(profile: &ProfileRef) -> String {
 
 /// Initials on a color from the name's hash (the profile's own icon is
 /// front C's to add: `icon:` key, served as an asset).
-fn profile_icon(profile: &ProfileRef) -> NavIcon {
+/// A profile's own icon (`icon:`, a PNG) as a `data:` URL, read once per
+/// file version: the drawer renders again with every `Stats`.
+fn icon_data_url(path: &str) -> Option<String> {
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+    thread_local! {
+        static CACHE: std::cell::RefCell<HashMap<String, (SystemTime, String)>> =
+            std::cell::RefCell::new(HashMap::new());
+    }
+    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+    if let Some(url) = CACHE.with_borrow(|c| {
+        c.get(path)
+            .filter(|(t, _)| *t == modified)
+            .map(|(_, u)| u.clone())
+    }) {
+        return Some(url);
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let url = format!("data:image/png;base64,{}", screens::new_profile::base64(&bytes));
+    CACHE.with_borrow_mut(|c| c.insert(path.to_owned(), (modified, url.clone())));
+    Some(url)
+}
+
+fn profile_icon(profile: &ProfileRef, image: Option<String>) -> NavIcon {
     match profile {
         ProfileRef::Default => NavIcon::Symbol("star"),
         ProfileRef::Named(name) => {
@@ -642,7 +676,7 @@ fn profile_icon(profile: &ProfileRef) -> NavIcon {
             NavIcon::Profile {
                 initials,
                 color: COLORS[hash as usize % COLORS.len()].into(),
-                image: None,
+                image,
             }
         }
     }

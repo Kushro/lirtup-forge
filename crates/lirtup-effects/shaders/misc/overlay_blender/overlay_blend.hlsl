@@ -1,7 +1,7 @@
 // ============================================================================
 //  Overlay Blend
 //  -------------
-//  Blits an overlay texture using premultiplied alpha blending.
+//  Blits an overlay texture using straight (non-premultiplied) alpha blending.
 //
 //  Parameters:
 //    - overlayPos  : top-left corner of the overlay in screen coordinates.

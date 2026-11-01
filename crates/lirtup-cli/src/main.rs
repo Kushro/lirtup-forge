@@ -263,7 +263,37 @@ fn init_logging(verbose: u8, quiet: bool, settings: &LogSettings) {
 
 // ---- run -------------------------------------------------------------------
 
+/// `program:` of the configuration (the top level, or the `-p` profile), as
+/// 1.x launches it when the command line names none.
+fn configured_program(config: &ConfigArgs) -> Vec<String> {
+    use lirtup_config::resolve::{ProfileChoice, resolve};
+    use lirtup_config::{ConfigFile, ModeStore, paths};
+
+    let path = config.config.clone().unwrap_or_else(paths::config_path);
+    let modes_dir = path
+        .parent()
+        .map(|d| d.join("modes"))
+        .unwrap_or_else(paths::modes_dir);
+    let (Ok((file, _)), Ok((modes, _))) = (ConfigFile::load(&path), ModeStore::load(&modes_dir)) else {
+        return Vec::new();
+    };
+    let choice = match &config.profile {
+        Some(name) => ProfileChoice::Named(name.clone()),
+        None => ProfileChoice::None,
+    };
+    let overrides = config.overrides().unwrap_or_default();
+    resolve(&file, &modes, &choice, &overrides)
+        .ok()
+        .and_then(|r| r.config.program)
+        .unwrap_or_default()
+}
+
 fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode> {
+    let program = if program.is_empty() {
+        configured_program(&config)
+    } else {
+        program
+    };
     // The program first, with the user's environment (X11 forced, as 1.x):
     // `Engine::new` sets the lsfg-vk variables for this process only. It is
     // terminated when the run ends (`Launched` drops it).
