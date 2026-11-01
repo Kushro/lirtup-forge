@@ -288,3 +288,15 @@ def test_measure_refreshes_the_tab(effects_tab_factory, monkeypatch):
     monkeypatch.setattr(effects_mod, "open_bench_dialog", fake_open)
     tab._on_measure()
     assert "0.321" in tab._engine_info.text()
+
+
+def test_process_end_without_events(app, gui_config, no_framegen):
+    d = make_dialog(app, gui_config)
+    d._stderr = b"Traceback...\nImportError: no vulkan\n"
+    d._on_finished(1)
+    assert "ImportError: no vulkan" in d._status.text()
+    d._cancel_requested = True
+    d._on_finished(15)
+    assert d._status.text() == "Cancelled."
+    assert d._start_btn.isEnabled()
+    d.close()
