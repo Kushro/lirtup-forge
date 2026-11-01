@@ -103,6 +103,14 @@ Rust y las moví.
 `dx` sigue regenerando `assets/tailwind.css` con su Tailwind 4.1.5 en cada build local; lo
 devuelvo a la versión de git. El PKGBUILD y el CI usan el envoltorio de P, con la 4.3.3.
 
+**El CI del PR falló** en «Committed tailwind.css is current». El `assets/tailwind.css` de git
+no se había regenerado después de los merges de esta ronda, y le faltaba
+`.\!hidden{display:none!important}`. Es un falso positivo de Tailwind, que lo toma del código Rust
+`if !hidden` de `tray.rs` (Y). Es inofensivo. **Regla:** después de cada merge que toque
+`crates/lirtup-ui/src`, regenerar con `npm run tailwind:build` (4.3.3), o con `dx build` y
+`NO_DOWNLOADS=1 PATH=packaging/tools:$PATH`, que da el mismo archivo byte por byte. Nunca subir
+el que deja `dx` sin el envoltorio (4.1.5). El paso del CI lo detecta.
+
 ## Lista de paridad con la 1.x: estado de cada fila
 
 **Ninguna fila queda abierta.** Cada una está implementada o es una diferencia decidida y
