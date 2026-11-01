@@ -104,13 +104,108 @@ de la GUI, para Y. La bandeja usa `dioxus::desktop::trayicon` y no necesita depe
 | `Conversion::create_into` y `Srcnn::new_into` (unos 0,1 ms a 4K) | Revisor, en la integración, si la medición de T lo justifica |
 | `swapchain_buffers` en la configuración (hoy fijo en 2) | Revisor, en la integración |
 | `restart_self` con variables, para retomar la sesión | Y (`Resume`) |
-| `{timestamp}` de las capturas en hora local | Ver la lista de paridad |
+| `{timestamp}` de las capturas en hora local | T (fila 15 de la lista de paridad) |
 | Mover los datos de `src/upscaler/…` | Revisor, solo si la decisión 1 retira Python |
 | La lista de paridad con la 1.x | Abajo |
 
 ## Lista de paridad con la 1.x
 
-LISTA_DE_PARIDAD
+La armó un subagente comparando el Python de `src/upscaler/` con los crates en
+`rust/r3-integration`. Verifiqué las filas en las que me apoyo para repartir:
+- `class_hint: None` en `engine.rs`;
+- `pause_on_focus_loss`, que en la 1.x solo actúa en los modos always-on-top;
+- `overlay_opacity_min`, `scale_factor` y `swapchain_debounce`, que nadie usa fuera de la
+  configuración y la GUI.
+
+El criterio de 5.8 es «ningún pendiente de paridad abierto». En esta lista, **cerrado** quiere
+decir una de dos cosas: que está implementado o que es una diferencia decidida y documentada. Las
+filas marcadas «Distinto a propósito» ya están decididas: P las documenta en `docs/user/` y en
+una sección «Cambios respecto de la 1.x» del README.
+
+### Núcleo y pipeline
+
+| # | La 1.x | Hoy en la 2.0 | Quién |
+| --- | --- | --- | --- |
+| 1 | Al lanzar un programa busca su ventana por PID y por clase (pista: el nombre del ejecutable), alternando fases (`acquisition.py:351-404,591`) | Solo PID (`class_hint: None`). Los lanzadores y Proton no se encuentran | Y |
+| 2 | Termina el programa lanzado al salir, o si su ventana no aparece (`cli.py:56-85`) | El hijo queda vivo | Y |
+| 3 | Fuerza X11 en el programa lanzado: `XDG_SESSION_TYPE=x11`, sin `WAYLAND_DISPLAY`, `MESA_VK_WSI=x11`, `RADV_DEBUG=no_wayland_wsi` (`env.py`) | No toca nada | Y. **No** copia `__GLX_VENDOR_LIBRARY_NAME=nvidia`, que rompe GLX con AMD; queda documentado |
+| 4 | Enfoca la ventana objetivo con `-t`, `--select` y desde la GUI | `X11::activate_window` existe, pero nadie la llama | Y |
+| 5 | Con el objetivo minimizado, pausa y oculta la superposición | La superposición queda a la vista con el último cuadro | T |
+| 6 | `pause_on_focus_loss` solo en always-on-top y top-transparent | En todos los modos (en modo ventana oculta la superposición al enfocar otra app) | Revisor (integración) |
+| 7 | `follow_focus`: al cambiar de ventana aplica el perfil de la nueva | Conserva el perfil de la inicial | Revisor (integración) |
+| 8 | `follow_focus` o daemon: si se cierra el objetivo, espera otra ventana | Termina con `WindowClosed` | Revisor (integración); con daemon, Y |
+| 9 | top-transparent: opacidad 0,2 con el cursor fuera del objetivo y 1,0 dentro | Opacidad fija (`overlay_opacity_max`) | T |
+| 10 | Reenvía un `MotionNotify` periódico para mantener el hover del juego | Falta | T |
+| 11 | Recuerda la posición de la superposición en modo ventana | Falta | T (con el arrastre de la barra) |
+| 12 | `scale_factor` (HiDPI): tamaño lógico y físico | Se lee pero no se usa | Revisor (integración) |
+| 13 | `swapchain_debounce` | Se lee pero no se usa | Revisor (integración) |
+| 14 | `--magpie-profile` y `UPSCALER_EFFECT_TIMING=1`: tiempos de GPU de MagpieFX en el log | Falta; `WatchGpuTimes` y el panel los muestran | Revisor: `magpie_profile` pide tiempos y los escribe en el log, sin la variable |
+| 15 | Capturas: `{timestamp:…}` con todo `strftime` en hora local, título leído en el momento, aviso después de guardar | Solo 6 códigos en UTC, título del inicio, aviso antes de escribir | T (toca la acción de captura de la barra) |
+| 16 | API de Python (`upscaler.api`) | No hay API de Python; queda el protocolo del socket | Distinto a propósito |
+| 17 | `swapchain_buffers` | Fijo en 2 | Revisor (integración) |
+| 18 | Reenvío por XTest | Solo `SendEvent` | Distinto a propósito, salvo que un juego lo pida en las pruebas a mano |
+
+### CLI
+
+| # | La 1.x | Hoy en la 2.0 | Quién |
+| --- | --- | --- | --- |
+| 19 | Programa como posicional: `upscale prog args` | `lirtup run -- prog args` | Revisor: aceptar los dos (clap con `trailing_var_arg`) |
+| 20 | El título (`-t`, regex) gana sobre `--select` y sobre el programa | Primero el programa, después `--select`, la regex, el título y la ventana activa | Revisor (el orden de la 1.x) |
+| 21 | `--select`: ordenado por título, desde 0, `q` cancela, vuelve a preguntar | Desde 1, sin orden, sin `q`, un número malo corta | Revisor |
+| 22 | `upscale -d` | `run -d` falla | Y |
+| 23 | `--log-file` y `log_level` en el YAML | Se aceptan, pero `init_logging` solo mira `-v`, `-q` y `RUST_LOG` | Revisor |
+| 24 | Códigos de salida: 1 ventana no encontrada, 2 configuración, 130 Ctrl+C | 1 para todo | Revisor |
+| 25 | `-p` desconocido: avisa y sigue | Corta | Revisor (avisa y sigue, como la 1.x) |
+| 26 | `--help-all`, `-v` como versión, `--list-*` como opciones, `python -m upscaler.bench` con sus opciones | clap: `--help`, `-V`, `lirtup list …`, `lirtup bench <JSON>` | Distinto a propósito |
+| 27 | `upscale-gui` acepta las opciones de la CLI (`-c`, `-p`…) | `lirtup-gui` no lee argumentos | Revisor: `-c` (y lo pasa a `serve`); el resto, a propósito no |
+
+### Configuración
+
+| # | La 1.x | Hoy en la 2.0 | Quién |
+| --- | --- | --- | --- |
+| 28 | Un valor fuera de rango sale con código 2 | Avisa y usa el valor por defecto | Distinto a propósito |
+| 29 | QSettings en `~/.config/linux-rt-upscaler.conf`: bandeja, geometría de la ventana, posición de la superposición. **La persona tiene ese archivo** | Nadie lo lee | M (migración: bandeja a `gui-config.yaml`; geometría y posición, si Y y T guardan esas claves) |
+| 30 | 21 paletas con nombre y colores sueltos en `gui-config.yaml` | Se conservan en `extra`; el tema es una semilla | M: `palette_preset` → `seed_color` (A dejó las 20 paletas como semillas); los colores sueltos, distinto a propósito |
+| 31 | Migración a modos | — | M |
+
+### GUI
+
+| # | La 1.x | Hoy en la 2.0 | Quién |
+| --- | --- | --- | --- |
+| 32 | Una sola instancia: la segunda pide «mostrar» y sale | Dos GUIs pueden escribir el YAML a la vez | Y |
+| 33 | Al escalar se oculta y al terminar vuelve | Queda como estaba | Y |
+| 34 | `ExitApp` o cerrar la superposición cierra también la GUI (salvo bandeja y «seguir ejecutándose») | Solo detiene la sesión | Y |
+| 35 | Al cerrar pregunta por los cambios sin guardar y detiene la sesión y el daemon | Cierra sin preguntar; la sesión sigue en `serve` | Y (con `lifecycle`) |
+| 36 | Escalar usa también los ajustes sin guardar | El escalador lee el YAML guardado | Distinto a propósito (la GUI es la única que escribe; la barra de cambios avisa). Sin confirmar en la 1.x |
+| 37 | Reordenar perfiles (arrastre, Ctrl+Shift+↑/↓); el primero que coincide gana | Falta `Action::MoveProfile` | Revisor (integración) |
+| 38 | Cambiar el ícono después de crear el perfil; renombrar o borrar mueve o borra el PNG | Solo en Nuevo perfil; el PNG queda | Revisor (integración), con el ícono en el cajón |
+| 39 | Ctrl+Q, Supr (borrar perfil), F2 o Intro (editar) | Faltan | Revisor (`app.rs`) |
+| 40 | Recuerda el tamaño y la posición de la ventana | Abre siempre a 1280×820 | Y |
+| 41 | `PauseHotkeys` desde `HotkeyCapture` | El núcleo está listo; la GUI no lo manda | Y |
+| 42 | Pendientes de la ronda 3: `start_delay_s`, Deshacer de modos, `Route::Modes { from }`, `Action::Toast`, el teclado, el test de traducciones | — | La tabla de arriba |
+
+### Bandeja, daemon y ciclo de vida
+
+| # | La 1.x | Quién |
+| --- | --- | --- |
+| 43 | Bandeja: reiniciar, cambiar de ventana o de perfil, multiplicador, «escalando», cerrar o minimizar a la bandeja, empezar oculto | Y |
+| 44 | Daemon: `daemon_poll_interval`, `daemon_exclude`, volver a buscar al cerrarse la ventana, coordinación con `follow_focus` | Y |
+| 45 | `restart_self` con reanudación; «seguir ejecutándose»; avisos con «Detener» | Y |
+
+### Empaquetado y documentación
+
+| # | La 1.x | Hoy en la 2.0 | Quién |
+| --- | --- | --- | --- |
+| 46 | `.desktop`, íconos, pipx y wheels | Falta | P (con la decisión 1) |
+| 47 | Los efectos MagpieFX se instalan con el paquete | `builtin_dir` usa la ruta del repo de la compilación o `/usr/share/lirtup/effects` | P: instalarlos en `/usr/share/lirtup/effects` (AUR) y dentro de la AppImage (`$APPDIR`); el revisor agrega `LIRTUP_DATA_DIR` si la AppImage lo necesita |
+| 48 | README y `docs/user` de `upscale` | Falta | P: `lirtup run/serve/ctl/list/bench/migrate`, las filas «Distinto a propósito» y lo de Vulkan bajo XWayland |
+
+### Dudas que quedan para probar
+
+- `hide_cursor: 0`: en la 1.x el cursor queda siempre oculto. En la 2.0 se oculta enseguida pero
+  vuelve al moverlo. T lo prueba y, si hace falta, `0` pasa a `SetCursorVisible(false)`.
+- `program:` en el YAML: hay que confirmar si la 1.x lanza ese programa. Revisor.
+- La fila 36 (escalar con ajustes sin guardar) está deducida del código, no probada en la 1.x.
 
 ## Por frente
 
@@ -126,6 +221,7 @@ LISTA_DE_PARIDAD
     falten;
   - el test de `i18n_check.rs`;
   - el inglés completo.
+- **Filas de paridad**: 29 (QSettings), 30 (paleta → semilla) y 31.
 - **Usa**: `MODE_KEYS` y `resolve::resolve` de `lirtup-config`, para probar que resolver da lo
   mismo antes y después; `i18n::has_key`, que ya entiende variables; `lirtup migrate`, que ya
   existe.
@@ -149,6 +245,8 @@ LISTA_DE_PARIDAD
     multiplicador, `BeginMove` en modo ventana);
   - el panel de stats y el OSD con los tokens y Google Sans Flex;
   - las dos instancias `.ttf` de Material Symbols.
+- **Filas de paridad**: 5 (minimizado), 9 (opacidad en top-transparent), 10 (hover), 11
+  (posición en modo ventana) y 15 (capturas); la duda de `hide_cursor: 0`.
 - **Usa**: los tokens de A, `Event::SaveSetting` y `HotkeyAction::ToggleToolbar`.
 - **Puede correr**: `lirtup run` sobre una ventana de prueba; la medición de la GPU con
   `show_stats`; `cargo test` con imágenes de referencia de la barra.
@@ -172,6 +270,7 @@ LISTA_DE_PARIDAD
   - las filas de la bandeja en Ajustes;
   - `start_delay_s` en Inicio;
   - `PauseHotkeys` desde `HotkeyCapture`.
+- **Filas de paridad**: 1 a 4 (lanzar y encontrar la ventana), 22, 32 a 35, 40, 41 y 43 a 45.
 - **Usa**: `GuiConfig` (campos nuevos), `X11::is_lirtup_window`, `find_matching_profile`.
 - **Puede correr**: `lirtup serve --daemon`, la GUI con `dx` y `lirtup ctl`.
 - **Criterios de 5.8**:
@@ -188,6 +287,7 @@ LISTA_DE_PARIDAD
   - `scripts/build-release-linux.sh`;
   - el CI de Rust: fmt, clippy, test, `dx build` y `check-ftl-keys.py`;
   - el README y `docs/user/**` de la 2.0, con el hallazgo 1.
+- **Filas de paridad**: 46 a 48, y documentar todas las «Distinto a propósito».
 - **Usa**: los binarios `lirtup` y `lirtup-gui` (el bundle de `dx`), y los íconos de `data/`.
 - **Puede correr**:
   - `makepkg` en un contenedor o una VM limpia;
@@ -195,6 +295,19 @@ LISTA_DE_PARIDAD
   - `act` para el CI, si está instalado.
 - **Criterios de 5.8**: el paquete de AUR y la AppImage se instalan y arrancan en una máquina
   limpia (lo prueba la persona: va al guion).
+
+## Mi parte en la integración
+
+- **Filas de paridad**: 6, 7, 8 (sin daemon), 12, 13, 14, 17, 19, 20, 21, 23, 24, 25, 27, 37, 38
+  y 39; la duda de `program:`.
+- **Pendientes de la ronda 3**: el ícono en el cajón, Deshacer de modos, `Route::Modes { from }`
+  y `Action::Toast`.
+- **Según las mediciones de T**: el anillo por cuadro y `create_into`.
+- **Según la decisión 1**: mover los datos de `src/upscaler/`.
+- La versión y el `CHANGELOG.md`.
+
+Es mucho para una pasada. Si la persona prefiere, las filas de la CLI (19 a 27) pueden ser un
+quinto frente chico, porque solo tocan `lirtup-cli`.
 
 ## Al integrar (5.7)
 
