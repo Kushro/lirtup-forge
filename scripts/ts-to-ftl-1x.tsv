@@ -1,0 +1,750 @@
+context	en	es	comment
+AboutDialog	About	Acerca de	
+AboutDialog	Version { $arg0 }	Versión { $arg0 }	Version of the upscaler
+AboutDialog	"A real-time SRCNN upscaler for any X-Window on GNU/Linux.
+Fork of { $arg0 } by baronsmv."	"Un escalador SRCNN en tiempo real para cualquier ventana X en GNU/Linux.
+Fork de { $arg0 } por baronsmv."	Description of the upscaler; {0} is the original project's name
+AboutDialog	Close	Cerrar	Close button
+AdvancedTab	Advanced	Avanzado	Name of a settings tab
+AdvancedTab	Tile-based processing	Procesamiento por bloques	Settings section
+AdvancedTab	Enable tile mode	Habilitar procesamiento por bloques	Label of setting (must be short)
+AdvancedTab	"Process only the parts of the frame that have changed, using small tiles.
+Best for mostly static content, such as text editors or visual novels.
+When disabled, the entire frame is processed at once, better for video or fast-moving content."	"Procesa sólo las partes del fotograma que han cambieado, usando pequeños bloques.
+Esto es mejor para contenido más estático, como editores de texto o novelas visuales.
+Cuando deshabilitado, el fotograma entero es procesado, lo que es mejor para videos o contenido dinámico."	Description of a setting (tooltip)
+AdvancedTab	Damage tracking	Seguimiento de daño	Label of setting (must be short)
+AdvancedTab	"Send only the changed parts of the frame to the GPU, instead of the whole image.
+Disable this if you see glitches that may be caused by missed updates."	"Manda a la GPU sólo las partes del fotograma que han cambiado, en lugar de toda la imagen.
+Deshabilita esto si ves artefactos que pudieran deberse a actualizaciones omitidas de la imagen."	Description of a setting (tooltip)
+AdvancedTab	Tile size	Tamaño del bloque	Label of setting (must be short)
+AdvancedTab	"Size of each tile in pixels.
+Smaller tiles update more precisely but use more CPU.
+Values that are multiples of 32 usually perform best.
+Recommended range: 32 - 128."	"Tamaño (en píxeles) de cada uno de los bloques.
+Bloques más pequeños actualizan con más precisión pero usan más CPU.
+Valores múltiplos de 32 generalmente ofrecen mejor rendimiento.
+Rango recomendado: 32 - 128."	Description of a setting (tooltip)
+AdvancedTab	Context margin	Margen de contexto	Label of setting (must be short)
+AdvancedTab	"Extra pixels added around each tile to give the neural network more context.
+Larger margins can improve quality at tile edges but increase processing.
+Recommended range: 4 - 24."	"Píxeles adicionales alrededor de cada bloque para proporcionar más contexto a la red neuronal.
+Valores más amplios pueden mejorar la calidad en los bordes de los mosaicos, pero usan más GPU.
+Rango recomendado: 4 - 24."	Description of a setting (tooltip)
+AdvancedTab	Max tiles per frame	Límite de bloques	Label of setting (must be short)
+AdvancedTab	"Maximum number of changed tiles to process per frame.
+If more tiles than this need updating, the whole frame will be processed instead.
+Recommended range: 4 - 32."	"Límite de bloques a procesar por fotograma.
+Si es necesario actualizar más bloques que esta cantidad, se procesará el fotograma completo en su lugar.
+Rango recomendado: 4 - 32."	Description of a setting (tooltip)
+AdvancedTab	Area threshold	Umbral de área %	Label of setting (must be short)
+AdvancedTab	"If more than this percentage of the frame has changed, the whole frame will be processed instead of individual tiles.
+Lower values switch to full-frame processing sooner.
+Recommended range: 15% - 50%."	"Si un fotograma cambia más que este porcentaje, se procesará el fotograma completo en lugar de bloques.
+Valores más bajos cambian al procesamiento completo antes.
+Rango recomendado: 15 % - 50 %."	Description of a setting (tooltip)
+AdvancedTab	Timing	Tiempo	Settings section
+AdvancedTab	Frame timeout (ms)	Espera de fotograma (ms)	Label of setting (must be short)
+AdvancedTab	"Maximum time to wait for the GPU to finish the previous frame.
+Lower values reduce waiting time but may cause dropped frames.
+Recommended range: 17 (1/60 s) - 1000 (1 s)."	"Tiempo máximo de espera para que la GPU termine un fotograma.
+Valores bajos reducen el tiempo de espera pero puedo omitir fotogramas.
+Rango recomendado: 17 (1/60 s) - 1000 (1 s)."	Description of a setting (tooltip)
+AdvancedTab	Daemon poll (s)	Sondeo Demonio (s)	Label of setting (must be short)
+AdvancedTab	How often the background service checks for matching windows.	Con qué frecuencia el servicio en segundo plano busca ventanas coincidentes.	Description of a setting (tooltip)
+AdvancedTab	Focus poll (s)	Sondeo de enfoque (s)	Label of setting (must be short)
+AdvancedTab	How often the program checks which window is currently active.	Con qué frecuencia el programa comprueba qué ventana está activa actualmente.	Description of a setting (tooltip)
+AdvancedTab	Pipeline idle (s)	Inactividad (s)	
+AdvancedTab	How often the program checks its internal state when no changes are detected.	Con qué frecuencia el programa comprueba su estado interno cuando no se detectan cambios.	Description of a setting (tooltip)
+AdvancedTab	Error Recovery	Recuperación de errores	Settings section
+AdvancedTab	Max capture failures	Límite de fallos de captura	Label of setting (must be short)
+AdvancedTab	Number of consecutive frame capture failures before the program stops.	Número de fallos consecutivos en la captura de fotogramas antes de que el programa se detenga.	Description of a setting (tooltip)
+AdvancedTab	Capture failure delay (s)	Retardo de fallos (s)	Label of setting (must be short)
+AdvancedTab	Delay after a capture failure before trying again.	Retraso tras un fallo de captura antes de volver a intentarlo.	Description of a setting (tooltip)
+AdvancedTab	Swapchain debounce (s)	Espera de recreación (s)	Label of setting (must be short)
+AdvancedTab	"Minimum time between two Vulkan swapchain recreations.
+This prevents unnecessary rebuilds of the rendering pipeline."	"Tiempo mínimo entre dos recreaciones de la cadena de intercambio (swapchain) de Vulkan.
+Esto evita reconstrucciones innecesarias del pipeline de renderizado."	Description of a setting (tooltip)
+ColorPickerRow	Choose Background Color	Elija un color de fondo	
+ConfirmDialog	Save them before closing, discard them, or cancel to stay.	Guárdalos antes de cerrar, descártalos, o cancela para permanecer.	Dialog secondary text
+ConfirmDialog	Save and close	Guardar y cerrar	Dialog button
+ConfirmDialog	Discard and close	Descartar y cerrar	Dialog button
+ConfirmDialog	Save them before switching, discard them, or cancel to stay.	Guárdalos antes de cambiar, descártalos, o cancela para permanecer.	Dialog secondary text
+ConfirmDialog	Save and switch	Guardar y cambiar	Dialog button
+ConfirmDialog	Discard and switch	Descartar y cambiar	Dialog button
+ConfirmDialog	Unsaved changes	Cambios sin guardar	Dialog title
+ConfirmDialog	You have unsaved changes in the current configuration.	Tienes cambios sin guardar en la configuración actual.	Dialog main text
+ConfirmDialog	Cancel	Cancelar	Dialog button
+DisplayTab	Auto (best)	Automático (mejor)	GPU automatic device option
+DisplayTab	Display	Pantalla	Name of a settings tab
+DisplayTab	Devices	Dispositivos	Settings section
+DisplayTab	Monitor	Monitor	Label of setting (must be short)
+DisplayTab	Monitor used for upscaling: the primary monitor, multi-monitor, or a specific output name (for example, HDMI-1).	Monitor utilizado para el escalado: el monitor primario, multi-monitor, o un nombre específico (por ejemplo, HDMI-1).	Description of a setting (tooltip)
+DisplayTab	GPU	GPU	Label of setting (must be short)
+DisplayTab	"GPU used for upscaling.
+Select '{ $arg0 }' to automatically use the most powerful available GPU."	"Tarjeta gráfica utilizada para el escalado.
+Selecciona '{ $arg0 }' para utilizar automáticamente la GPU disponible más potente."	Description of a setting (tooltip)
+DisplayTab	V-Sync	V-Sync	Settings section
+DisplayTab	Presentation mode	Modo de presentación	Label of setting (must be short)
+DisplayTab	"Vulkan presentation mode:
+• fifo: VSync on, lowest power, no tearing
+• mailbox: tear-free, lower latency, higher power
+• immediate: no VSync, lowest latency, may tear"	"Modos de presentación de Vulkan:
+• fifo: VSync activado, menor consumo de energía, sin tearing
+• mailbox: sin *tearing*, menor latencia, mayor consumo de energía
+• immediate: sin VSync, latencia mínima, posible tearing"	Description of a setting (tooltip). Do not translate fifo, mailbox and immediate: they are Vulkan presentation mode identifiers.
+DisplayTab	Limit FPS	Limitar FPS	Label of setting (must be short)
+DisplayTab	"Enable a maximum frame rate.
+For best results, use the 'mailbox' presentation mode when limiting FPS."	"Habilita una velocidad de fotogramas máxima.
+Para obtener mejores resultados, usa el modo de presentación 'mailbox' al limitar FPS."	Description of a setting (tooltip)
+DisplayTab	Max FPS	Límite de FPS	Label of setting (must be short)
+DisplayTab	Target maximum frames per second.	Velocidad de fotogramas máxima.	Description of a setting (tooltip)
+DisplayTab	Scale factor	Factor de escala	Settings section
+DisplayTab	Auto scale	Auto-escalado	Label of setting (must be short)
+DisplayTab	Automatically detect the correct scale factor based on the physical monitor resolution.	Detecta automáticamente el factor de escala correcto, basado en la resolutión del monitor físico.	Description of a setting (tooltip)
+DisplayTab	Scale factor	Factor de escala	Label of setting (must be short)
+DisplayTab	"Set the scale factor manually as a percentage (for example, 1.50 for 150% scaling).
+Only available when Auto Scale is off."	"Factor de escala manual, como un porcentaje (por ejemplo, 1.50 para una escala del 150%).
+Solo disponible cuando Auto-escala está desactivada."	Description of a setting (tooltip)
+EffectsTab	Effects	Efectos	Name of a settings tab
+EffectsTab	Debanding	Supresión de bandas	Settings section
+EffectsTab	Enable deband	Habilitar supresión de bandas	Label of setting (must be short)
+EffectsTab	"Reduce banding in smooth gradients before upscaling.
+Only useful if you notice banding in skies, fog, and other large smooth areas."	"Elimina bandas de color en degradados suaves antes del escalado.
+Solo es útil si observas bandas de color (color banding) en cielos, niebla y otras áreas uniformes."	Description of a setting (tooltip)
+EffectsTab	Strength	Magnitud	Label of setting (must be short)
+EffectsTab	"Debanding intensity.
+Recommended range: 0.10 - 0.30."	"Intensidad de la eliminación de bandas de color.
+Rango recomendado: 0.10 - 0.30."	Description of a setting (tooltip)
+EffectsTab	CAS sharpening	Contraste CAS	Settings section
+EffectsTab	Enable CAS	Habilitar CAS	Label of setting (must be short)
+EffectsTab	Contrast Adaptive Sharpening: enhances text and line art contrast.	Contrast Adaptive Sharpening: mejora el contraste del texto y del arte lineal.	Description of a setting (tooltip)
+EffectsTab	"Sharpening amount.
+Recommended range: 0.20 - 0.50."	"Magnitud del contraste.
+Rango recomendado: 0.20 - 0.50."	Description of a setting (tooltip)
+EffectsTab	Bloom (glow)	Resplandor (brillo)	Settings section
+EffectsTab	Enable bloom	Habilitar resplandor	Label of setting (must be short)
+EffectsTab	"Soft glow around bright areas, for a cinematic look.
+May introduce halos, especially with white text."	"Un suave resplandor alrededor de zonas brillantes, que crea un efecto cinematográfico.
+Puede generar halos, especialmente con texto blanco."	Description of a setting (tooltip)
+EffectsTab	"Bloom intensity.
+Recommended range: 0.02 - 0.06."	"Intensidad del resplandor.
+Rango recomendado: 0.02 - 0.06."	Description of a setting (tooltip)
+EffectsTab	Threshold	Límite	Label of setting (must be short)
+EffectsTab	"Brightness cutoff for bloom.
+Only pixels brighter than this value will glow."	"Umbral de brillo.
+Solo píxeles más brillantes que este valor emitirán resplandor."	Description of a setting (tooltip)
+EffectsTab	Radius	Radio	Label of setting (must be short)
+EffectsTab	Blur radius in pixels. Larger radii spread the glow further.	Radio del resplandor en píxeles. Radios mayores extienden más el resplandor.	Description of a setting (tooltip)
+EffectsTab	Vignette	Viñetado	Settings section
+EffectsTab	Enable vignette	Habilitar viñetado	Label of setting (must be short)
+EffectsTab	Radial darkening of screen edges, drawing focus to the center.	Oscurecimiento radial de los bordes de la pantalla, dirigiendo la atención hacia el centro.	Description of a setting (tooltip)
+EffectsTab	"Edge darkening intensity.
+Recommended range: 0.30 - 0.60."	"Intensidad del oscurecimiento de los bordes.
+Rango recomendado: 0.30 - 0.60."	Description of a setting (tooltip)
+EffectsTab	"Distance from center where darkening begins.
+Higher values keep the center brighter."	"Distancia desde el centro donde comienza el oscurecimiento.
+Valores más altos mantienen el centro más brillante."	Description of a setting (tooltip)
+EffectsTab	Falloff	Atenuación	Label of setting (must be short)
+EffectsTab	Softness of the vignette transition. Low values = gentle, high values = sharp ring.	"Suavidad de la transición del viñeteado.
+Valores bajos lo hacen más suave, mientras que valores altos lo definen con más intensidad."	Description of a setting (tooltip)
+EffectsTab	Film grain	Grano de película	Settings section
+EffectsTab	Enable grain	Habilitar grano de película	Label of setting (must be short)
+EffectsTab	Simulated film grain look.	Apariencia de grano de película.	Description of a setting (tooltip)
+EffectsTab	"Grain intensity.
+Recommended range: 0.10 - 0.20."	"Intensidad del grano de película.
+Rango recomendado: 0.10 - 0.20."	Description of a setting (tooltip)
+EffectsTab	Size	Tamaño	Label of setting (must be short)
+EffectsTab	"Particle size of the grain.
+Larger values produce coarser, more visible grain."	"Tamaño de partícula del grano de película.
+Valores más altos producen un grano más grueso y visible."	Description of a setting (tooltip)
+EffectsTab	Color grading	Ajuste de color (3D LUT)	Settings section
+EffectsTab	Enable LUT	Habilitar LUT	Label of setting (must be short)
+EffectsTab	Apply a color grading preset (LUT) to change the look of the window.	Aplica un ajuste preestablecido de gradación de color (LUT) para cambiar el aspecto de la ventana.	Description of a setting (tooltip)
+EffectsTab	Preset	Ajuste preestablecido	Label of setting (must be short)
+EffectsTab	Built-in color grading preset (warm, cool, film, sepia, etc.).	Ajuste preestablecido de gradación de color integrado (cálido (warm, frío (cool), cine (film), sepia, etc.).	Description of a setting (tooltip)
+EffectsTab	Intensity	Intensidad	Label of setting (must be short)
+EffectsTab	Blend between original and graded image.	Mezcla entre la imagen original y la gradación de color.	Description of a setting (tooltip)
+EffectsTab	Reference GPU time in ms/frame (720p to 1440p, RX 9070 XT).	Tiempo de GPU de referencia en ms por fotograma (720p a 1440p, RX 9070 XT).	Benchmark table caption
+EffectsTab	Magpie effects	Efectos de Magpie	Settings section
+EffectsTab	Native	Nativo	Magpie effects engine
+EffectsTab	MagpieFX	MagpieFX	Magpie effects engine
+EffectsTab	Engine	Motor	Label of setting (must be short)
+EffectsTab	Enable Anime4K	Habilitar Anime4K	Label of setting (must be short)
+EffectsTab	Enable LumaSharpen	Habilitar LumaSharpen	Label of setting (must be short)
+EffectsTab	Enable CRT	Habilitar CRT	Label of setting (must be short)
+EffectsTab	Mask strength	Magnitud de máscara	Label of setting (must be short)
+EffectsTab	Add effect…	Agregar efecto…	MagpieFX effect picker
+EffectsTab	Remove	Quitar	MagpieFX effect button
+EffectsTab	"Native: effects ported by hand, precompiled.
+MagpieFX: Magpie's .hlsl effects compiled at runtime.
+Only the selected engine runs."	"Nativo: efectos portados a mano, precompilados.
+MagpieFX: efectos .hlsl de Magpie compilados al cargarlos.
+Solo se ejecuta el motor seleccionado."	Description of a setting (tooltip)
+EffectsTab	"Anime4K_Upscale_S: small 2x CNN upscaler for anime and line art,
+applied after the AI upscaler."	"Anime4K_Upscale_S: pequeña red neuronal que escala 2x, para anime y arte lineal,
+aplicada después del escalador de IA."	Description of a setting (tooltip)
+EffectsTab	Unsharp mask on luma, with a clamp that limits halos.	Máscara de enfoque sobre la luminancia, con un límite que evita halos.	Description of a setting (tooltip)
+EffectsTab	"LumaSharpen strength.
+Default: 0.65."	"Magnitud de LumaSharpen.
+Predeterminado: 0.65."	Description of a setting (tooltip)
+EffectsTab	"CRT-Easymode: scanlines and RGB mask. Replaces the final scaler.
+Scanlines only appear on low resolution sources."	"CRT-Easymode: líneas de barrido y máscara RGB. Reemplaza al escalador final.
+Las líneas de barrido solo aparecen con fuentes de baja resolución."	Description of a setting (tooltip)
+EffectsTab	"Strength of the RGB mask.
+Default: 0.30."	"Magnitud de la máscara RGB.
+Predeterminado: 0.30."	Description of a setting (tooltip)
+EffectsTab	Precompiled: loads instantly	Precompilado: carga al instante	Magpie engine pro
+EffectsTab	Bounds-checked writes on every GPU	Escrituras con control de límites en cualquier GPU	Magpie engine pro
+EffectsTab	Tuned controls in this tab	Controles ajustados en esta pestaña	Magpie engine pro
+EffectsTab	Only 3 effects for now	Solo 3 efectos por ahora	Magpie engine con
+EffectsTab	Each new effect is ported by hand	Cada efecto nuevo se porta a mano	Magpie engine con
+EffectsTab	Runs Magpie's .hlsl effects unmodified	Ejecuta los efectos .hlsl de Magpie sin modificarlos	Magpie engine pro
+EffectsTab	{ $arg0 } effects from Magpie, plus your own in ~/.config/linux-rt-upscaler/effects	{ $arg0 } efectos de Magpie, y los tuyos en ~/.config/linux-rt-upscaler/effects	Magpie engine pro
+EffectsTab	Controls generated from each effect	Controles generados a partir de cada efecto	Magpie engine pro
+EffectsTab	Compiles on first load (needs dxc or glslangValidator)	Compila la primera vez que se carga (requiere dxc o glslangValidator)	Magpie engine con
+EffectsTab	Effect	Efecto	Benchmark table
+EffectsTab	Effects	Efectos	Label of setting (must be short)
+EffectsTab	Effects run in the order they are added, before scaling.	Los efectos se aplican en el orden en que se agregan, antes del escalado.	Description of a setting (tooltip)
+EffectsTab	default	predeterminado	MagpieFX parameter tooltip
+EffectsTab	A few effects need dxc (glslang cannot compile them)	Algunos efectos necesitan dxc (glslang no puede compilarlos)	Magpie engine con
+EffectsTab	GPU time in ms/frame measured on { $arg0 } ({ $arg1 } to { $arg2 }).	Tiempo de GPU en ms/cuadro medido en { $arg0 } ({ $arg1 } a { $arg2 }).	Benchmark table caption
+EffectsTab	Measure every effect on this GPU and show those times here.	Mide cada efecto en esta GPU y muestra esos tiempos aquí.	Description of a setting (tooltip)
+EffectsTab	Measure on my GPU	Medir en mi GPU	Benchmark button
+ExtrasTab	Extras	Extras	Name of a settings tab
+ExtrasTab	Screenshot	Capturas de pantalla	Settings section
+ExtrasTab	Directory	Directorio	Label of setting (must be short)
+ExtrasTab	Folder where screenshots are saved.	Directorio donde las capturas de pantalla son guardadas.	Description of a setting (tooltip)
+ExtrasTab	Template	Plantilla	Label of setting (must be short)
+ExtrasTab	"Filename template for screenshots. You can use these placeholders:
+• {timestamp}: capture time (supports strftime, for example {timestamp:%Y-%m-%d-%H-%M-%S})
+• {title}: current window title
+• {profile}: active profile name (or the window title if no profile)
+• {model}: active upscaling model
+• {width}: upscaled image width
+• {height}: upscaled image height"	"Plantilla de nombre de archivo para capturas de pantalla. Puedes utilizar estos marcadores de posición:
+• {timestamp}: hora de la captura (admite strftime; por ejemplo, {timestamp:%Y-%m-%d-%H-%M-%S})
+• {title}: título de la ventana actual
+• {profile}: nombre del perfil activo (o el título de la ventana si no hay perfil)
+• {model}: modelo de escalado activo
+• {width}: anchura de la imagen escalada
+• {height}: altura de la imagen escalada"	Description of a setting (tooltip). Keep all placeholders exactly as they are, including braces, for example {timestamp} and the strftime format inside it.
+ExtrasTab	On-Screen Display	Mensajes en pantalla	Settings section
+ExtrasTab	Show OSD	Mostrar OSD	Label of setting (must be short)
+ExtrasTab	Show on-screen messages when the model, window geometry, or zoom changes, or after taking a screenshot.	Muestra mensajes en pantalla cuando se cambia el modelo, la geometría de la ventana o el zoom, o al realizar una captura de pantalla.	Description of a setting (tooltip)
+ExtrasTab	Duration (s)	Duración (s)	Label of setting (must be short)
+ExtrasTab	How many seconds on-screen messages remain visible before fading out.	Cuántos segundos permanecen visibles los mensajes en pantalla antes de desvanecerse.	Description of a setting (tooltip)
+ExtrasTab	Stats panel	Panel de estadísticas	Label of setting (must be short)
+ExtrasTab	"Experimental. Start upscaling with a panel that shows frame rates, GPU times and the active processing chain.
+Show or hide it at any time with the 'Show stats' hotkey (Alt+Shift+I by default)."	"Experimental. Empieza a escalar con un panel que muestra los fps, los tiempos de GPU y la cadena de procesamiento activa.
+Muéstralo u ocúltalo en cualquier momento con el atajo «Mostrar estadísticas» (Alt+Shift+I por defecto)."	Description of a setting (tooltip)
+FilterBar	Filter windows	Filtrar ventanas	Filter windows search bar placeholder
+FontPickerDialog	Select font	Seleccionar fuente	Font picker dialog title
+FontPickerDialog	Filter	Filtro	Font picker filter placeholder
+FontPickerDialog	Preview	Previsualización	Font picker preview label
+FontPickerDialog	The quick brown fox jumps over the lazy dog. 0123456789	Jovencillo emponzoñado de whisky, ¡qué figurota exhibe!	Font picker preview text
+FontPickerRow	Reset to system font	Restablecer a la fuente del sistema	Font row reset tooltip
+GeneralTab	General	General	Name of a settings tab
+GeneralTab	Upscaling model	Modelo de escalado	Settings section
+GeneralTab	Model	Modelo	Label of setting (must be short)
+GeneralTab	"Upscaling SRCNN model to use.
+All models upscale to 2x, and are ordered from lowest to highest quality.
+Rightmost models are deeper and slower, but produce better results.
+The value 'none' disables SRCNN processing and uses only the selected scaler (upsampler/downsampler)."	"Modelo SRCNN de escalado a utilizar.
+Todos los modelos realizan un escalado 2x y están ordenados de menor a mayor calidad.
+Los modelos más a la derecha son más profundos y lentos, pero ofrecen mejores resultados.
+El valor 'none' desactiva el procesamiento SRCNN y utiliza únicamente el remuestrador seleccionado (sobremuestrador/submuestrador)."	Description of a setting (tooltip). Do not translate 'none', since it's a model identifier
+GeneralTab	Double upscale (4x)	Escalado doble (4x)	Label of setting (must be short)
+GeneralTab	"Perform two 2x upscales in a row for a total of 4x (for example, 720p to 2880p).
+Useful for high-resolution screens (4K) and low-resolution sources.
+Uses more GPU power."	"Realiza dos escalados 2x consecutivos para obtener un total de 4x (por ejemplo, de 720p a 2880p).
+Útil para pantallas de alta resolución (4K) y fuentes de baja resolución.
+Consume más recursos de la GPU."	Description of a setting (tooltip)
+GeneralTab	Focus tracking	Seguimiento del enfoque	Settings section
+GeneralTab	Follow focus	Seguir enfoque	Label of setting (must be short)
+GeneralTab	"Automatically upscale the window that currently has focus.
+Useful when working with multiple windows."	"Escala automáticamente la ventana que tenga el foco actualmente.
+Útil al trabajar con varias ventanas."	Description of a setting (tooltip)
+GeneralTab	Pause on focus loss	Pausa al perder foco	Label of setting (must be short)
+GeneralTab	"Hide the upscaled overlay when the target window loses focus, and show it again when focus returns.
+Turn off to keep the overlay always visible."	"Oculta la ventana de escalado cuando la ventana original pierde el foco, y vuelve a mostrarla cuando lo recupere.
+Desactive esta opción para mantener la ventana de escalado siempre visible."	Description of a setting (tooltip)
+GeneralTab	Automatic Upscaling	Escalado Automático	Settings section
+GeneralTab	Exclude from daemon mode	Excluir de modo daemon	Label of setting (must be short)
+GeneralTab	When daemon mode is active, this profile will not be used to automatically upscale matching windows.	Cuando el modo daemon está activo, este perfil no se utilizará para escalar automáticamente las ventanas que coincidan.	Description of a setting (tooltip)
+GeneralTab	Daemon mode	Modo daemon	Label of setting (must be short)
+GeneralTab	"When enabled, a background process automatically upscales any window that matches a profile.
+Turn off to manually select a window from the grid."	"Si esta opción está habilitada, un proceso en segundo plano escalará automáticamente cualquier ventana que coincida con un perfil.
+Desactive esta opción para seleccionar manualmente una ventana de la cuadrícula."	Description of a setting (tooltip)
+HotkeyCaptureButton	Press keys…	Presione teclas…	Hotkey recording prompt
+HotkeyCaptureButton	Needs a modifier	Requiere un modificador	Hotkey recording error
+HotkeyCaptureButton	(unbound)	(sin asignar)	Displayed when no hotkey is bound
+HotkeyRow	Clear binding	Borrar asignación	Hotkey row clear button tooltip
+HotkeysTab	Hotkeys	Teclas de acceso rápido	Name of a settings tab
+HotkeysTab	Session	Sesión	Hotkey group title
+HotkeysTab	View	Vista	Hotkey group title
+HotkeysTab	Zooming	Zoom	Hotkey group title
+HotkeysTab	Panning	Desplazamiento	Hotkey group title
+HotkeysTab	Show/hide	Mostrar/ocultar	Hotkey action label
+HotkeysTab	Show or hide the upscaled overlay window.	Mostrar u ocultar la ventana de escalado.	Hotkey action description (tooltip)
+HotkeysTab	Exit session	Cerrar sesión	Hotkey action label
+HotkeysTab	Close the overlay and end the current upscaling session.	Cierra la ventana de escalado y finaliza la sesión.	Hotkey action description (tooltip)
+HotkeysTab	Take screenshot	Capturar pantalla	Hotkey action label
+HotkeysTab	Save the current upscaled output as an image.	Guarda la salida escalada del modelo como una imagen.	Hotkey action description (tooltip)
+HotkeysTab	Change model	Cambiar modelo	Hotkey action label
+HotkeysTab	Switch to the next SRCNN upscaling model.	Cambia al siguiente modelo de escalado SRCNN.	Hotkey action description (tooltip)
+HotkeysTab	Change geometry	Cambiar geometría	Hotkey action label
+HotkeysTab	Cycle through output sizing modes (fit, stretch, cover).	Alterna entre las geometrías de salida (fit, stretch, cover).	Hotkey action description (tooltip)
+HotkeysTab	Restore view	Restaurar vista	Hotkey action label
+HotkeysTab	Reset geometry, zoom and pan offsets to their initial values.	Restablece la geometría, desplazamiento y zoom a sus valores iniciales.	Hotkey action description (tooltip)
+HotkeysTab	Zoom in	Acercar	Hotkey action label
+HotkeysTab	Increase the output zoom level.	Aumenta el nivel de zoom.	Hotkey action description (tooltip)
+HotkeysTab	Zoom out	Alejar	Hotkey action label
+HotkeysTab	Decrease the output zoom level.	Disminuye el nivel de zoom.	Hotkey action description (tooltip)
+HotkeysTab	Pan up	Hacia arriba	Hotkey action label
+HotkeysTab	Move the content up.	Mueve el contenido hacia arriba.	Hotkey action description (tooltip)
+HotkeysTab	Pan down	Hacia abajo	Hotkey action label
+HotkeysTab	Move the content down.	Mueve el contenido hacia abajo.	Hotkey action description (tooltip)
+HotkeysTab	Pan left	Hacia la izquierda	Hotkey action label
+HotkeysTab	Move the content to the left.	Mueve el contenido hacia la izquierda.	Hotkey action description (tooltip)
+HotkeysTab	Pan right	Hacia la derecha	Hotkey action label
+HotkeysTab	Move the content to the right.	Mueve el contenido hacia la derecha.	Hotkey action description (tooltip)
+HotkeysTab	Show stats	Mostrar estadísticas	Hotkey action label
+HotkeysTab	Show or hide the stats panel (frame rates, GPU times and the active processing chain). Experimental.	Muestra u oculta el panel de estadísticas (fps, tiempos de GPU y la cadena de procesamiento activa). Experimental.	Hotkey action description (tooltip)
+MainWindow	Enable/disable system tray	Habilitar/Deshabilitar la bandeja del sistema	Tray toggle button
+MainWindow	About { $arg0 }	Acerca de { $arg0 }	About dialog button; {0} is the app name
+MainWindow	Error	Error	Error starting pipeline
+MainWindow	"Could not start pipeline:
+{ $arg0 }"	"No se pudo inicializar el programa:
+{ $arg0 }"	Error starting pipeline
+MainWindow	Save Error	Error al guardar	Error while saving configuration
+MainWindow	"Could not save:
+{ $arg0 }"	"No se pudo guardar:
+{ $arg0 }"	Error while saving configuration
+PathPickerRow	Select directory	Seleccionar un directorio	Path selector placeholder
+PathPickerRow	Browse for directory.	Buscar directorio.	Path selector placeholder
+PathPickerRow	Choose screenshot directory	Elegir directorio de capturas de pantalla	Screenshot directory dialog title
+PresentationTab	Presentation	Presentación	Name of a settings tab
+PresentationTab	Overlay	Ventana de escalado	Settings section
+PresentationTab	Overlay mode	Modo de ventana	Label of setting (must be short)
+PresentationTab	"Overlay window behaviour:
+• always-on-top: always visible above other windows, keeps focus on the target window (recommended)
+• top-transparent: same as always-on-top, but click-through (mouse passes to window below)
+• fullscreen: covers entire monitor, keyboard may not reach the target window
+• windowed: normal window with decorations, keyboard may not reach the target window"	"Comportamiento de la ventana de escalado:
+• 'always-on-top': siempre visible encima de otras ventanas, mantiene el foco en la ventana de destino (recomendado)
+• 'top-transparent': igual que 'always-on-top', pero los clicks del mouse pasan a la ventana debajo
+• 'fullscreen': cubre todo el monitor, es posible que los eventos de teclado no lleguen a la ventana de destino
+• 'windowed': ventana normal con decoraciones, es posible que los eventos de teclado no lleguen a la ventana de destino"	Description of a setting (tooltip). Do not translate 'always-on-top', 'top-transparent', 'fullscreen', 'windowed': they are internal overlay mode identifiers.
+PresentationTab	Output geometry	Geometría de salida	Label of setting (must be short)
+PresentationTab	"How the upscaled content fits the overlay:
+• fit: show the entire image, adding black bars if necessary
+• stretch: fill the whole area, aspect ratio may be distorted
+• cover: fill the whole area and crop any excess"	"Cómo se ajusta el contenido a la ventana de escalado:
+• ajustar ('fit'): mostrar la imagen completa, añadiendo franjas negras si es necesario
+• estirar ('stretch'): llenar toda el área; aunque la relación de aspecto pueda verse distorsionada
+• cubrir ('cover'): llenar toda el área y recortar el exceso"	Description of a setting (tooltip). Do not translate 'fit', 'stretch', 'cover': they are internal output geometry identifiers.
+PresentationTab	Cursor	Cursor	Settings section
+PresentationTab	Hide cursor	Esconder cursor	Label of setting (must be short)
+PresentationTab	Automatically hide the mouse cursor after a period of inactivity.	Ocultar automáticamente el cursor del ratón tras un periodo de inactividad.	Description of a setting (tooltip)
+PresentationTab	Hide timeout (s)	Periodo de inactividad (s)	Label of setting (must be short)
+PresentationTab	"Time in seconds after which the cursor disappears.
+Set to 0.00 to always hide the cursor."	"Tiempo en segundos tras el cual desaparece el cursor.
+Un valor de 0.00 mantiene el cursor siempre oculto."	Description of a setting (tooltip)
+PresentationTab	Crop	Recorte de bordes	Settings section
+PresentationTab	Top	Superior	Crop border label
+PresentationTab	Pixels to crop from the top border of the target window.	Píxeles a recortar desde el borde superior de la ventana de destino.	Description of a setting (tooltip)
+PresentationTab	Bottom	Inferior	Crop border label
+PresentationTab	Pixels to crop from the bottom border of the target window.	Píxeles a recortar desde el borde inferior de la ventana de destino.	Description of a setting (tooltip)
+PresentationTab	Left	Izquierdo	Crop border label
+PresentationTab	Pixels to crop from the left border of the target window.	Píxeles a recortar desde el borde izquierdo de la ventana de destino.	Description of a setting (tooltip)
+PresentationTab	Right	Derecho	Crop border label
+PresentationTab	Pixels to crop from the right border of the target window.	Píxeles a recortar desde el borde derecho de la ventana de destino.	Description of a setting (tooltip)
+PresentationTab	Offset	Desplazamiento	Settings section
+PresentationTab	X offset	Eje X	Label of setting (must be short)
+PresentationTab	Y offset	Eje Y	Label of setting (must be short)
+PresentationTab	Horizontal offset in pixels (positive moves right, negative moves left).	Desplazamiento horizontal en píxeles (positivo mueve a la derecha, negativo mueve a la izquierda).	Description of a setting (tooltip)
+PresentationTab	Vertical offset in pixels (positive moves down, negative moves up).	Desplazamiento vertical en píxeles (positivo mueve hacia abajo, negativo mueve hacia arriba).	Description of a setting (tooltip)
+PresentationTab	Background color	Color de fondo	Settings section
+PresentationTab	Color	Color	Label of setting (must be short)
+PresentationTab	"Background color behind the upscaled image (letterbox bars).
+Supports transparency."	"Color de fondo detrás de la imagen escalada (franjas tipo ""letterbox"").
+Admite transparencia."	Description of a setting (tooltip)
+PresentationTab	Frame generation	Generación de cuadros	Settings section
+PresentationTab	Off	Apagado	Frame generation multiplier
+PresentationTab	Multiplier	Multiplicador	Label of setting (must be short)
+PresentationTab	Flow scale	Escala de flujo	Label of setting (must be short)
+PresentationTab	lsfg-vk is set up by environment variables (LSFGVK_*); this setting is ignored.	lsfg-vk está configurado con variables de entorno (LSFGVK_*); este ajuste se ignora.	Frame generation status
+PresentationTab	lsfg-vk is not installed.	lsfg-vk no está instalado.	Frame generation status
+PresentationTab	lsfg-vk.dll was not found. In Steam, switch Lossless Scaling to the 'lsfg-vk' branch (Properties, Betas).	No se encontró lsfg-vk.dll. En Steam, cambia Lossless Scaling a la rama 'lsfg-vk' (Propiedades, Betas).	Frame generation status
+PresentationTab	Save and restart LirtUp Forge to apply.	Guarda y reinicia LirtUp Forge para aplicarlo.	Frame generation status
+PresentationTab	Running at ×{ $arg0 }.	Activo en ×{ $arg0 }.	Frame generation status
+PresentationTab	Not running.	Inactivo.	Frame generation status
+PresentationTab	Smoother motion: shows up to N times the captured frame rate	Movimiento más fluido: muestra hasta N veces los fps capturados	Frame generation pro
+PresentationTab	Adds about one captured frame of latency (33 ms at 30 fps, 17 ms at 60 fps)	Suma cerca de un cuadro capturado de latencia (33 ms a 30 fps, 17 ms a 60 fps)	Frame generation con
+PresentationTab	Generated frames can smear HUD edges and fast motion	Los cuadros generados pueden emborronar bordes de la interfaz y movimientos rápidos	Frame generation con
+PresentationTab	Global setting: profiles cannot change it	Ajuste global: los perfiles no lo cambian	Frame generation con
+PresentationTab	Running at ×{ $arg0 }. Flow scale and model apply after a restart.	Activo en ×{ $arg0 }. La escala de flujo y el modelo se aplican tras reiniciar.	Frame generation status
+PresentationTab	Detect menu bar	Detectar barra de menú	Label of setting (must be short)
+PresentationTab	Experimental. Look for the menu bar that Windows programs draw below the title bar (under Wine) during the first seconds, and crop it on top of the Top value.	Experimental. Busca durante los primeros segundos la barra de menú que los programas de Windows dibujan debajo de la barra de título (con Wine) y la recorta, además del valor de Superior.	Description of a setting (tooltip)
+PresentationTab	lsfg-vk layer	Capa lsfg-vk	Frame generation engine
+PresentationTab	Built in (experimental)	Integrado (experimental)	Frame generation engine
+PresentationTab	Engine	Motor	Label of setting (must be short)
+PresentationTab	"lsfg-vk layer: the installed lsfg-vk Vulkan layer generates frames over the upscaler's window (needs lsfg-vk.dll).
+Built in: the upscaler runs the lsfg core itself on the same GPU and paces the frames (needs Lossless.dll; no layer).
+With heavy effects (such as the Anime4K UL ones) the layer keeps a higher frame rate: the built-in engine shares the GPU time of each frame with them.
+Read at startup: restart to apply."	"Capa lsfg-vk: la capa Vulkan de lsfg-vk instalada genera cuadros sobre la ventana del escalador (necesita lsfg-vk.dll).
+Integrado: el escalador ejecuta el núcleo de lsfg en la misma GPU y reparte los cuadros (necesita Lossless.dll; sin capa).
+Con efectos pesados (como los Anime4K UL) la capa mantiene más cuadros por segundo: el motor integrado comparte con ellos el tiempo de GPU de cada cuadro.
+Se lee al iniciar: reinicia para aplicarlo."	Description of a setting (tooltip)
+PresentationTab	The built-in engine is not part of this installation.	El motor integrado no está en esta instalación.	Frame generation status
+PresentationTab	Lossless.dll was not found. Install Lossless Scaling from Steam, or set the path of Lossless.dll.	No se encontró Lossless.dll. Instala Lossless Scaling desde Steam o indica la ruta de Lossless.dll.	Frame generation status
+PresentationTab	"Resolution at which lsfg estimates the motion between two frames, as a share of the output resolution.
+1.00 (default): full resolution, the most accurate motion and the heaviest for the GPU.
+Lower values are lighter and less precise on small or fast details; 0.50 to 0.75 is usually enough at 1440p and 4K."	"Resolución a la que lsfg estima el movimiento entre dos cuadros, como parte de la resolución de salida.
+1,00 (predeterminado): resolución completa, el movimiento más preciso y lo más pesado para la GPU.
+Los valores menores son más livianos y menos precisos en detalles chicos o rápidos; de 0,50 a 0,75 suele alcanzar en 1440p y 4K."	Description of a setting (tooltip)
+PresentationTab	Quality (LSFG 3.1)	Calidad (LSFG 3.1)	Frame generation model
+PresentationTab	Performance (LSFG 3.1P)	Rendimiento (LSFG 3.1P)	Frame generation model
+PresentationTab	Model	Modelo	Label of setting (must be short)
+PresentationTab	"The two models lsfg has.
+Quality (default): the full model, smoother results.
+Performance: a lighter model, faster on the GPU, with more artifacts around edges and fast motion."	"Los dos modelos que tiene lsfg.
+Calidad (predeterminado): el modelo completo, resultados más suaves.
+Rendimiento: un modelo más liviano, más rápido en la GPU, con más defectos en los bordes y el movimiento rápido."	Description of a setting (tooltip)
+PresentationTab	Maximum: motion estimated at { $arg0 }% of the output resolution. The most accurate and the heaviest for lsfg (default).	Máximo: movimiento estimado al { $arg0 }% de la resolución de salida. Lo más preciso y lo más pesado para lsfg (predeterminado).	Frame generation flow scale note; {0} is a percentage
+PresentationTab	High: motion estimated at { $arg0 }% of the output resolution. Close to the maximum, somewhat lighter.	Alto: movimiento estimado al { $arg0 }% de la resolución de salida. Cerca del máximo, algo más liviano.	Frame generation flow scale note; {0} is a percentage
+PresentationTab	Balanced: motion estimated at { $arg0 }% of the output resolution. Much lighter; small details move a bit less precisely. Good at 1440p and 4K.	Equilibrado: movimiento estimado al { $arg0 }% de la resolución de salida. Mucho más liviano; los detalles chicos se mueven con algo menos de precisión. Bueno en 1440p y 4K.	Frame generation flow scale note; {0} is a percentage
+PresentationTab	Low: motion estimated at { $arg0 }% of the output resolution. The lightest, with visible artifacts on fine or fast detail.	Bajo: movimiento estimado al { $arg0 }% de la resolución de salida. Lo más liviano, con defectos visibles en detalles finos o rápidos.	Frame generation flow scale note; {0} is a percentage
+PresentationTab	Auto	Auto	Frame generation multiplier
+PresentationTab	Auto needs the built-in engine; the lsfg-vk layer runs at ×{ $arg0 }.	Auto necesita el motor integrado; la capa lsfg-vk corre en ×{ $arg0 }.	Frame generation status
+PresentationTab	"Generate frames between the captured ones with lsfg-vk (Lossless Scaling Frame Generation).
+×4 turns 30 captured fps into 120 shown fps.
+Auto (built-in engine only) picks ×2 to ×5 from the game's frame rate so the output fits the display refresh, and changes it when the frame rate stays different for a few seconds.
+Read at startup: restart to apply."	"Genera cuadros entre los capturados con lsfg-vk (Lossless Scaling Frame Generation).
+×4 convierte 30 fps capturados en 120 fps mostrados.
+Auto (solo con el motor integrado) elige de ×2 a ×5 según los fps del juego para que la salida entre en el refresco de la pantalla, y lo cambia cuando los fps se mantienen distintos unos segundos.
+Se lee al iniciar: reinicia para aplicarlo."	Description of a setting (tooltip)
+PresentationTab	Measure on my GPU	Medir en mi GPU	Benchmark button
+PresentationTab	Measure what frame generation costs on this GPU (×2 to ×4, flow scale 1.0 and 0.5, both models).	Mide cuánto cuesta la generación de cuadros en esta GPU (×2 a ×4, escala de flujo 1,0 y 0,5, los dos modelos).	Description of a setting (tooltip)
+PresentationTab	Measured: {0:.1f} ms per real frame on this GPU.	Medido: {0:.1f} ms por cuadro real en esta GPU.	Frame generation cost
+PresentationTab	Measured: {0:.1f} to {1:.1f} ms per real frame on this GPU (×2 to ×4).	Medido: de {0:.1f} a {1:.1f} ms por cuadro real en esta GPU (×2 a ×4).	Frame generation cost
+PresentationTab	Not measured on this GPU with this flow scale and model yet.	Todavía no se midió en esta GPU con esta escala de flujo y este modelo.	Frame generation cost
+PresentationTab	Running with the automatic multiplier.	Activo con el multiplicador automático.	Frame generation status
+PresentationTab	Running with the automatic multiplier. Flow scale and model apply after a restart.	Activo con el multiplicador automático. La escala de flujo y el modelo se aplican tras reiniciar.	Frame generation status
+ProfileActions	Error	Error	Error dialog title
+ProfileActions	Could not add profile.	No se pudo añadir el perfil.	Error while adding profile
+ProfileActions	Could not duplicate profile.	No se pudo duplicar el perfil.	Error while duplicating profile
+ProfileActions	{ $arg0 } (copy)	{ $arg0 } (copia)	Suggested name for a duplicated profile. {0} is the source name.
+ProfileActions	{ $arg0 } (copy { $arg1 })	{ $arg0 } (copia { $arg1 })	Suggested name for a duplicated profile when the plain 'copy' name is taken. {0} is the source name, {1} is a counter.
+ProfileActions	Duplicate name	Nombre duplicado	Error dialog title
+ProfileActions	A profile named '{ $arg0 }' already exists.	Ya existe un perfil llamado '{ $arg0 }'.	Error while adding profile
+ProfileActions	Could not edit profile.	No se pudo editar el perfil.	Error while editing profile
+ProfileActions	Delete profile	Eliminar perfil	Dialog title
+ProfileActions	Delete the profile '{ $arg0 }'?	¿Eliminar el perfil '{ $arg0 }'?	Dialog main text
+ProfileActions	This action cannot be undone.	Esta acción no se puede deshacer.	Dialog secondary text
+ProfileActions	Delete	Eliminar	Dialog button
+ProfileActions	Cancel	Cancelar	Dialog button
+ProfileActions	Error	Error	Error window title
+ProfileActions	Could not delete profile.	No se pudo eliminar el perfil.	Error while deleting profile
+ProfileActions	Could not reorder profiles.	No se pudo reordenar los perfiles.	Error while reordering profiles
+ProfileDialog	New profile	Nuevo perfil	Window title of the profile creator
+ProfileDialog	Edit profile	Editar perfil	Window title of the profile editor
+ProfileDialog	Name	Nombre	Profile dialog label of profile 'Name'
+ProfileDialog	Profile name	Nombre de perfil	Profile name label
+ProfileDialog	A unique name for this profile. Required.	Un nombre único para este perfil. Obligatorio.	Tooltip of profile name text input
+ProfileDialog	Icon	Ícono	Label of Icon button
+ProfileDialog	Capture window	Capturar ventana	'Capture window' button
+ProfileDialog	Fill name, icon, and match rules from a window.	Completa el nombre, el ícono y las reglas de coincidencia desde una ventana.	Capture window tooltip
+ProfileDialog	Capture icon from window	Capturar ícono desde una ventana	Capture icon tooltip
+ProfileDialog	Load icon from file	Cargar ícono desde un archivo	Load icon tooltip
+ProfileDialog	Remove icon	Eliminar ícono	Remove icon tooltip
+ProfileDialog	Match rules	Reglas de coincidencia	Match rules group label
+ProfileDialog	"All filled rules must match for the profile to apply (AND logic).
+Examples:
+• Match any Firefox windows wider than 1280px:
+    • Title (exact): Firefox
+    • Width: >1280
+• Match any VLC window (regardless of its size):
+    • Title contains: VLC
+• Match emulator windows between 720px and 1080px tall:
+    • Title (regex): (Yuzu|Ryujinx).*
+    • Height: 720-1080"	"Todas las reglas definidas deben cumplirse para que se aplique el perfil (lógica AND).
+Ejemplos:
+• Coincide con cualquier ventana de Firefox de más de 1280 px de ancho:
+    • Título (exacto): Firefox
+    • Ancho: >1280
+• Coincide con cualquier ventana de VLC (independientemente de su tamaño):
+    • Título contiene: VLC
+• Coincide con ventanas de emuladores de entre 720 px y 1080 px de altura:
+    • Título (regex): (Yuzu|Ryujinx).*
+    • Alto: 720-1080"	Match rules tooltip
+ProfileDialog	Title (exact):	Título (exacto):	Match rule label
+ProfileDialog	e.g., Steam	ej., Steam	Match rule placeholder
+ProfileDialog	Match if the window title exactly equals this text (case-insensitive).	Coincide si el título de la ventana es exactamente igual a este texto (sin distinguir entre mayúsculas y minúsculas).	Match rule tooltip
+ProfileDialog	Title contains:	Título contiene:	Match rule label
+ProfileDialog	e.g., VLC	ej., VLC	Match rule placeholder
+ProfileDialog	Match if the window title contains this text (case-insensitive).	Coincide si el título de la ventana contiene este texto (sin distinguir entre mayúsculas y minúsculas).	Match rule tooltip
+ProfileDialog	Title (regex):	Título (regex):	Match rule label
+ProfileDialog	e.g., (Yuzu|Ryujinx).*	ej., (Yuzu|Ryujinx).*	Match rule placeholder
+ProfileDialog	Match if the window title matches this regular expression (case-insensitive).	Coincide si el título de la ventana coincide con esta expresión regular (sin distinguir entre mayúsculas y minúsculas).	Match rule tooltip
+ProfileDialog	Width:	Ancho:	Match rule label
+ProfileDialog	e.g., >1280	ej., >1280	Match rule placeholder
+ProfileDialog	"Match if the window width satisfies this condition:
+• Exact: 1920
+• Comparison: <800, >1024, <=1366, >=1920
+• Range: 1280-1920, 720..1080, 1024,1366"	"Coincide si el ancho de la ventana cumple esta condición:
+• Exacto: 1920
+• Comparación: <800, >1024, <=1366, >=1920
+• Rango: 1280-1920, 720..1080, 1024,1366"	Match rule tooltip
+ProfileDialog	Height:	Alto:	Match rule label
+ProfileDialog	e.g., >800	ej., >800	Match rule placeholder
+ProfileDialog	"Match if the window height satisfies this condition:
+• Exact: 1080
+• Comparison: <600, >900, <=768, >=1440
+• Range: 480-1080, 600..900, 720,1024"	"Coincide si la altura de la ventana cumple esta condición:
+• Exacta: 1080
+• Comparación: <600, >900, <=768, >=1440
+• Rango: 480-1080, 600..900, 720,1024"	Match rule tooltip
+ProfileDialog	"Profiles let you override settings for specific windows and setups.
+A profile is applied automatically when the upscaled window matches all the rules defined here, or when manually selected before upscaling.
+Profiles are checked top-to-bottom: the first match wins.
+Leave a rule blank to ignore that property."	"Los perfiles permiten definir una configuración para ventanas y configuraciones específicas.
+Un perfil se aplica automáticamente cuando la ventana escalada cumple todas las reglas definidas aquí, o cuando se selecciona manualmente antes del escalado.
+Los perfiles se evalúan de arriba a abajo: la primera coincidencia gana.
+Deja una regla en blanco para ignorar esa propiedad."	Profile note
+ProfileDialog	No icon	Sin ícono	No icon warning
+ProfileDialog	The selected window has no icon.	La ventana seleccionada no tiene icono.	No icon warning
+ProfileDialog	Select Icon	Selecciona un ícono	Select Icon dialog title
+ProfileDialog	Invalid image	Imagen no válida	Invalid image warning
+ProfileDialog	Could not load the selected file.	No se pudo cargar el archivo seleccionado.	Invalid image warning
+ProfileDialog	Missing name	Nombre faltante	Warning while saving a profile without name
+ProfileDialog	Profile name cannot be empty.	El nombre del perfil no puede estar vacío.	Warning while saving a profile without name
+ProfileDialog	Duplicate name	Nombre duplicado	Warning while saving a profile with an existing name
+ProfileDialog	"A profile named '{ $arg0 }' already exists.
+Please choose a different name."	"Ya existe un perfil llamado '{ $arg0 }'.
+Por favor, elige un nombre diferente."	Warning while saving a profile with an existing name
+ProfileDialog	Select icon	Seleccionar icono	Select icon dialog title
+ProfilesSidebar	Profiles	Perfiles	Profiles sidebar title
+ProfilesSidebar	Add profile (Ctrl+N)	Añadir perfil (Ctrl+N)	Profile add action tooltip
+ProfilesSidebar	Duplicate profile (Ctrl+D)	Duplicar perfil (Ctrl+D)	Profile duplicate action tooltip
+ProfilesSidebar	Edit profile (Enter/F2)	Editar perfil (Intro/F2)	Profile edit action tooltip
+ProfilesSidebar	Delete profile (Del)	Eliminar perfil (Supr)	Profile delete action tooltip
+ProfilesSidebar	Move up (Ctrl+Shift+Up)	Mover hacia arriba (Ctrl+Mayús+Arriba)	Profile move up action tooltip
+ProfilesSidebar	Move down (Ctrl+Shift+Down)	Mover hacia abajo (Ctrl+Mayús+Abajo)	Profile move down action tooltip
+ProfilesSidebar	Global	Global	Global entry profile name
+ProfilesSidebar	When selected, the settings panel on the right edits the global configuration.	Si está seleccionado, el panel de configuración de la derecha modifica la configuración global.	Global entry profile tooltip
+ProfilesSidebar	"Global settings apply to all windows.
+
+You can create a profile to override settings for a specific window, matched by its title or size."	"La configuración global se aplica a todas las ventanas.
+
+Puedes crear un perfil para definir la configuración de una ventana específica, coincidiendo por su título o tamaño."	No profile message
+ProfilesSidebar	When selected, the settings panel on the right edits the settings overrides for '{ $arg0 }'.	Si está seleccionado, el panel de configuración de la derecha define la configuración específica para '{ $arg0 }'.	Profile selected tooltip
+ScalingTab	Scaling	Escalado	Name of a settings tab
+ScalingTab	Sampler algorithm	Algoritmo de muestreo	Settings section
+ScalingTab	Upsampler	Sobremuestrador	Label of setting (must be short)
+ScalingTab	"Applied after SRCNN upscaling to reach the target output size (for example, 1440p → 4K).
+• Lanczos-2 — sharp, best for 2D art and text (recommended)
+• AMD FSR 1.0 — fast, best for 3D but may introduce artifacts on fine details
+• NVIDIA Image Scaling — oversharpens and introduces ringing, not recommended"	"Se aplica tras el escalado SRCNN para alcanzar el tamaño de salida deseado (ej., de 1440p a 4K).
+• Lanczos-2 — nítido; ideal para arte 2D y texto (recomendado).
+• AMD FSR 1.0 — rápido; ideal para 3D, aunque puede generar artefactos en detalles finos.
+• NVIDIA Image Scaling — tiene un contraste excesivo y provoca un efecto de halo (ringing), no recomendado."	Description of a setting (tooltip). Do not translate the filter names (Lanczos-2, Lanczos-3, FSR, NIS).
+ScalingTab	Downsampler	Submuestrador	Label of setting (must be short)
+ScalingTab	"Applied after SRCNN upscaling to reduce the image to the target output size (e.g., 1440p → 1080p).
+• Catmull-Rom (bicubic) — sharp and fast, excellent tradeoff for most cases (recommended)
+• Adaptive Lanczos — slower, best overall quality, handles extreme downscaling well"	"Se aplica tras el escalado SRCNN para reducir la imagen al tamaño de salida deseado (ej., de 1440p a 1080p).
+• Catmull-Rom (bicúbico) —  nítido y rápido, ofrece un equilibrio excelente para la mayoría de los casos (recomendado).
+• Lanczos adaptativo — más lento, pero con una mejor calidad en general; es ideal para submuestreos extremos."	Description of a setting (tooltip). Do not translate the filter names (Catmull-Rom, Adaptive Lanczos).
+ScalingTab	Sampler options	Opciones de muestreo	Settings section
+ScalingTab	Blur	Desenfoque	Label of setting (must be short)
+ScalingTab	"Kernel width (blur factor) for Lanczos and Catmull-Rom.
+Lower values are sharper but may ring; higher values are smoother.
+Recommended range: 0.8 - 1.2."	"Ancho del núcleo (factor de desenfoque) para Lanczos y Catmull-Rom.
+Valores más bajos producen mayor nitidez, pero pueden generar artefactos; valores más altos producen mayor suavidad.
+Rango recomendado: 0,8 - 1,2."	Description of a setting (tooltip)
+ScalingTab	Antiring strength	Anti-ringing	Label of setting (must be short)
+ScalingTab	"Anti-ringing strength (0.0 - 1.0) for Adaptive Lanczos and Catmull-Rom.
+Lower values preserve more detail but may allow ringing.
+Recommended range: 0.7 - 1.0."	"Intensidad del anti-ringing (0,0 - 1,0) para Lanczos adaptativo y Catmull-Rom.
+Los valores bajos conservan más detalle, pero pueden dejar halos.
+Rango recomendado: 0,7 - 1,0."	Description of a setting (tooltip)
+ScalingTab	Lanczos options	Opciones de Lanczos	Settings section
+ScalingTab	Tight antiring	Anti-ringing estricto	Label of setting (must be short)
+ScalingTab	"Use only the central 2x2 area for anti-ringing.
+Keeps thin text and line art sharp. Turn off if you see ringing on high-contrast edges."	"Usa solo el área central de 2x2 para el anti-ringing.
+Mantiene nítidos el texto fino y el trazo. Apágalo si ves halos en bordes de mucho contraste."	Description of a setting (tooltip)
+ScalingTab	Override Lanczos radius	Forzar radio de Lanczos	Label of setting (must be short)
+ScalingTab	"Force a specific Lanczos kernel radius instead of automatic selection.
+When off, the radius is chosen automatically (2 for upscaling, variable for downscaling)."	"Fuerza un radio de núcleo Lanczos en lugar de elegirlo solo.
+Apagado, el radio se elige automáticamente (2 al ampliar, variable al reducir)."	Description of a setting (tooltip)
+ScalingTab	Radius	Radio	Label of setting (must be short)
+ScalingTab	"Lanczos kernel radius (2 = standard Lanczos2, 3 = sharper 6-tap).
+Higher radii reduce aliasing but increase GPU load."	"Radio del núcleo Lanczos (2 = Lanczos2 estándar, 3 = 6 taps, más nítido).
+Los radios mayores reducen el aliasing, pero cargan más la GPU."	Description of a setting (tooltip)
+SettingsSidebar	General	General	Name of a settings tab
+SettingsSidebar	Scaling	Escalado	Name of a settings tab
+SettingsSidebar	Display	Pantalla	Name of a settings tab
+SettingsSidebar	Presentation	Presentación	Name of a settings tab
+SettingsSidebar	Effects	Efectos	Name of a settings tab
+SettingsSidebar	Advanced	Avanzado	Name of a settings tab
+SettingsSidebar	Extras	Extras	Name of a settings tab
+SettingsSidebar	Hotkeys	Atajos	Name of a settings tab
+SettingsSidebar	GUI Style	Estilo de la GUI	Name of a settings tab
+SettingsSidebar	Save profile	Guardar perfil	Save button
+SettingsSidebar	Save	Guardar	Save button
+SettingsSidebar	Reset	Restablecer	Reset button
+SettingsSidebar	Revert this tab	Deshacer los cambios de esta pestaña	Reset menu
+SettingsSidebar	Clear this tab profile overrides	Quitar los ajustes del perfil en esta pestaña	Reset menu
+SettingsSidebar	Restore this tab defaults	Volver esta pestaña a los valores predeterminados	Reset menu
+SettingsSidebar	Clear all profile overrides	Quitar todos los ajustes del perfil	Reset menu
+SettingsSidebar	Restore all to system defaults	Volver todo a los valores del sistema	Reset menu
+SettingsSidebar	Restore saved palette	Restaurar la paleta guardada	Reset menu
+SettingsSidebar	Restore saved interface	Restaurar la interfaz guardada	Reset menu
+SettingsSidebar	Restore default interface	Restaurar la interfaz predeterminada	Reset menu
+SettingsSidebar	Apply style	Aplicar estilo	Apply button
+SettingsSidebar	Reset style	Restablecer estilo	Reset button
+StyleTab	GUI Style	Estilo de la GUI	Name of a settings tab
+StyleTab	Background & surfaces	Fondos y superficies	Settings section
+StyleTab	Primary background	Fondo principal	Label of setting (must be short)
+StyleTab	Main background color of the application window and dialogs.	Color de fondo principal de la ventana y de los diálogos.	Description of a setting (tooltip)
+StyleTab	Input background	Fondo de campo	Label of setting (must be short)
+StyleTab	Background color of text fields, combo boxes, and editable areas.	Color de fondo de campos de texto, listas desplegables y áreas editables.	Description of a setting (tooltip)
+StyleTab	Input background (hover)	Fondo de campo (al pasar)	Label of setting (must be short)
+StyleTab	Background color when the mouse hovers over an input field.	Color de fondo cuando el mouse pasa sobre un campo.	Description of a setting (tooltip)
+StyleTab	Input background (disabled)	Fondo de campo (deshabilitado)	Label of setting (must be short)
+StyleTab	Background color for disabled (greyed-out) input fields.	Color de fondo de los campos deshabilitados (en gris).	Description of a setting (tooltip)
+StyleTab	Button background	Fondo de botón	Label of setting (must be short)
+StyleTab	Background color of buttons.	Color de fondo de los botones.	Description of a setting (tooltip)
+StyleTab	Button background (hover)	Fondo de botón (al pasar)	Label of setting (must be short)
+StyleTab	Background color of a button when the mouse hovers over it.	Color de fondo de un botón cuando el mouse pasa sobre él.	Description of a setting (tooltip)
+StyleTab	Caption background	Fondo de títulos	Label of setting (must be short)
+StyleTab	Semi-transparent background color of the central grid window titles.	Color de fondo semitransparente de los títulos de las ventanas en la cuadrícula central.	Description of a setting (tooltip)
+StyleTab	Text & icons	Texto e iconos	Settings section
+StyleTab	Primary text	Texto principal	Label of setting (must be short)
+StyleTab	Text color of body text and labels.	Color del texto principal y de las etiquetas.	Description of a setting (tooltip)
+StyleTab	Primary text (hover)	Texto principal (al pasar)	Label of setting (must be short)
+StyleTab	Text color when the mouse hovers over clickable items.	Color del texto cuando el mouse pasa sobre elementos que se pueden pulsar.	Description of a setting (tooltip)
+StyleTab	Secondary text	Texto secundario	Label of setting (must be short)
+StyleTab	Text color for secondary information, captions, and section headers.	Color de texto para información secundaria, leyendas y encabezados de sección.	Description of a setting (tooltip)
+StyleTab	Icon fill	Relleno de iconos	Label of setting (must be short)
+StyleTab	Fill color of sidebar and toolbar icons.	Color de relleno de los iconos de las barras laterales y de herramientas.	Description of a setting (tooltip)
+StyleTab	Borders & separators	Bordes y separadores	Settings section
+StyleTab	Border	Borde	Label of setting (must be short)
+StyleTab	Border color for input fields, buttons, and panels.	Color del borde de campos, botones y paneles.	Description of a setting (tooltip)
+StyleTab	Border (hover)	Borde (al pasar)	Label of setting (must be short)
+StyleTab	Border color when hovering over interactive elements.	Color del borde al pasar sobre elementos interactivos.	Description of a setting (tooltip)
+StyleTab	Controls & highlights	Controles y resaltados	Settings section
+StyleTab	Accent	Acento	Label of setting (must be short)
+StyleTab	Primary accent color for checkboxes, sliders and other interactive controls.	Color de acento principal de casillas, deslizadores y otros controles interactivos.	Description of a setting (tooltip)
+StyleTab	Accent (hover)	Acento (al pasar)	Label of setting (must be short)
+StyleTab	Accent color when the mouse hovers over an interactive control.	Color de acento cuando el mouse pasa sobre un control interactivo.	Description of a setting (tooltip)
+StyleTab	Reset button	Botón Restablecer	Label of setting (must be short)
+StyleTab	Background color of the 'Reset' button.	Color de fondo del botón «Restablecer».	Description of a setting (tooltip)
+StyleTab	Reset button (hover)	Botón Restablecer (al pasar)	Label of setting (must be short)
+StyleTab	'Reset' button background color on hover.	Color de fondo del botón «Restablecer» al pasar el mouse.	Description of a setting (tooltip)
+StyleTab	Handle	Control	Label of setting (must be short)
+StyleTab	Fill color of scrollbar handles and other small controls.	Color de relleno de las barras de desplazamiento y otros controles chicos.	Description of a setting (tooltip)
+StyleTab	Handle (hover)	Control (al pasar)	Label of setting (must be short)
+StyleTab	Fill color of scrollbar handles when hovered.	Color de relleno de las barras de desplazamiento al pasar el mouse.	Description of a setting (tooltip)
+StyleTab	Interface	Interfaz	Settings section
+StyleTab	Zoom (%)	Zoom (%)	Label of setting (must be short)
+StyleTab	Scales the entire interface.	Escala toda la interfaz.	Description of a setting (tooltip)
+StyleTab	Font scale (%)	Escala de fuente (%)	Label of setting (must be short)
+StyleTab	Multiplies every text size in the interface. Unlike zoom, this affects only fonts, not layout.	Multiplica todos los tamaños de texto de la interfaz. A diferencia del zoom, solo cambia las fuentes, no la disposición.	Description of a setting (tooltip)
+StyleTab	Font family	Fuente	Label of setting (must be short)
+StyleTab	Interface font. Leave at the system default for the best integration with your desktop.	Fuente de la interfaz. Déjala en la del sistema para que se integre mejor con tu escritorio.	Description of a setting (tooltip)
+StyleTab	Palette	Paleta	Settings section
+StyleTab	Preset	Predefinido	Label of setting (must be short)
+StyleTab	Select a pre-built color scheme for the GUI.	Elige un esquema de colores predefinido para la GUI.	Description of a setting (tooltip). Preset names are not translated.
+StyleTab	Sidebars	Barras laterales	Settings section
+StyleTab	Profiles sidebar width	Ancho de la barra de perfiles	Label of setting (must be short)
+StyleTab	Width in pixels of the left profiles sidebar.	Ancho en píxeles de la barra izquierda de perfiles.	Description of a setting (tooltip)
+StyleTab	Settings sidebar width	Ancho de la barra de ajustes	Label of setting (must be short)
+StyleTab	Width in pixels of the right settings sidebar.	Ancho en píxeles de la barra derecha de ajustes.	Description of a setting (tooltip)
+StyleTab	Window Grid	Cuadrícula de ventanas	Settings section
+StyleTab	Columns	Columnas	Label of setting (must be short)
+StyleTab	Number of window preview tiles per row.	Cantidad de mosaicos de vista previa por fila.	Description of a setting (tooltip)
+StyleTab	Aspect ratio	Relación de aspecto	Label of setting (must be short)
+StyleTab	Shape of each window preview tile.	Forma de cada mosaico de vista previa.	Description of a setting (tooltip)
+StyleTab	Performance	Rendimiento	Settings section
+StyleTab	Refresh (ms)	Actualización (ms)	Label of setting (must be short)
+StyleTab	"How often the window list is rescanned for new or closed windows.
+Lower values are more responsive but use more CPU."	"Cada cuánto se vuelve a recorrer la lista de ventanas en busca de nuevas o cerradas.
+Los valores bajos responden antes, pero usan más CPU."	Description of a setting (tooltip)
+StyleTab	Preview (ms)	Vista previa (ms)	Label of setting (must be short)
+StyleTab	"How often each tile's live preview is refreshed.
+Lower values result in smoother previews but use more CPU."	"Cada cuánto se actualiza la vista previa en vivo de cada mosaico.
+Los valores bajos dan vistas más fluidas, pero usan más CPU."	Description of a setting (tooltip)
+TrayController	Unknown	Desconocido	Fallback if no window title was found
+TrayController	Stop	Detener	Stop action for tray icon menu
+TrayController	Hide	Esconder	Hide action for tray icon menu
+TrayController	Show	Mostrar	Show action for tray icon menu
+TrayController	Daemon mode	Modo daemon	Daemon mode toggle for tray icon menu
+TrayController	Close to tray	Cerrar a la bandeja	Tray menu option
+TrayController	Minimize to tray	Minimizar a la bandeja	Tray menu option
+TrayController	Start hidden	Empezar oculto	Tray menu option
+TrayController	Keep running after exit	Seguir ejecutándose tras salir	Tray menu option
+TrayController	Exit	Salir	
+TrayController	"Upscaling: '{ $arg0 }'.
+Use Stop from the tray menu to return."	"Escalando: '{ $arg0 }'.
+Utilice «Detener» en el menú de la bandeja para volver."	Tray message if a window was already being upscaled. {0} is the window title placeholder.
+TrayController	"Upscaling in progress.
+Use Stop from the tray menu to return."	"Escalado en curso.
+Utilice «Detener» en el menú de la bandeja para volver."	Tray message if a window was already being upscaled and no window title was available to show.
+TrayController	Profile	Perfil	Tray submenu
+TrayController	Restart	Reiniciar	Tray menu: restart upscaling with current settings
+TrayController	Upscale the same window again with the current settings.	Vuelve a escalar la misma ventana con los ajustes actuales.	Tray menu tooltip
+TrayController	Global (auto-match)	Global (perfil automático)	Tray menu: global settings, no profile
+TrayController	Switch to	Cambiar a	Tray submenu: upscale another window
+TrayController	Upscaling: { $arg0 }	Escalando: { $arg0 }	Tray menu header; {0} is a window title
+TrayController	Frame generation	Generación de cuadros	Tray submenu (lsfg-vk)
+TrayController	Set by LSFGVK_* variables	Definida por variables LSFGVK_*	Tray menu: frame generation note
+TrayController	lsfg-vk is not installed	lsfg-vk no está instalado	Tray menu note
+TrayController	lsfg-vk.dll not found	No se encontró lsfg-vk.dll	Tray menu note
+TrayController	Off	Apagada	Tray menu: frame generation off
+TrayController	Choosing one restarts LirtUp Forge	Elegir una reinicia LirtUp Forge	Tray menu note
+TrayController	Built-in engine not installed	Motor integrado no instalado	Tray menu note
+TrayController	Lossless.dll not found	No se encontró Lossless.dll	Tray menu note
+TrayController	Auto	Auto	Tray menu: automatic frame generation
+TrayController	Auto needs the built-in engine	Auto necesita el motor integrado	Tray menu note
+WindowGridManager	Error	Error	Error warning while enumerating windows
+WindowGridManager	Could not enumerate windows.	No se pudieron enumerar las ventanas.	Error warning while enumerating windows
+WindowPickerDialog	Select Window	Selección de ventana	Select Window dialog title
+WindowPickerDialog	Filter windows	Filtrar ventanas	Filter windows placeholder
+WindowPickerDialog	Error	Error	Could not list windows error
+WindowPickerDialog	Could not list windows.	No se pudieron listar ventanas.	Could not list windows error
+WindowPickerDialog	No selection	Ventana no seleccionada	No window selected warning title
+WindowPickerDialog	Select a window first.	Seleccione una ventana primero.	No window selected warning
+BenchDialog	An upscaling session (or daemon mode) is running. Stop it to measure: both would share the GPU and the times would be wrong.	Hay una sesión de escalado (o el modo daemon) en curso. Detenla para medir: las dos compartirían la GPU y los tiempos saldrían mal.	Benchmark dialog
+BenchDialog	Cancel	Cancelar	Benchmark button
+BenchDialog	Cancelled.	Cancelado.	Benchmark dialog
+BenchDialog	Cancelled. The cases already measured were saved.	Cancelado. Se guardaron los casos ya medidos.	Benchmark dialog
+BenchDialog	Cancelling…	Cancelando…	Benchmark dialog
+BenchDialog	Cannot start the measurement.	No se puede iniciar la medición.	Benchmark dialog
+BenchDialog	Close	Cerrar	Close button
+BenchDialog	Done. Results saved.	Listo. Resultados guardados.	Benchmark dialog
+BenchDialog	Effect	Efecto	Benchmark table
+BenchDialog	Effects read the input size and render scaling effects at the output size; frame generation runs at the output size.	Los efectos leen el tamaño de entrada y los que escalan dibujan al tamaño de salida; la generación de cuadros corre al tamaño de salida.	Benchmark dialog
+BenchDialog	Engine	Motor	Benchmark table
+BenchDialog	Frame generation	Generación de cuadros	Benchmark section
+BenchDialog	Input	Entrada	Benchmark image size
+BenchDialog	Lossless.dll was not found: set it in the Presentation tab to measure frame generation.	No se encontró Lossless.dll: indícalo en la pestaña Presentación para medir la generación de cuadros.	Benchmark dialog
+BenchDialog	Magpie effects	Efectos de Magpie	Benchmark section
+BenchDialog	MagpieFX	MagpieFX	Magpie effects engine
+BenchDialog	Measure on my GPU	Medir en mi GPU	Benchmark dialog title
+BenchDialog	Measuring on { $arg0 }…	Midiendo en { $arg0 }…	Benchmark dialog
+BenchDialog	Measuring { $arg0 } ({ $arg1 } of { $arg2 })…	Midiendo { $arg0 } ({ $arg1 } de { $arg2 })…	Benchmark dialog
+BenchDialog	Native	Nativo	Magpie effects engine
+BenchDialog	Nothing measured on this GPU yet.	Todavía no se midió nada en esta GPU.	Benchmark dialog
+BenchDialog	Output	Salida	Benchmark image size
+BenchDialog	Runs each effect and the built-in frame generation on a test image and measures the GPU time per frame. The results are saved for this GPU and shown instead of the reference times.	Corre cada efecto y la generación de cuadros integrada sobre una imagen de prueba y mide el tiempo de GPU por cuadro. Los resultados se guardan para esta GPU y se muestran en lugar de los tiempos de referencia.	Benchmark dialog
+BenchDialog	Saved results for { $arg0 } ({ $arg1 }).	Resultados guardados de { $arg0 } ({ $arg1 }).	Benchmark dialog
+BenchDialog	Start	Iniciar	Benchmark button
+BenchDialog	Starting…	Iniciando…	Benchmark dialog
+BenchDialog	The built-in frame generation is not built in this installation.	La generación de cuadros integrada no está en esta instalación.	Benchmark dialog
+BenchDialog	The measurement failed: { $arg0 }	La medición falló: { $arg0 }	Benchmark dialog
+BenchDialog	The measurement stopped (code { $arg0 }). { $arg1 }	La medición se detuvo (código { $arg0 }). { $arg1 }	Benchmark dialog
+BenchDialog	failed	falló	Benchmark result
+BenchDialog	ms/frame	ms/cuadro	Benchmark table
+BenchDialog	p95	p95	Benchmark table
