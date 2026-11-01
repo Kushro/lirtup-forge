@@ -52,8 +52,9 @@ coverage.xml
 .pytest_cache/
 cover/
 
-# Translations
+# Translations (the GUI's .qm files are committed)
 *.qm
+!src/upscaler/gui/locale/*.qm
 *.mo
 *.pot
 

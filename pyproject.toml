@@ -62,6 +62,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "upscaler.capture" = ["lib/*.c", "lib/*.h"]
 "upscaler.gui.icons" = ["*.svg", "**/*.svg"]
+"upscaler.gui" = ["locale/*.qm"]
 "upscaler.magpiefx" = [
     "effects/**/*.hlsl",
     "effects/**/*.hlsli",
