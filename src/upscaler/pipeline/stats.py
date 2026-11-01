@@ -13,7 +13,7 @@ import struct
 import threading
 import time
 from collections import deque
-from typing import Callable, Deque, Dict, List, Optional, Tuple
+from typing import Callable, Deque, Dict, List, Optional, Tuple, Union
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -22,8 +22,9 @@ from ..vulkan import Buffer, Compute, Texture2D
 
 logger = logging.getLogger(__name__)
 
-# A panel row: (label, value). An empty label continues the previous row.
-StatsRow = Tuple[str, str]
+# A panel row: (label, value), or (label, value, warning) to draw it in the
+# warning color. An empty label continues the previous row.
+StatsRow = Union[Tuple[str, str], Tuple[str, str, bool]]
 
 UPDATE_INTERVAL = 0.5  # seconds between panel refreshes
 _WINDOW = 1.0  # seconds of history behind each rate
@@ -32,7 +33,32 @@ _MARGIN = 12  # pixels from the top-left corner of the screen
 _FONTS = ("DejaVuSansMono.ttf", "LiberationMono-Regular.ttf", "NotoSansMono-Regular.ttf")
 _LABEL_COLOR = (150, 200, 255, 255)
 _VALUE_COLOR = (255, 255, 255, 255)
+_WARNING_COLOR = (255, 110, 90, 255)
 _BG_COLOR = (0, 0, 0, 170)
+# Below this game frame rate (a still image) the GPU budget is not checked
+_MIN_BUDGET_FPS = 5.0
+
+
+def gpu_budget_warning(
+    effects: List[Tuple[str, Optional[float]]], game_fps: float
+) -> Optional[str]:
+    """
+    A warning when the effects take longer on the GPU than the game takes
+    to draw a frame (they cannot keep up), naming the heaviest one.
+    *effects* holds (name, GPU ms or None) pairs.
+    """
+    timed = [(name, ms) for name, ms in effects if ms is not None]
+    if game_fps < _MIN_BUDGET_FPS or not timed:
+        return None
+    budget = 1000.0 / game_fps
+    total = sum(ms for _, ms in timed)
+    if total <= budget:
+        return None
+    heaviest = max(timed, key=lambda e: e[1])[0]
+    return (
+        f"{total:.1f} ms > {budget:.1f} ms per game frame: "
+        f"try a lighter effect than {heaviest}"
+    )
 
 
 class _Rate:
@@ -226,8 +252,8 @@ class StatsHUD:
         line_h = int(self._font_size * 1.35)
 
         probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-        label_w = max((probe.textlength(l, font=font) for l, _ in rows), default=0)
-        value_w = max((probe.textlength(v, font=font) for _, v in rows), default=0)
+        label_w = max((probe.textlength(r[0], font=font) for r in rows), default=0)
+        value_w = max((probe.textlength(r[1], font=font) for r in rows), default=0)
         width = int(pad * 2 + label_w + gap + value_w)
         height = int(pad * 2 + line_h * len(rows))
 
@@ -235,11 +261,15 @@ class StatsHUD:
         draw = ImageDraw.Draw(img)
         draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=pad, fill=_BG_COLOR)
         x_value = pad + label_w + gap
-        for i, (label, value) in enumerate(rows):
+        for i, row in enumerate(rows):
+            label, value = row[0], row[1]
+            warning = len(row) > 2 and row[2]
             y = pad + i * line_h
             if label:
-                draw.text((pad, y), label, font=font, fill=_LABEL_COLOR)
-            draw.text((x_value, y), value, font=font, fill=_VALUE_COLOR)
+                fill = _WARNING_COLOR if warning else _LABEL_COLOR
+                draw.text((pad, y), label, font=font, fill=fill)
+            fill = _WARNING_COLOR if warning else _VALUE_COLOR
+            draw.text((x_value, y), value, font=font, fill=fill)
         return img
 
     def _upload(self, img: Image.Image) -> Texture2D:

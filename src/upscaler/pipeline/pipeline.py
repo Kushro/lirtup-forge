@@ -15,7 +15,7 @@ from .controller import PipelineController
 from .osd import OSDManager
 from .presenter import Presenter
 from .menubar import detect_menu_bar
-from .stats import StatsHUD, StatsRow
+from .stats import StatsHUD, StatsRow, gpu_budget_warning
 from .swapchain import SwapchainManager
 from .upscale import UpscalerLike, create_upscaler_like
 from .utils import collect_dirty_tile_coords, extract_expanded_tiles
@@ -870,6 +870,12 @@ class Pipeline(QObject):
             rows.append(("Effects" if i == 0 else "", f"{name}{gpu(label)}"))
         if effects:
             rows.append(("", f"({engine})"))
+            warning = gpu_budget_warning(
+                [(name, self.stats.gpu_ms(label)) for name, label in effects],
+                new_frames,
+            )
+            if warning:
+                rows.append(("GPU", warning, True))
 
         rows.append(
             (
