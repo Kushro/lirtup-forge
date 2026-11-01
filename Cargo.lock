@@ -2532,6 +2532,7 @@ version = "2.0.0-alpha.0"
 dependencies = [
  "arc-swap",
  "crossbeam-channel",
+ "libc",
  "lirtup-config",
  "lirtup-fg",
  "lirtup-gpu",
@@ -2550,6 +2551,7 @@ name = "lirtup-effects"
 version = "2.0.0-alpha.0"
 dependencies = [
  "ab_glyph",
+ "image",
  "lirtup-config",
  "lirtup-gpu",
  "serde",
@@ -2612,6 +2614,8 @@ dependencies = [
  "lirtup-magpiefx",
  "lirtup-proto",
  "lirtup-x11",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tracing",
 ]

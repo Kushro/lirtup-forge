@@ -156,3 +156,6 @@ config.yaml
 **/dummy.c
 ### Rust ###
 /target/
+
+# Parity references: generated per GPU by scripts/rust-parity-refs.py
+crates/*/tests/fixtures/parity/refs/
