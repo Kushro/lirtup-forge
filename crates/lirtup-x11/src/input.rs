@@ -1,6 +1,7 @@
 //! Input forwarding from the overlay to the target window
 //! (`overlay/forwarder.py`, `X11EventForwarder` and `CoordinateMapper`).
 
+use lirtup_config::{Hotkey, HotkeyAction};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
     BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ButtonPressEvent, ConnectionExt as _, ENTER_NOTIFY_EVENT,
@@ -51,12 +52,12 @@ impl CoordinateMapper {
     }
 }
 
-/// Replays overlay events on the target with `SendEvent` (and XTest where
-/// `SendEvent` is ignored). `Send`; its own connection.
+/// Replays overlay events on the target with `SendEvent`. `Send`; its own
+/// connection.
 ///
-/// Round 1 sends synthetic events only (what 1.x does); programs that drop
-/// `send_event` events (some SDL and Wine builds) need XTest, which moves the
-/// real pointer and is left for round 2.
+/// Synthetic events only, as 1.x. Programs that drop `send_event` events
+/// (some SDL and Wine builds) would need XTest, which moves the real
+/// pointer; round 2 decided to add it only if a game in the tests needs it.
 pub struct InputForwarder {
     conn: RustConnection,
     root: u32,
@@ -87,10 +88,47 @@ impl InputForwarder {
         })
     }
 
+    /// Forward to another window from now on (the pointer leaves the old
+    /// one first).
+    pub fn set_target(&mut self, target: u32) -> Result<()> {
+        if target == self.target {
+            return Ok(());
+        }
+        let left = self.leave(0, x11rb::CURRENT_TIME);
+        self.target = target;
+        self.origin = None;
+        self.inside = false;
+        // The old target may be gone already.
+        match left {
+            Err(X11Error::NoWindow(_)) => Ok(()),
+            other => other,
+        }
+    }
+
     /// Update the mapping (geometry, zoom or offset changed).
     pub fn set_mapper(&mut self, mapper: CoordinateMapper) {
         self.mapper = mapper;
         self.origin = None;
+    }
+
+    /// The hotkeys among `bindings`, matched against key presses on the
+    /// overlay (which may hold the keyboard focus where the global grab does
+    /// not see them: a binding another program grabbed, for one).
+    pub fn hotkey_matcher(&self, bindings: &[(HotkeyAction, Hotkey)]) -> Result<HotkeyMatcher> {
+        let mut keys = Vec::new();
+        for (action, hotkey) in bindings {
+            let Some(keysym) = crate::hotkeys::keysym_for(&hotkey.key) else {
+                continue;
+            };
+            for keycode in crate::hotkeys::keycodes_for(&self.conn, keysym)? {
+                keys.push(HotkeyKey {
+                    modifiers: hotkey.modifiers.0 & MODIFIER_BITS & !LOCK_BITS,
+                    keycode,
+                    action: *action,
+                });
+            }
+        }
+        Ok(HotkeyMatcher { keys })
     }
 
     /// Forward one event; events that do not map are dropped.
@@ -267,6 +305,43 @@ impl InputForwarder {
     }
 }
 
+/// Modifier bits that count (Shift, Lock, Control, Mod1–Mod5).
+const MODIFIER_BITS: u16 = 0x00FF;
+/// CapsLock, NumLock (Mod2) and ScrollLock (Mod5): ignored, as the global
+/// hotkeys do.
+const LOCK_BITS: u16 = 0x0002 | 0x0010 | 0x0080;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HotkeyKey {
+    modifiers: u16,
+    keycode: u8,
+    action: HotkeyAction,
+}
+
+/// Key presses on the overlay → hotkey actions (from
+/// [`InputForwarder::hotkey_matcher`]). The keyboard layout is read once.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HotkeyMatcher {
+    keys: Vec<HotkeyKey>,
+}
+
+impl HotkeyMatcher {
+    /// The action of a key press with modifier `state`, if any: exact
+    /// modifiers once the lock bits are off.
+    pub fn matches(&self, keycode: u8, state: u16) -> Option<HotkeyAction> {
+        let state = state & MODIFIER_BITS & !LOCK_BITS;
+        self.keys
+            .iter()
+            .find(|k| k.keycode == keycode && k.modifiers == state)
+            .map(|k| k.action)
+    }
+
+    /// No hotkey to match.
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+}
+
 fn clamp_i16(v: i32) -> i16 {
     v.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
 }
@@ -305,6 +380,31 @@ mod tests {
         assert_eq!(m.to_target(1600, 500), None);
         assert_eq!(m.to_target(800, 900), None);
         assert_eq!(CoordinateMapper::default().to_target(0, 0), None);
+    }
+
+    #[test]
+    fn hotkeys_match_with_locks_ignored() {
+        let m = HotkeyMatcher {
+            keys: vec![HotkeyKey {
+                // Alt (Mod1) + Shift.
+                modifiers: 0x0008 | 0x0001,
+                keycode: 39,
+                action: HotkeyAction::Screenshot,
+            }],
+        };
+        assert_eq!(m.matches(39, 0x0009), Some(HotkeyAction::Screenshot));
+        // NumLock and CapsLock on.
+        assert_eq!(
+            m.matches(39, 0x0009 | 0x0010 | 0x0002),
+            Some(HotkeyAction::Screenshot)
+        );
+        // A button held (bit 8 and up) does not count.
+        assert_eq!(m.matches(39, 0x0009 | 0x0100), Some(HotkeyAction::Screenshot));
+        // Missing or extra modifiers.
+        assert_eq!(m.matches(39, 0x0008), None);
+        assert_eq!(m.matches(39, 0x0009 | 0x0004), None);
+        assert_eq!(m.matches(40, 0x0009), None);
+        assert!(HotkeyMatcher::default().is_empty());
     }
 
     #[test]

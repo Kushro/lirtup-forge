@@ -16,18 +16,47 @@
 //!
 //! [`PresentSurface::create`] is already written (reviewer, round 2
 //! skeleton): it is the only `unsafe` of this crate.
+//!
+//! # The overlay thread
+//!
+//! It waits on the window's X events in short slices
+//! ([`EVENT_SLICE`]) and applies the [`OverlayCommand`]s between them, so a
+//! command waits at most one slice and the pointer never waits for a frame.
+//! Key presses that match a session hotkey become [`OverlayNotice::Hotkey`]
+//! and are not forwarded (nor their release). Everything else that maps to
+//! the content goes to the target with `SendEvent`.
+//!
+//! The X connection is the window's own, shared with the swapchain (the
+//! Vulkan WSI uses it from the presenting threads; libxcb is thread-safe).
 
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lirtup_config::{HotkeyAction, OverlayMode};
 use lirtup_gpu::{
     Device, Format, PresentMode, PresentOptions, PresentStatus, Swapchain, SwapchainDesc, Texture, XcbTarget,
 };
-use lirtup_x11::{CoordinateMapper, OverlayOptions, OverlaySurface, Rect};
+use lirtup_proto::Stage;
+use lirtup_x11::input::HotkeyMatcher;
+use lirtup_x11::{
+    CoordinateMapper, InputForwarder, OverlayEvent, OverlayOptions, OverlaySurface, OverlayWindow, Rect,
+    X11Error,
+};
 
-use crate::Result;
+use crate::{PipelineError, Result};
+
+/// The longest the overlay thread waits for X events before it looks at its
+/// commands again.
+pub const EVENT_SLICE: Duration = Duration::from_millis(4);
+
+/// After `SetMode`, how long to wait for the window manager's
+/// `ConfigureNotify` before reporting the geometry as it is.
+const CONFIGURE_GRACE: Duration = Duration::from_millis(250);
+
+/// How long dropping an [`OverlayThread`] waits for it.
+const DROP_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// What the session thread asks of the overlay window.
 #[derive(Debug, Clone, PartialEq)]
@@ -53,8 +82,16 @@ pub enum OverlayCommand {
     SetOpacity(f32),
     /// Show or hide the window (`ToggleScaling` pauses with it hidden).
     SetVisible(bool),
-    /// Show or hide the cursor over the overlay (`hide_cursor`).
+    /// Show or hide the cursor over the overlay. Hidden wins over
+    /// [`OverlayCommand::HideCursorAfter`].
     SetCursorVisible(bool),
+    /// `hide_cursor`: hide the cursor after this long without pointer
+    /// motion over the overlay, show it again on the next motion (`None` =
+    /// never hide it).
+    HideCursorAfter(Option<Duration>),
+    /// Forward input to another window (`SwitchWindow`, `follow_focus`)
+    /// without making a new overlay.
+    SetTarget(u32),
     /// Where the scaled content is now: input is mapped through it. Sent
     /// after every change of the content rect (zoom, offset, resize).
     SetMapper(CoordinateMapper),
@@ -87,7 +124,11 @@ pub enum OverlayNotice {
 
 /// The overlay window thread. Dropping it sends `Close` and joins.
 pub struct OverlayThread {
-    _private: (),
+    surface: OverlaySurface,
+    rect: Arc<Mutex<Rect>>,
+    commands: Sender<OverlayCommand>,
+    notices: Receiver<OverlayNotice>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl OverlayThread {
@@ -100,33 +141,301 @@ impl OverlayThread {
         options: OverlayOptions,
         hotkeys: Vec<(HotkeyAction, lirtup_config::Hotkey)>,
     ) -> Result<OverlayThread> {
-        todo!("front K")
+        let (command_tx, command_rx) = crossbeam_channel::unbounded();
+        let (notice_tx, notice_rx) = crossbeam_channel::unbounded();
+        let (ready_tx, ready_rx) = crossbeam_channel::bounded(1);
+        let rect = Arc::new(Mutex::new(options.rect));
+        let thread_rect = Arc::clone(&rect);
+        let thread = std::thread::Builder::new()
+            .name("lirtup-overlay".into())
+            .spawn(move || {
+                let mut overlay = match Overlay::new(&options, &hotkeys, thread_rect) {
+                    Ok(overlay) => overlay,
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(e));
+                        return;
+                    }
+                };
+                let _ = ready_tx.send(Ok((overlay.window.surface(), overlay.window.rect())));
+                overlay.run(&command_rx, &notice_tx);
+            })
+            .map_err(|e| {
+                PipelineError::other(Stage::Overlay, format!("cannot start the overlay thread: {e}"))
+            })?;
+        let (surface, initial) = match ready_rx.recv() {
+            Ok(Ok(ready)) => ready,
+            Ok(Err(e)) => {
+                let _ = thread.join();
+                return Err(e);
+            }
+            Err(_) => {
+                let _ = thread.join();
+                return Err(PipelineError::other(Stage::Overlay, "the overlay thread ended"));
+            }
+        };
+        *rect.lock().unwrap_or_else(PoisonError::into_inner) = initial;
+        Ok(OverlayThread {
+            surface,
+            rect,
+            commands: command_tx,
+            notices: notice_rx,
+            thread: Some(thread),
+        })
     }
 
     /// The window's surface (connection and id).
     pub fn surface(&self) -> &OverlaySurface {
-        todo!("front K")
+        &self.surface
     }
 
     /// The window's last known geometry.
     pub fn rect(&self) -> Rect {
-        todo!("front K")
+        *self.rect.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Send a command. `false` if the thread has ended.
     pub fn send(&self, command: OverlayCommand) -> bool {
-        todo!("front K")
+        self.commands.send(command).is_ok()
     }
 
     /// Notices, to poll between frames (`try_recv`), or to wait on with
     /// `select!` while the session is paused.
     pub fn notices(&self) -> &Receiver<OverlayNotice> {
-        todo!("front K")
+        &self.notices
     }
 
     /// Close the window and wait for the thread at most `timeout`.
-    pub fn close(self, timeout: Duration) {
-        todo!("front K")
+    pub fn close(mut self, timeout: Duration) {
+        self.join(timeout);
+    }
+
+    fn join(&mut self, timeout: Duration) {
+        let Some(thread) = self.thread.take() else { return };
+        let _ = self.commands.send(OverlayCommand::Close);
+        let deadline = Instant::now() + timeout;
+        while !thread.is_finished() {
+            if Instant::now() >= deadline {
+                tracing::warn!("the overlay thread did not stop in {timeout:?}; leaving it");
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let _ = thread.join();
+    }
+}
+
+impl Drop for OverlayThread {
+    fn drop(&mut self) {
+        self.join(DROP_TIMEOUT);
+    }
+}
+
+/// What the overlay thread owns.
+struct Overlay {
+    window: OverlayWindow,
+    forwarder: InputForwarder,
+    hotkeys: HotkeyMatcher,
+    rect: Arc<Mutex<Rect>>,
+    /// Keycode of a hotkey press, whose release is not forwarded either.
+    swallowed: Option<u8>,
+    /// A `SetMode` waits for its `Configure` until then.
+    configure_due: Option<Instant>,
+    /// The target is gone (logged once).
+    target_gone: bool,
+    /// `SetCursorVisible(false)`.
+    cursor_forced_hidden: bool,
+    /// `HideCursorAfter`.
+    cursor_idle: Option<Duration>,
+    /// The idle timer hid the cursor.
+    cursor_idle_hidden: bool,
+    last_motion: Instant,
+}
+
+/// An X11 error of the overlay, as the session reports it.
+fn overlay_error(e: X11Error) -> PipelineError {
+    PipelineError::other(Stage::Overlay, e.to_string())
+}
+
+impl Overlay {
+    fn new(
+        options: &OverlayOptions,
+        hotkeys: &[(HotkeyAction, lirtup_config::Hotkey)],
+        rect: Arc<Mutex<Rect>>,
+    ) -> Result<Overlay> {
+        let window = OverlayWindow::create(options).map_err(overlay_error)?;
+        let forwarder = InputForwarder::new(options.target).map_err(overlay_error)?;
+        let hotkeys = forwarder.hotkey_matcher(hotkeys).unwrap_or_else(|e| {
+            tracing::warn!("overlay: no hotkeys over the overlay: {e}");
+            HotkeyMatcher::default()
+        });
+        Ok(Overlay {
+            window,
+            forwarder,
+            hotkeys,
+            rect,
+            swallowed: None,
+            configure_due: None,
+            target_gone: false,
+            cursor_forced_hidden: false,
+            cursor_idle: None,
+            cursor_idle_hidden: false,
+            last_motion: Instant::now(),
+        })
+    }
+
+    fn run(&mut self, commands: &Receiver<OverlayCommand>, notices: &Sender<OverlayNotice>) {
+        loop {
+            loop {
+                match commands.try_recv() {
+                    Ok(OverlayCommand::Close) | Err(TryRecvError::Disconnected) => return,
+                    Ok(command) => self.apply(command),
+                    Err(TryRecvError::Empty) => break,
+                }
+            }
+            if let Some(due) = self.configure_due
+                && Instant::now() >= due
+            {
+                // The window manager left it where it was: no event.
+                self.configure_due = None;
+                let rect = self.window.rect();
+                self.set_rect(rect);
+                let _ = notices.send(OverlayNotice::Configured(rect));
+            }
+            self.hide_idle_cursor();
+            match self.window.wait_event(EVENT_SLICE) {
+                Ok(Some(event)) => {
+                    if let Some(notice) = self.event(event)
+                        && notices.send(notice).is_err()
+                    {
+                        return;
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::error!("overlay: {e}");
+                    let _ = notices.send(OverlayNotice::Failed);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn set_rect(&self, rect: Rect) {
+        *self.rect.lock().unwrap_or_else(PoisonError::into_inner) = rect;
+    }
+
+    fn apply(&mut self, command: OverlayCommand) {
+        let result = match command {
+            OverlayCommand::SetMode { mode, rect } => {
+                self.configure_due = Some(Instant::now() + CONFIGURE_GRACE);
+                self.window.set_mode(mode, rect)
+            }
+            OverlayCommand::MoveTo { x, y } => {
+                let moved = self.window.move_to(x, y);
+                self.set_rect(self.window.rect());
+                moved
+            }
+            OverlayCommand::SetOpacity(opacity) => self.window.set_opacity(opacity),
+            OverlayCommand::SetVisible(visible) => self.window.set_visible(visible),
+            OverlayCommand::SetCursorVisible(visible) => {
+                self.cursor_forced_hidden = !visible;
+                self.cursor_idle_hidden = false;
+                self.last_motion = Instant::now();
+                self.window.set_cursor_visible(visible)
+            }
+            OverlayCommand::HideCursorAfter(idle) => {
+                self.cursor_idle = idle;
+                self.last_motion = Instant::now();
+                self.show_idle_cursor()
+            }
+            OverlayCommand::SetTarget(target) => {
+                self.target_gone = false;
+                self.window
+                    .set_target(target)
+                    .and_then(|()| self.forwarder.set_target(target))
+            }
+            OverlayCommand::SetMapper(mapper) => {
+                self.forwarder.set_mapper(mapper);
+                self.target_gone = false;
+                Ok(())
+            }
+            OverlayCommand::SetInputRegion(region) => self.window.set_input_region(region.as_deref()),
+            OverlayCommand::Close => Ok(()),
+        };
+        if let Err(e) = result {
+            tracing::warn!("overlay: {e}");
+        }
+    }
+
+    /// Hide the cursor once the pointer has been still for `cursor_idle`.
+    fn hide_idle_cursor(&mut self) {
+        let Some(idle) = self.cursor_idle else { return };
+        if self.cursor_forced_hidden || self.cursor_idle_hidden || self.last_motion.elapsed() < idle {
+            return;
+        }
+        self.cursor_idle_hidden = true;
+        if let Err(e) = self.window.set_cursor_visible(false) {
+            tracing::warn!("overlay: {e}");
+        }
+    }
+
+    /// The pointer moved: show the cursor the idle timer hid.
+    fn show_idle_cursor(&mut self) -> lirtup_x11::Result<()> {
+        if !self.cursor_idle_hidden {
+            return Ok(());
+        }
+        self.cursor_idle_hidden = false;
+        self.window.set_cursor_visible(!self.cursor_forced_hidden)
+    }
+
+    /// One event: forward it, or turn it into a notice.
+    fn event(&mut self, event: OverlayEvent) -> Option<OverlayNotice> {
+        if let OverlayEvent::Pointer { .. } = event {
+            self.last_motion = Instant::now();
+            if let Err(e) = self.show_idle_cursor() {
+                tracing::warn!("overlay: {e}");
+            }
+        }
+        match event {
+            OverlayEvent::Configure(rect) => {
+                self.configure_due = None;
+                self.set_rect(rect);
+                return Some(OverlayNotice::Configured(rect));
+            }
+            OverlayEvent::Expose => return Some(OverlayNotice::Exposed),
+            OverlayEvent::Close => return Some(OverlayNotice::Closed),
+            OverlayEvent::Key {
+                pressed: true,
+                keycode,
+                state,
+                ..
+            } => {
+                if let Some(action) = self.hotkeys.matches(keycode, state) {
+                    self.swallowed = Some(keycode);
+                    return Some(OverlayNotice::Hotkey(action));
+                }
+            }
+            OverlayEvent::Key {
+                pressed: false,
+                keycode,
+                ..
+            } if self.swallowed == Some(keycode) => {
+                self.swallowed = None;
+                return None;
+            }
+            _ => {}
+        }
+        match self.forwarder.forward(&event) {
+            Ok(()) => {}
+            Err(X11Error::NoWindow(xid)) => {
+                if !self.target_gone {
+                    self.target_gone = true;
+                    tracing::debug!("overlay: the target 0x{xid:08x} is gone; not forwarding");
+                }
+            }
+            Err(e) => tracing::debug!("overlay: forwarding: {e}"),
+        }
+        None
     }
 }
 

@@ -300,7 +300,7 @@ impl OverlayWindow {
             blank_cursor: None,
             pending: VecDeque::new(),
         };
-        overlay.apply_mode_properties()?;
+        overlay.apply_mode_properties(rect)?;
         overlay.set_opacity(options.opacity)?;
         if overlay.click_through {
             overlay.set_input_region(Some(&[]))?;
@@ -349,12 +349,14 @@ impl OverlayWindow {
     ///
     /// The window is unmapped, reconfigured and mapped again (the window
     /// manager reads override-redirect and the initial state at map time).
+    /// [`OverlayWindow::rect`] keeps the old geometry until the window
+    /// manager places the window: the [`OverlayEvent::Configure`] that
+    /// follows reports where it ended up (none if that is where it was).
     pub fn set_mode(&mut self, mode: OverlayMode, rect: Rect) -> Result<()> {
         if self.visible {
             self.conn.unmap_window(self.window)?;
         }
         self.mode = mode;
-        self.rect = rect;
         self.conn.change_window_attributes(
             self.window,
             &ChangeWindowAttributesAux::new().override_redirect(u32::from(is_override_redirect(mode))),
@@ -367,7 +369,7 @@ impl OverlayWindow {
                 .width(u32::from(clamp_side(rect.width)))
                 .height(u32::from(clamp_side(rect.height))),
         )?;
-        self.apply_mode_properties()?;
+        self.apply_mode_properties(rect)?;
         let click_through = self.base_click_through || mode == OverlayMode::TopTransparent;
         if click_through != self.click_through {
             self.click_through = click_through;
@@ -477,6 +479,26 @@ impl OverlayWindow {
         Ok(())
     }
 
+    /// Follow another target window (`WM_TRANSIENT_FOR` outside windowed
+    /// mode); the window itself stays as it is.
+    pub fn set_target(&mut self, target: u32) -> Result<()> {
+        self.target = target;
+        if self.mode == OverlayMode::Windowed || target == x11rb::NONE {
+            self.conn
+                .delete_property(self.window, AtomEnum::WM_TRANSIENT_FOR.into())?;
+        } else {
+            self.conn.change_property32(
+                PropMode::REPLACE,
+                self.window,
+                AtomEnum::WM_TRANSIENT_FOR,
+                AtomEnum::WINDOW,
+                &[target],
+            )?;
+        }
+        self.conn.flush()?;
+        Ok(())
+    }
+
     /// Move the window (drag in windowed mode).
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<()> {
         self.conn.configure_window(
@@ -527,9 +549,9 @@ impl OverlayWindow {
     }
 
     /// `_MOTIF_WM_HINTS`, `_NET_WM_STATE`, `WM_TRANSIENT_FOR` and
-    /// `WM_NORMAL_HINTS` of the current mode (read by the window manager when
-    /// the window is mapped).
-    fn apply_mode_properties(&mut self) -> Result<()> {
+    /// `WM_NORMAL_HINTS` of the current mode at `rect` (read by the window
+    /// manager when the window is mapped).
+    fn apply_mode_properties(&mut self, rect: Rect) -> Result<()> {
         let (c, w, a) = (&self.conn, self.window, &self.atoms);
         let windowed = self.mode == OverlayMode::Windowed;
         // flags = MWM_HINTS_DECORATIONS, decorations = 0 (none) or 1 (all).
@@ -567,7 +589,7 @@ impl OverlayWindow {
             w,
             AtomEnum::WM_NORMAL_HINTS,
             AtomEnum::WM_SIZE_HINTS,
-            &size_hints(self.rect, windowed),
+            &size_hints(rect, windowed),
         )?;
         Ok(())
     }
