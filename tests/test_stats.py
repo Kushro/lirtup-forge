@@ -5,7 +5,7 @@ import csv
 import pytest
 
 from upscaler.pipeline import stats
-from upscaler.pipeline.stats import LatencyLog, frames_lost, gpu_budget_warning
+from upscaler.pipeline.stats import LatencyLog, gpu_budget_warning
 
 
 def test_no_warning_within_budget():
@@ -35,47 +35,24 @@ def test_still_image_is_not_checked():
 
 
 # ----------------------------------------------------------------------
-# Budget from the real game interval
+# The 30 fps floor
 # ----------------------------------------------------------------------
-def test_slow_content_that_keeps_up_gets_its_real_budget():
-    """24 fps video, 35 ms of effects, idle polls between frames: no warning."""
-    assert gpu_budget_warning([("Anime4K UL", 35.0)], 24.0, 48.0) is None
-
-
-def test_slow_content_that_loses_frames_keeps_the_30_fps_floor():
-    """Every poll finds a new frame: the measured rate is the pipeline's."""
-    warning = gpu_budget_warning([("Anime4K UL", 35.0)], 24.0, 24.5)
+def test_slow_content_keeps_the_30_fps_floor():
+    """24 fps: 35 ms warns. The rate alone cannot tell slow content from
+    content the effects slow down (round 1.3, T3.8)."""
+    warning = gpu_budget_warning([("Anime4K UL", 35.0)], 24.0)
     assert warning is not None
     assert "35.0 ms > 33.3 ms" in warning
 
 
-def test_effects_slower_than_slow_content_still_warn():
-    warning = gpu_budget_warning([("Anime4K UL", 45.0)], 24.0, 48.0)
+def test_slow_content_within_the_floor_does_not_warn():
+    assert gpu_budget_warning([("Anime4K UL", 30.0)], 24.0) is None
+
+
+def test_fast_content_uses_its_interval():
+    warning = gpu_budget_warning([("Anime4K UL", 20.0)], 60.0)
     assert warning is not None
-    assert "45.0 ms > 41.7 ms" in warning
-
-
-def test_fast_content_uses_its_interval_either_way():
-    for polled in (None, 60.0, 144.0):
-        warning = gpu_budget_warning([("Anime4K UL", 20.0)], 60.0, polled)
-        assert warning is not None
-        assert "20.0 ms > 16.7 ms" in warning
-
-
-@pytest.mark.parametrize(
-    "game, polled, lost",
-    [
-        (24.0, 48.0, False),  # one idle poll per frame
-        (24.0, 24.0, True),  # never idle
-        (24.0, 29.0, True),  # idle less than a quarter of the frames
-        (24.0, 30.0, False),
-        (60.0, 144.0, False),
-        (30.0, None, True),  # unknown
-        (0.0, 10.0, True),
-    ],
-)
-def test_frames_lost(game, polled, lost):
-    assert frames_lost(game, polled) is lost
+    assert "20.0 ms > 16.7 ms" in warning
 
 
 # ----------------------------------------------------------------------

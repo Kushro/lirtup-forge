@@ -26,9 +26,6 @@
   queue is guarded by its own mutex, so the frame generation thread does
   not stall the pipeline.
 - `robustImageAccess` is enabled when the GPU offers it.
-- The GPU warning of the stats panel uses the game's real frame interval
-  when no frames are lost, so content under 30 fps that keeps up is not
-  flagged.
 - The flow scale and the lsfg model are explained in the GUI, and the
   frame generation section shows the measured cost of the chosen setting.
 - Every GUI string has a Spanish translation, including the settings tab

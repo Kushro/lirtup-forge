@@ -216,11 +216,10 @@ shows:
   **Post**, **Present** and **Profile**: the processing chain in order.
 - **GPU** (in red, only when it applies): the effects take longer on the GPU
   than a game frame lasts, so they cannot keep up. It names the heaviest
-  effect, the one to make lighter. While the app keeps up with the game (it
-  polls the window between frames without finding a new one), a frame lasts
-  the game's real interval, so a 24 fps video gets 41.7 ms. When frames are
-  lost the measured rate is the app's own, so a frame lasts at most 33 ms, as
-  for 30 fps.
+  effect, the one to make lighter. A frame lasts the game's interval, but
+  never more than 33 ms (30 fps): a lower measured rate cannot tell slow
+  content from a game the effects themselves slow down, so content under
+  30 fps may get a warning even when it keeps up.
 
 While the panel is visible, the Magpie effects are timed with GPU timestamp
 queries, which cost a little. With frame generation on, each panel refresh

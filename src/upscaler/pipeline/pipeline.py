@@ -955,7 +955,6 @@ class Pipeline(QObject):
             warning = gpu_budget_warning(
                 [(name, self.stats.gpu_ms(label)) for name, label in effects],
                 new_frames,
-                captured,
             )
             if warning:
                 rows.append(("GPU", warning, True))
