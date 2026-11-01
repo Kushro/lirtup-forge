@@ -301,6 +301,34 @@ pub struct Store {
     /// Whether the GUI told the core it wants GPU times (to send
     /// `WatchGpuTimes` only on changes).
     pub gpu_times: bool,
+    /// Writes of `config.yaml` and `modes/` in flight (front C): the state
+    /// to restore if one fails, and what to say when all are done.
+    pub saving: Option<Saving>,
+}
+
+/// Writes in flight ([`Store::saving`]). The store shows the result of a
+/// write at once (Guardar clears the dots before the disk answers); this
+/// keeps what was there before, to put it back if a write fails.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Saving {
+    /// `config.yaml` and its edits before the first write.
+    pub config: ConfigDoc,
+    /// `modes/` and its edits before the first write.
+    pub modes: ModesDoc,
+    /// [`Store::undo`] before the first write.
+    pub undo: Option<ConfigFile>,
+    /// [`Action::Written`] still to come.
+    pub pending: usize,
+    /// The first error, if any.
+    pub error: Option<String>,
+    /// The snackbar when every write went well.
+    pub done: Toast,
+    /// What [`Store::undo`] becomes when every write went well (`None`
+    /// clears it: only the toast of a Guardar offers «Deshacer»).
+    pub undo_to: Option<ConfigFile>,
+    /// Send `Restart` after `ReloadConfig` (the frame generation section's
+    /// «Guardar y reiniciar»: its settings are read once per session).
+    pub restart: bool,
 }
 
 /// Everything that changes the store.
@@ -367,6 +395,9 @@ pub enum Action {
     Save,
     /// «Deshacer» of the save toast: write [`Store::undo`] back.
     Undo,
+    /// Guardar, then restart the session once the files are written (flow
+    /// 5: the frame generation settings are read when a session starts).
+    SaveAndRestart,
 
     // ---- profiles and modes ----------------------------------------------
     /// «Crear» of «Nuevo perfil».

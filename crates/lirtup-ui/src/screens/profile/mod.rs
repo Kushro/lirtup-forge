@@ -26,6 +26,13 @@ pub fn DeleteProfileDialog(name: ProfileName) -> Element {
 /// scope Restablecer acts on. `app.rs` draws the bar (it floats over every
 /// page) and asks this; `None` hides it.
 pub fn save_bar_scope(store: &crate::state::Store) -> Option<(crate::state::Scope, usize)> {
-    let _ = store;
-    todo!()
+    use crate::route::Route;
+    use crate::state::Scope;
+    let scope = match &store.route {
+        Route::Profile { id, .. } => Scope::Profile(id.clone()),
+        Route::Modes { id: Some(id) } => Scope::Mode(id.clone()),
+        _ => return None,
+    };
+    let count = store.page_edits(&store.route);
+    (count > 0).then_some((scope, count))
 }
