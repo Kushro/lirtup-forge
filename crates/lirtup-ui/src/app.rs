@@ -358,10 +358,11 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
             }
         }
         Effect::MoveIcon { from, to } => {
-            if in_icons_dir(&from) && in_icons_dir(&to) {
-                if let Err(e) = std::fs::rename(&from, &to) {
-                    tracing::warn!("profile icon {} → {}: {e}", from.display(), to.display());
-                }
+            if in_icons_dir(&from)
+                && in_icons_dir(&to)
+                && let Err(e) = std::fs::rename(&from, &to)
+            {
+                tracing::warn!("profile icon {} → {}: {e}", from.display(), to.display());
             }
         }
         Effect::Migrate(plan) => {

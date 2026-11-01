@@ -1034,13 +1034,11 @@ impl Runner {
     /// window with the overlay hidden ([`Runner::orphaned`]); otherwise
     /// stop with `reason`.
     fn orphan_or(&mut self, reason: StopReason) -> StopReason {
-        if self.config.follow_focus && reason == StopReason::WindowClosed {
-            if !self.orphaned {
-                tracing::info!("follow_focus: the window closed; waiting for the next one");
-                self.orphaned = true;
-                if let Some(p) = self.parts.as_ref() {
-                    p.overlay.send(OverlayCommand::SetVisible(false));
-                }
+        if self.config.follow_focus && reason == StopReason::WindowClosed && !self.orphaned {
+            tracing::info!("follow_focus: the window closed; waiting for the next one");
+            self.orphaned = true;
+            if let Some(p) = self.parts.as_ref() {
+                p.overlay.send(OverlayCommand::SetVisible(false));
             }
         }
         reason
@@ -1103,7 +1101,8 @@ impl Runner {
             return Ok(None);
         };
         let Some(info) = self.x11.window_info(parts.window.xid)? else {
-            return Ok(Some(self.orphan_or(StopReason::WindowClosed)).filter(|_| !self.orphaned));
+            let reason = self.orphan_or(StopReason::WindowClosed);
+            return Ok((!self.orphaned).then_some(reason));
         };
         parts.window = info;
         self.rebuild_capture()?;
