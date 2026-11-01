@@ -94,8 +94,12 @@ fn General() -> Element {
     let language = use_gui(|g| g.language);
     let theme = use_gui(|g| g.theme);
     let seed = use_gui(|g| g.seed_color.clone());
+    let show_tray = use_gui(|g| g.show_tray_icon);
     let close_to_tray = use_gui(|g| g.close_to_tray);
+    let minimize_to_tray = use_gui(|g| g.minimize_to_tray);
     let start_hidden = use_gui(|g| g.start_hidden);
+    // Without the icon there is no tray to close, minimize or start to.
+    let no_tray = !show_tray();
     let keep_running = use_gui(|g| g.keep_running_after_exit);
     let daemon_value = use_memo(move || store.read().daemon.on);
     let daemon = use_control(daemon_value, |on| *on);
@@ -140,17 +144,34 @@ fn General() -> Element {
 
         SectionTitle { title: t!("settings-tray") }
         SettingGroup {
+            PlainRow { icon: "toolbar", title: t!("settings-show-tray-icon"), subtitle: t!("settings-show-tray-icon-help"),
+                Switch {
+                    value: show_tray,
+                    label: t!("settings-show-tray-icon"),
+                    on_change: move |on: bool| write_gui(store, dispatch, |g| g.show_tray_icon = on),
+                }
+            }
             PlainRow { icon: "close", title: t!("settings-close-to-tray"), subtitle: t!("settings-close-to-tray-help"),
                 Switch {
                     value: close_to_tray,
                     label: t!("settings-close-to-tray"),
+                    disabled: no_tray,
                     on_change: move |on: bool| write_gui(store, dispatch, |g| g.close_to_tray = on),
+                }
+            }
+            PlainRow { icon: "remove", title: t!("settings-minimize-to-tray"), subtitle: t!("settings-minimize-to-tray-help"),
+                Switch {
+                    value: minimize_to_tray,
+                    label: t!("settings-minimize-to-tray"),
+                    disabled: no_tray,
+                    on_change: move |on: bool| write_gui(store, dispatch, |g| g.minimize_to_tray = on),
                 }
             }
             PlainRow { icon: "visibility_off", title: t!("settings-start-hidden"), subtitle: t!("settings-start-hidden-help"),
                 Switch {
                     value: start_hidden,
                     label: t!("settings-start-hidden"),
+                    disabled: no_tray,
                     on_change: move |on: bool| write_gui(store, dispatch, |g| g.start_hidden = on),
                 }
             }

@@ -17,8 +17,12 @@ settings-theme-dark = Oscuro
 settings-seed = Color
 settings-seed-help = Semilla del tema; las paletas de antes quedan como semillas
 settings-tray = Bandeja del sistema
+settings-show-tray-icon = Mostrar ícono en la bandeja
+settings-show-tray-icon-help = Sin el ícono, cerrar la ventana sale de LirtUp Forge
 settings-close-to-tray = Cerrar a la bandeja
 settings-close-to-tray-help = El botón cerrar oculta la ventana en vez de salir
+settings-minimize-to-tray = Minimizar a la bandeja
+settings-minimize-to-tray-help = El botón minimizar oculta la ventana en la bandeja, no en la barra de tareas
 settings-start-hidden = Empezar oculto
 settings-start-hidden-help = Al abrir, queda solo el ícono de la bandeja
 settings-auto = Escalado automático
@@ -31,6 +35,32 @@ settings-daemon-watching = { $count ->
 }
 settings-keep-running = Seguir ejecutándose tras salir
 settings-keep-running-help = El daemon sigue activo aunque cierres LirtUp Forge
+
+## Bandeja: menú, avisos y salir (ronda 4, frente Y)
+tray-idle = En reposo
+tray-scaling = Escalando: { $title }
+tray-starting = Preparando: { $title }
+tray-failed = Error al escalar
+tray-watching = { $count ->
+    [0] Daemon activo, sin perfiles que vigilar
+    [one] Daemon vigilando 1 perfil
+   *[other] Daemon vigilando { $count } perfiles
+}
+tray-stop = Detener
+tray-restart = Reiniciar
+tray-profile = Perfil
+tray-profile-of = Perfil: { $name }
+tray-framegen = Generación de cuadros: { $value }
+tray-framegen-note = Elegir una reinicia la sesión
+tray-daemon = Modo daemon
+tray-show = Mostrar LirtUp Forge
+tray-quit = Salir
+notify-scaling = Escalando: «{ $title }». Utilice «Detener» en el menú de la bandeja para volver.
+notify-failed = No se pudo escalar: { $error }
+notify-stop = Detener
+quit-body = Tienes cambios sin guardar. Guárdalos antes de salir, descártalos, o cancela para seguir en LirtUp Forge.
+quit-save = Guardar y salir
+quit-discard = Descartar y salir
 
 ## Atajos
 settings-hotkeys-help = Pulsa «Cambiar atajo» y luego la combinación; necesita al menos un modificador. Esc cancela, Retroceso lo deja sin asignar. Se guarda al instante.

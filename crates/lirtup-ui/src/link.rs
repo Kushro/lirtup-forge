@@ -177,14 +177,21 @@ async fn session(
 
 /// Start `lirtup serve` detached (it outlives the GUI in daemon mode).
 fn launch_server() {
+    use std::os::unix::process::CommandExt;
+
     let exe = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("lirtup")))
         .filter(|p| p.exists())
         .unwrap_or_else(|| PathBuf::from("lirtup"));
     tracing::info!("starting {} serve", exe.display());
+    // `--exit-with-clients`: it exits after the GUI unless the daemon keeps
+    // running after exit (round 4, front Y). Its own process group, so a
+    // signal to the GUI's (Ctrl+C in a terminal) does not reach it.
     match std::process::Command::new(&exe)
         .arg("serve")
+        .arg("--exit-with-clients")
+        .process_group(0)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .spawn()

@@ -36,7 +36,7 @@ mod thumbs;
 mod tray;
 mod windows;
 
-use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
+use dioxus::desktop::{Config, LogicalPosition, LogicalSize, WindowBuilder, WindowCloseBehaviour};
 
 fn main() {
     tracing_subscriber::fmt()
@@ -46,12 +46,37 @@ fn main() {
         )
         .init();
 
-    let window = WindowBuilder::new()
+    // One instance: a second one shows the first and exits (round 4,
+    // front Y, `tray`).
+    if tray::forward_to_running() {
+        tracing::info!("lirtup-gui is already running; showing it");
+        return;
+    }
+    tray::claim_instance();
+
+    // Where the window was (front Y). It is created hidden and `tray`
+    // shows it unless `start_hidden`: a window created hidden makes the
+    // Dioxus interpreter apply edits at once instead of on
+    // `requestAnimationFrame`, which WebKit never runs while the window is
+    // hidden; without that the whole app (the link to the scaler too)
+    // stalls while it sits in the tray.
+    let gui = lirtup_config::GuiConfig::load(None).unwrap_or_default();
+    let geometry = tray::saved_geometry(&gui);
+    let mut window = WindowBuilder::new()
         .with_title("LirtUp Forge")
         .with_decorations(false)
-        .with_inner_size(LogicalSize::new(1280.0, 820.0))
+        .with_visible(false)
+        .with_inner_size(geometry.map_or(LogicalSize::new(1280.0, 820.0), |g| {
+            LogicalSize::new(g.width, g.height)
+        }))
         .with_min_inner_size(LogicalSize::new(720.0, 520.0));
+    if let Some(g) = geometry {
+        window = window
+            .with_position(LogicalPosition::new(g.x, g.y))
+            .with_maximized(g.maximized);
+    }
     let config = Config::new()
+        .with_close_behaviour(WindowCloseBehaviour::WindowHides)
         .with_window(window)
         .with_menu(None)
         .with_disable_context_menu(!cfg!(debug_assertions))
@@ -60,5 +85,7 @@ fn main() {
         .with_disable_drag_drop_handler(true)
         // The dark surface, so the window does not flash white.
         .with_background_color((0x11, 0x13, 0x18, 0xff));
+    // The event loop never returns; a stale instance socket is replaced by
+    // the next `claim_instance`.
     dioxus::LaunchBuilder::desktop().with_cfg(config).launch(app::App);
 }

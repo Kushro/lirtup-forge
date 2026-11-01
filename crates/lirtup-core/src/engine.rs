@@ -35,7 +35,7 @@
 //! | `Hotkey` and the hotkey thread | `StartFullscreen`/`StartWindowed` → `Start { target: Focused }`; `ExitApp` → stop (and quit with `lirtup run`); the rest → `PipelineCommand::Hotkey` |
 //! | `PickWindow`, `ListDevices` | `lirtup_x11` on a blocking task |
 //! | `ListEffects`, `CompileEffect` | `lirtup_magpiefx::Catalog` and `compile_effect` on a blocking task (cache in `paths::magpiefx_cache_dir`) |
-//! | `SetDaemon` | state only in round 2 (the daemon is round 4) |
+//! | `SetDaemon` | start or stop the daemon thread ([`crate::daemon`]); `keep_after_exit` is read by `lirtup serve` ([`crate::lifecycle`]) |
 //! | `Diagnostics` | gather `DiagReport` |
 //! | `PauseHotkeys` | count the pausers ([`Engine::pause_hotkeys`], per connection in the server); ungrab every hotkey when the count leaves 0, grab them again when it returns |
 //! | `WatchGpuTimes` | count the watchers ([`Engine::watch_gpu_times`]; the server counts per connection); `PipelineCommand::SetTimestamps` when the count goes to or from 0 |
@@ -59,10 +59,22 @@
 //! - The configuration of the snapshot and of the hotkeys is the top level
 //!   (plus [`EngineOptions::profile`] and the CLI layer); each session
 //!   resolves its own with its profile.
+//!
+//! # Round 4 (front Y)
+//!
+//! - The daemon is on at startup with `--daemon` or `daemon: true` in the
+//!   top level; `SetDaemon` turns it on and off, and `ReloadConfig`
+//!   restarts its thread when `daemon_poll_interval` changes.
+//! - A `Start` on a given window (not `Focused`) focuses it first (1.x
+//!   does it for `-t`, `--select` and the GUI). A `Target::Pid` searches by
+//!   class too, with the launched program's name as the hint.
+//! - `Restart` that `exec`s carries the session ([`Resume`]) and the
+//!   daemon ([`DAEMON_ENV`]) to the new process, which `Engine::new` takes
+//!   from the environment and starts again.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -79,6 +91,8 @@ use lirtup_x11::acquire::PidSearch;
 use lirtup_x11::{Hotkeys, WindowInfo, X11};
 use tokio::sync::{broadcast, watch};
 
+use crate::daemon::{Daemon, DaemonHost};
+use crate::lifecycle::{RESUME_ENV, Resume};
 use crate::listing;
 use crate::proto::{
     BenchReport, Command, DaemonStatus, DiagReport, EngineSnapshot, Event, FrameGenStatus, Level,
@@ -98,6 +112,10 @@ const RELAY_TICK: Duration = Duration::from_millis(100);
 
 /// Version reported in the snapshot and in diagnostics.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Carries the daemon across a `Restart` that `exec`s: `on`, or `keep`
+/// (on with `keep_after_exit`). Read and removed by [`Engine::new`].
+pub const DAEMON_ENV: &str = "LIRTUP_RESUME_DAEMON";
 
 /// How to create the engine.
 #[derive(Debug, Clone, Default)]
@@ -185,6 +203,12 @@ struct State {
     hotkey_pausers: u32,
 }
 
+/// The daemon thread and the poll interval it runs with.
+struct DaemonThread {
+    daemon: Daemon,
+    poll: Duration,
+}
+
 impl State {
     /// The session, unless its thread has ended.
     fn live(&self) -> Option<&Running> {
@@ -216,6 +240,10 @@ struct Inner {
     /// Bumped by every `Start` and `Stop`: a start thread whose number is
     /// not the current one gives up.
     start_gen: AtomicU64,
+    /// Start threads that have not finished (the daemon waits for them).
+    starts: AtomicUsize,
+    /// The daemon thread while the daemon is on.
+    daemon: Mutex<Option<DaemonThread>>,
     stopping: AtomicBool,
     /// Tells the relay thread to drain and end.
     relay_stop: AtomicBool,
@@ -277,6 +305,10 @@ impl Engine {
     /// call), start the hotkey thread. Does not open the GPU until a session
     /// starts.
     pub fn new(options: EngineOptions) -> Result<Engine> {
+        // 0. What a `Restart` that `exec`ed carries (while this is the only
+        //    thread: it changes the environment).
+        let resume = Resume::take_from_env();
+        let resume_daemon = take_daemon_env();
         // 1. Configuration.
         let files = load_files(&options)?;
         let config = top_level(&files, &options)?;
@@ -294,6 +326,7 @@ impl Engine {
         let (pipeline_tx, pipeline_rx) = crossbeam_channel::unbounded();
         let (quit, _) = watch::channel(false);
         let watching = watching(&files.file);
+        let daemon_on = options.daemon || config.daemon || resume_daemon.is_some();
         let inner = Arc::new(Inner {
             prepared: Prepared::of(&config),
             layer,
@@ -303,7 +336,7 @@ impl Engine {
             pipeline_tx,
             state: Mutex::new(State {
                 daemon: DaemonStatus {
-                    on: options.daemon,
+                    on: false,
                     keep_after_exit: false,
                     watching,
                 },
@@ -314,16 +347,14 @@ impl Engine {
             hotkeys: Mutex::new(None),
             bench: Mutex::new(None),
             start_gen: AtomicU64::new(0),
+            starts: AtomicUsize::new(0),
+            daemon: Mutex::new(None),
             stopping: AtomicBool::new(false),
             relay_stop: AtomicBool::new(false),
             quit,
             threads: Mutex::new(Vec::new()),
             options,
         });
-        if inner.options.daemon {
-            tracing::warn!("daemon mode is not implemented yet (round 4); only its state is kept");
-        }
-
         // The relay of session events.
         let relay = {
             let inner = Arc::clone(&inner);
@@ -335,6 +366,20 @@ impl Engine {
 
         // 3. Global hotkeys (a failure leaves the engine without them).
         inner.start_hotkeys();
+
+        // 4. The daemon, and the session a `Restart` carried.
+        if daemon_on {
+            inner.set_daemon(true, resume_daemon == Some(true));
+        }
+        if let Some(resume) = resume {
+            tracing::info!("resuming the session on 0x{:08x} after the restart", resume.xid);
+            inner.start(StartRequest {
+                target: Target::Window(resume.xid),
+                kind: resume.kind,
+                delay_s: None,
+                profile: resume.profile,
+            });
+        }
         Ok(Engine { inner })
     }
 
@@ -377,6 +422,19 @@ impl Engine {
         }
     }
 
+    /// A session is running or starting (`lirtup serve` stays while one
+    /// does; [`crate::lifecycle`]).
+    pub fn session_running(&self) -> bool {
+        self.inner.starts.load(Ordering::SeqCst) > 0 || lock(&self.inner.state).live().is_some()
+    }
+
+    /// The daemon is on with `keep_after_exit` («Seguir ejecutándose tras
+    /// salir»).
+    pub fn daemon_keeps(&self) -> bool {
+        let daemon = lock(&self.inner.state).daemon;
+        daemon.on && daemon.keep_after_exit
+    }
+
     /// The top-level configuration in effect (the startup one, or the last
     /// `ReloadConfig`).
     pub fn config(&self) -> Arc<Config> {
@@ -403,10 +461,76 @@ impl Drop for Engine {
 
 /// Profiles the daemon would watch: with a `match` and not excluded.
 fn watching(file: &ConfigFile) -> u32 {
-    file.profiles
-        .values()
-        .filter(|p| p.matcher.as_ref().is_some_and(|m| !m.is_empty()) && !p.daemon_excluded())
-        .count() as u32
+    crate::daemon::watched(file).len() as u32
+}
+
+/// Read and remove [`DAEMON_ENV`]: `Some(keep_after_exit)` if the daemon
+/// was on (at startup, before any thread).
+#[allow(unsafe_code)]
+fn take_daemon_env() -> Option<bool> {
+    let value = std::env::var_os(DAEMON_ENV)?;
+    // SAFETY: `Engine::new` runs before any other thread exists (as
+    // `layer::prepare`, its documented contract).
+    unsafe { std::env::remove_var(DAEMON_ENV) };
+    match value.to_str() {
+        Some("keep") => Some(true),
+        Some("on") => Some(false),
+        _ => None,
+    }
+}
+
+/// The poll interval of the daemon (`daemon_poll_interval`, at least
+/// 0.1 s).
+fn daemon_poll(config: &Config) -> Duration {
+    Duration::from_secs_f64(config.daemon_poll_interval.max(0.1))
+}
+
+/// The class hint of a launched program: the name of its executable, from
+/// `/proc/<pid>/cmdline` (1.x passes `program[0]`), else `comm`.
+fn class_hint(pid: u32) -> Option<String> {
+    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok();
+    let first = cmdline
+        .as_deref()
+        .and_then(|c| c.split(|b| *b == 0).next())
+        .and_then(|a| std::str::from_utf8(a).ok())
+        .and_then(crate::lifecycle::Launched::class_hint);
+    first.or_else(|| {
+        std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .ok()
+            .map(|c| c.trim().to_owned())
+            .filter(|c| !c.is_empty())
+    })
+}
+
+/// What the daemon thread holds: the engine, weakly (the engine owns the
+/// thread).
+struct DaemonLink(Weak<Inner>);
+
+impl DaemonHost for DaemonLink {
+    fn running_window(&self) -> Option<u32> {
+        let inner = self.0.upgrade()?;
+        let st = lock(&inner.state);
+        st.live().map(|r| r.window.xid)
+    }
+
+    fn starting(&self) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|inner| inner.starts.load(Ordering::SeqCst) > 0)
+    }
+
+    fn config_file(&self) -> ConfigFile {
+        self.0
+            .upgrade()
+            .map(|inner| lock(&inner.files).file.clone())
+            .unwrap_or_default()
+    }
+
+    fn start_matched(&self, window: WindowInfo, profile: String) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.start_matched(window, profile);
+        }
+    }
 }
 
 impl Inner {
@@ -565,14 +689,7 @@ impl Inner {
             Command::Stop => self.stop_session(StopReason::User),
             Command::Restart => self.restart(),
             Command::ReloadConfig => self.reload()?,
-            Command::SetDaemon { on, keep_after_exit } => {
-                let watching = watching(&lock(&self.files).file);
-                self.publish(Event::DaemonState {
-                    on,
-                    keep_after_exit,
-                    watching,
-                });
-            }
+            Command::SetDaemon { on, keep_after_exit } => self.set_daemon(on, keep_after_exit),
             Command::Hotkey { action } => self.hotkey(action),
             Command::PickWindow => self.spawn("lirtup-pick", |inner| {
                 let picked = X11::connect().and_then(|x| x.pick_window());
@@ -640,6 +757,77 @@ impl Inner {
         if before != after {
             tracing::debug!("global hotkeys {}", if after { "paused" } else { "resumed" });
             self.rebind_hotkeys();
+        }
+    }
+
+    /// Turn the daemon on or off (and its `keep_after_exit`), then publish
+    /// `DaemonState`.
+    fn set_daemon(self: &Arc<Self>, on: bool, keep_after_exit: bool) {
+        {
+            let mut slot = lock(&self.daemon);
+            match (on, slot.is_some()) {
+                (true, false) => {
+                    let poll = daemon_poll(&self.config.load());
+                    let link: Arc<dyn DaemonHost> = Arc::new(DaemonLink(Arc::downgrade(self)));
+                    match Daemon::spawn(link, poll) {
+                        Ok(daemon) => *slot = Some(DaemonThread { daemon, poll }),
+                        Err(e) => {
+                            drop(slot);
+                            self.log(Level::Error, format!("cannot start the daemon: {e}"));
+                            return;
+                        }
+                    }
+                }
+                (false, true) => {
+                    if let Some(thread) = slot.take() {
+                        thread.daemon.stop();
+                    }
+                }
+                _ => {}
+            }
+        }
+        let watching = watching(&lock(&self.files).file);
+        self.publish(Event::DaemonState {
+            on,
+            keep_after_exit,
+            watching,
+        });
+    }
+
+    /// The daemon found `window` for `profile`: `DaemonMatch`, then a
+    /// `Start` after `target_delay`, in the overlay mode of that profile.
+    fn start_matched(self: &Arc<Self>, window: WindowInfo, profile: String) {
+        let kind = match self.resolve_for(&window, Some(&profile)) {
+            Ok(r) if r.config.overlay_mode == lirtup_config::OverlayMode::Windowed => SessionKind::Windowed,
+            _ => SessionKind::Fullscreen,
+        };
+        let delay = self.config.load().target_delay;
+        self.publish(Event::DaemonMatch {
+            window: listing::window_ref(&window),
+            profile: profile.clone(),
+        });
+        self.start(StartRequest {
+            target: Target::Window(window.xid),
+            kind,
+            delay_s: Some(delay as f32).filter(|d| *d > 0.0),
+            profile: Some(profile),
+        });
+    }
+
+    /// `ReloadConfig` with the daemon on: a new `daemon_poll_interval`
+    /// restarts its thread.
+    fn restart_daemon_if_needed(self: &Arc<Self>) {
+        let poll = daemon_poll(&self.config.load());
+        let mut slot = lock(&self.daemon);
+        if slot.as_ref().is_some_and(|t| t.poll != poll)
+            && let Some(old) = slot.take()
+        {
+            old.daemon.stop();
+            let link: Arc<dyn DaemonHost> = Arc::new(DaemonLink(Arc::downgrade(self)));
+            match Daemon::spawn(link, poll) {
+                Ok(daemon) => *slot = Some(DaemonThread { daemon, poll }),
+                Err(e) => tracing::error!("cannot restart the daemon: {e}"),
+            }
         }
     }
 
@@ -722,7 +910,18 @@ impl Inner {
 
     fn start(self: &Arc<Self>, request: StartRequest) {
         let generation = self.start_gen.fetch_add(1, Ordering::SeqCst) + 1;
-        self.spawn("lirtup-start", move |inner| inner.run_start(generation, request));
+        self.starts.fetch_add(1, Ordering::SeqCst);
+        let inner = Arc::clone(self);
+        let spawned = std::thread::Builder::new()
+            .name("lirtup-start".into())
+            .spawn(move || {
+                inner.run_start(generation, request);
+                inner.starts.fetch_sub(1, Ordering::SeqCst);
+            });
+        if let Err(e) = spawned {
+            self.starts.fetch_sub(1, Ordering::SeqCst);
+            self.log(Level::Error, format!("cannot start a thread: {e}"));
+        }
     }
 
     /// Find the window, resolve its configuration, open the device and start
@@ -745,6 +944,13 @@ impl Inner {
             }
             Err(e) => return self.fail(Stage::Window, e.to_string(), true),
         };
+        // A window named by the caller (a tile, `-t`, `--select`, the
+        // daemon) comes to the front first, as 1.x does.
+        if !matches!(request.target, Target::Focused)
+            && let Err(e) = x11.activate_window(window.xid)
+        {
+            tracing::debug!("cannot focus 0x{:08x}: {e}", window.xid);
+        }
         drop(x11);
 
         let profile = request.profile.clone().or_else(|| self.options.profile.clone());
@@ -854,7 +1060,7 @@ impl Inner {
             Target::Title(title) => x11.find_by_title(Some(title), None)?,
             Target::Pid(pid) => Some(x11.wait_for_pid(&PidSearch {
                 pid: *pid,
-                class_hint: None,
+                class_hint: class_hint(*pid),
                 pid_timeout: config.pid_timeout,
                 class_timeout: config.class_timeout,
                 total_timeout: config.total_timeout,
@@ -937,15 +1143,40 @@ impl Inner {
 
     fn restart(self: &Arc<Self>) {
         if self.layer_needs_exec() {
+            // The session and the daemon, for the new process.
+            let (resume, daemon) = {
+                let st = lock(&self.state);
+                let resume = st
+                    .live()
+                    .and(st.last_start.clone())
+                    .map(|(xid, kind, profile)| Resume { xid, kind, profile });
+                (resume, st.daemon)
+            };
             self.stop_session(StopReason::Restart);
-            // Release the grabs and the X connections before `exec`.
+            // Release the grabs, the daemon and the X connections before
+            // `exec`.
             if let Some(hotkeys) = lock(&self.hotkeys).take() {
                 hotkeys.stop();
             }
+            let daemon_thread = lock(&self.daemon).take();
+            if let Some(thread) = daemon_thread {
+                thread.daemon.stop();
+            }
             self.cancel_bench();
-            let error = layer::restart_self();
+            let resume = resume.map(|r| r.encode());
+            let mut env: Vec<(&str, &str)> = Vec::new();
+            if let Some(resume) = &resume {
+                env.push((RESUME_ENV, resume));
+            }
+            if daemon.on {
+                env.push((DAEMON_ENV, if daemon.keep_after_exit { "keep" } else { "on" }));
+            }
+            let error = layer::restart_self(&env);
             self.log(Level::Error, format!("cannot restart lirtup: {error}"));
             self.start_hotkeys();
+            if daemon.on {
+                self.set_daemon(true, daemon.keep_after_exit);
+            }
             return;
         }
         let last = lock(&self.state).last_start.clone();
@@ -974,6 +1205,7 @@ impl Inner {
         let config = self.config.load_full();
 
         self.rebind_hotkeys();
+        self.restart_daemon_if_needed();
 
         let (daemon, live) = {
             let st = lock(&self.state);
@@ -1183,6 +1415,11 @@ impl Inner {
     fn shutdown(&self, timeout: Duration) {
         if self.stopping.swap(true, Ordering::SeqCst) {
             return;
+        }
+        // The daemon first, so it starts nothing more.
+        let daemon = lock(&self.daemon).take();
+        if let Some(thread) = daemon {
+            thread.daemon.stop();
         }
         self.start_gen.fetch_add(1, Ordering::SeqCst);
         let running = lock(&self.state).session.take();

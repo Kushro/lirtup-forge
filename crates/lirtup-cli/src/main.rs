@@ -79,6 +79,11 @@ enum CliCommand {
         /// Config file (default: ~/.config/linux-rt-upscaler/config.yaml).
         #[arg(short, long)]
         config: Option<PathBuf>,
+
+        /// Exit once the last client has gone (lirtup-gui starts it so),
+        /// unless the daemon keeps running after exit or a session runs.
+        #[arg(long)]
+        exit_with_clients: bool,
     },
     /// Send a command to a running `lirtup serve` (JSON of a `Command`, or a
     /// bare name such as `Stop`).
@@ -131,7 +136,8 @@ fn main() -> ExitCode {
             socket,
             daemon,
             config,
-        } => serve::serve(socket, daemon, config),
+            exit_with_clients,
+        } => serve::serve(socket, daemon, config, exit_with_clients),
         CliCommand::Ctl { command, follow } => ctl(&command, follow),
         CliCommand::Bench { request, json, gpu } => bench(&request, json, gpu.as_deref()),
         CliCommand::List { what } => list(&what),
@@ -178,19 +184,20 @@ fn init_logging(verbose: u8, quiet: bool) {
 // ---- run -------------------------------------------------------------------
 
 fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode> {
-    // The program first, with the user's environment: `Engine::new` sets
-    // the lsfg-vk variables for this process only.
+    // The program first, with the user's environment (X11 forced, as 1.x):
+    // `Engine::new` sets the lsfg-vk variables for this process only. It is
+    // terminated when the run ends (`Launched` drops it).
     let launched = match program.split_first() {
         Some((exe, args)) => {
-            let child = std::process::Command::new(exe)
-                .args(args)
-                .spawn()
-                .with_context(|| format!("cannot start {exe}"))?;
+            let child =
+                lirtup_core::lifecycle::launch(exe, args).with_context(|| format!("cannot start {exe}"))?;
             tracing::info!("started {exe} (pid {})", child.id());
-            Some(child.id())
+            Some(child)
         }
         None => None,
     };
+    let launched_pid = launched.as_ref().map(lirtup_core::lifecycle::Launched::id);
+    let launched = Arc::new(std::sync::Mutex::new(launched));
 
     let options = EngineOptions {
         config_path: config.config.clone(),
@@ -204,10 +211,10 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
     let engine = Arc::new(Engine::new(options)?);
     let base = engine.config();
     if base.daemon {
-        anyhow::bail!("daemon mode is not implemented yet (round 4); use `lirtup serve --daemon` later");
+        return serve::daemon_foreground(engine);
     }
 
-    let (target, delay_s) = if let Some(pid) = launched {
+    let (target, delay_s) = if let Some(pid) = launched_pid {
         (Target::Pid(pid), None)
     } else if base.select {
         (Target::Window(select_window()?), None)
@@ -233,8 +240,11 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
     let mut events = engine.subscribe();
     {
         let engine = Arc::clone(&engine);
+        let launched = Arc::clone(&launched);
         lirtup_core::signals::on_terminate(move || {
             engine.shutdown(STOP_TIMEOUT);
+            // `exit` runs no destructors: terminate the program here.
+            drop(launched.lock().ok().and_then(|mut l| l.take()));
             std::process::exit(130);
         })?;
     }
@@ -294,6 +304,7 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
         }
     }
     engine.shutdown(STOP_TIMEOUT);
+    drop(launched.lock().ok().and_then(|mut l| l.take()));
     Ok(if failed {
         ExitCode::FAILURE
     } else {

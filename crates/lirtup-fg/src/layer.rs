@@ -259,8 +259,10 @@ fn remove_env(key: &str) {
 
 /// Replace this process with a fresh copy of itself (`exec` of
 /// `/proc/self/exe` with the same arguments), so the layer reads the new
-/// multiplier. Only returns on error.
-pub fn restart_self() -> std::io::Error {
+/// multiplier. `env` is added to the new process's environment: the
+/// session to start again (`lirtup_core::lifecycle::Resume`), which the new
+/// process reads and removes at startup. Only returns on error.
+pub fn restart_self(env: &[(&str, &str)]) -> std::io::Error {
     use std::os::unix::process::CommandExt;
 
     let mut args = std::env::args_os();
@@ -269,6 +271,7 @@ pub fn restart_self() -> std::io::Error {
     std::process::Command::new("/proc/self/exe")
         .arg0(argv0)
         .args(args)
+        .envs(env.iter().copied())
         .exec()
 }
 

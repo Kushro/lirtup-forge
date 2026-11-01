@@ -1,6 +1,7 @@
 //! Activación (6.1): the two activation hotkeys from the config, deferred
 //! scaling («Empezar» sends `Start { target: Focused, delay }`) and the
-//! daemon switch.
+//! daemon switch. The delay is `gui.start_delay_s` (round 4, front Y):
+//! choosing one in the menu saves it.
 
 use dioxus::prelude::*;
 use lirtup_config::{ConfigFile, HotkeyAction, Value};
@@ -11,10 +12,12 @@ use crate::components::{
     Badge, Button, ButtonVariant, IconButton, Keycap, Menu, MenuItem, SettingGroup, SettingRow, Switch,
 };
 use crate::route::{Route, SettingsTab};
+use crate::screens::settings::write_gui;
 use crate::state::{Action, Origin};
 
 /// The delays «Escalado diferido» offers, in seconds; the first is the
-/// default.
+/// default. Another value of `gui.start_delay_s` (0 to 60) is shown as one
+/// more choice.
 pub const DELAYS: [u32; 4] = [3, 5, 10, 15];
 
 /// The group.
@@ -22,7 +25,7 @@ pub const DELAYS: [u32; 4] = [3, 5, 10, 15];
 pub fn ActivationGroup() -> Element {
     let store = use_store();
     let dispatch = use_dispatch();
-    let mut delay = use_signal(|| DELAYS[0]);
+    let delay = use_memo(move || store.read().gui.start_delay_s);
     let mut delay_menu = use_signal(|| false);
 
     let (fullscreen, windowed) = {
@@ -50,15 +53,35 @@ pub fn ActivationGroup() -> Element {
         }))
     };
     let begin = move |kind: SessionKind| {
-        move |_| super::start(dispatch, Target::Focused, kind, Some(*delay.peek() as f32), None)
+        move |_| {
+            let seconds = *delay.peek();
+            super::start(
+                dispatch,
+                Target::Focused,
+                kind,
+                Some(seconds).filter(|s| *s > 0.0),
+                None,
+            )
+        }
     };
-    let delay_items: Vec<MenuItem> = DELAYS
+    let seconds = delay();
+    let custom = (!DELAYS.iter().any(|&d| d as f32 == seconds)).then_some(seconds);
+    let mut delay_items: Vec<MenuItem> = DELAYS
         .iter()
         .map(|&s| {
             let item = MenuItem::new(delay_id(s), t!("home-delay-option", seconds = s));
-            if s == delay() { item.icon("check") } else { item }
+            if s as f32 == seconds {
+                item.icon("check")
+            } else {
+                item
+            }
         })
         .collect();
+    if let Some(c) = custom {
+        delay_items.push(
+            MenuItem::new("custom", t!("home-delay-option", seconds = format_seconds(c))).icon("check"),
+        );
+    }
     let daemon_subtitle = if daemon_on() {
         t!("home-daemon-watching", count = watching)
     } else {
@@ -90,7 +113,7 @@ pub fn ActivationGroup() -> Element {
                     SettingRow {
                         icon: "timer",
                         title: t!("home-delay-title"),
-                        subtitle: t!("home-delay-subtitle", seconds = delay()),
+                        subtitle: t!("home-delay-subtitle", seconds = format_seconds(seconds)),
                         origin: Origin::Inherited,
                         div { class: "flex flex-wrap items-center gap-2",
                             Button {
@@ -120,7 +143,7 @@ pub fn ActivationGroup() -> Element {
                                     items: delay_items,
                                     on_select: move |id: &'static str| {
                                         if let Some(s) = DELAYS.iter().copied().find(|&s| delay_id(s) == id) {
-                                            delay.set(s);
+                                            write_gui(store, dispatch, |g| g.start_delay_s = s as f32);
                                         }
                                         delay_menu.set(false);
                                     },
@@ -191,6 +214,15 @@ pub fn hotkey(file: &ConfigFile, action: HotkeyAction) -> String {
         .unwrap_or_else(|| action.default_binding().to_owned())
 }
 
+/// `3` for 3.0, `2.5` for 2.5 (the delay as the subtitle says it).
+fn format_seconds(seconds: f32) -> String {
+    if seconds.fract() == 0.0 {
+        format!("{seconds:.0}")
+    } else {
+        format!("{seconds:.1}")
+    }
+}
+
 fn delay_id(seconds: u32) -> &'static str {
     match seconds {
         3 => "3",
@@ -220,6 +252,21 @@ mod tests {
         file.general = serde_yaml_ng::from_str(yaml).unwrap();
         assert_eq!(hotkey(&file, HotkeyAction::StartWindowed), "Ctrl+Alt+W");
         assert_eq!(hotkey(&file, HotkeyAction::StartFullscreen), "");
+    }
+
+    #[test]
+    fn seconds_read_as_written() {
+        assert_eq!(format_seconds(3.0), "3");
+        assert_eq!(format_seconds(2.5), "2.5");
+    }
+
+    #[test]
+    fn the_default_delay_is_offered() {
+        assert!(
+            DELAYS
+                .iter()
+                .any(|&d| d as f32 == lirtup_config::GuiConfig::default().start_delay_s)
+        );
     }
 
     #[test]

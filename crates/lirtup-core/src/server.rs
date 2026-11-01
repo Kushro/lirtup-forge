@@ -7,27 +7,41 @@
 //! then the connection is closed. A line that does not decode is answered
 //! with an `Event::Log` to that client only. A client that falls behind the
 //! broadcast gets a fresh `Snapshot` instead of the events it missed.
+//!
+//! When to stop is [`Lifecycle`]'s call (round 4, front Y): the server
+//! counts the connections and asks it every second. With no client
+//! connected (the GUI closed, the daemon scaling on its own), a session
+//! that starts or fails is announced with a desktop notification
+//! (`notify-send`, «Detener» stops the session).
 
 use std::path::Path;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::lifecycle::Lifecycle;
 use crate::proto::{CodecError, Command, Event, Level, PROTOCOL_VERSION, decode_line, encode_line};
 use crate::{CoreError, Engine, Result};
 
 /// How long `serve` waits for the session to stop on the way out.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How often the server asks [`Lifecycle`] whether to stop.
+const LIFECYCLE_TICK: Duration = Duration::from_secs(1);
+
+fn lock(m: &Mutex<Lifecycle>) -> std::sync::MutexGuard<'_, Lifecycle> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Listen on `socket` (creating its folder with mode 0700 and removing a
-/// stale socket), serve clients until `Quit` or a signal, then shut the
-/// engine down. One task per client: read lines → [`Engine::handle`], and
-/// forward [`Engine::subscribe`] to the client.
-pub async fn serve(engine: Arc<Engine>, socket: &Path) -> Result<()> {
+/// stale socket), serve clients until `Quit`, a signal or `lifecycle`
+/// says so, then shut the engine down. One task per client: read lines →
+/// [`Engine::handle`], and forward [`Engine::subscribe`] to the client.
+pub async fn serve(engine: Arc<Engine>, socket: &Path, lifecycle: Lifecycle) -> Result<()> {
     let listener = bind(socket)?;
     tracing::info!("listening on {}", socket.display());
 
@@ -35,16 +49,23 @@ pub async fn serve(engine: Arc<Engine>, socket: &Path) -> Result<()> {
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut quit = engine.quit_signal();
+    let lifecycle = Arc::new(Mutex::new(lifecycle));
+    let mut tick = tokio::time::interval(LIFECYCLE_TICK);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut events = engine.subscribe();
 
     let result = loop {
         tokio::select! {
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
                     let engine = Arc::clone(&engine);
+                    let lifecycle = Arc::clone(&lifecycle);
+                    lock(&lifecycle).connected();
                     tokio::spawn(async move {
                         if let Err(e) = client(engine, stream).await {
                             tracing::debug!("client: {e}");
                         }
+                        lock(&lifecycle).left(Instant::now());
                     });
                 }
                 Err(e) => {
@@ -58,6 +79,26 @@ pub async fn serve(engine: Arc<Engine>, socket: &Path) -> Result<()> {
                 if changed.is_ok() { tracing::info!("Quit: stopping"); }
                 break Ok(());
             }
+            _ = tick.tick() => {
+                let exit = lock(&lifecycle).should_exit(
+                    Instant::now(),
+                    engine.daemon_keeps(),
+                    engine.session_running(),
+                );
+                if exit {
+                    tracing::info!("no client left and nothing to keep running: stopping");
+                    break Ok(());
+                }
+            }
+            event = events.recv() => match event {
+                Ok(event) => {
+                    if lock(&lifecycle).clients() == 0 {
+                        notify_headless(&engine, &event);
+                    }
+                }
+                Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => break Ok(()),
+            },
         }
     };
 
@@ -72,12 +113,12 @@ pub async fn serve(engine: Arc<Engine>, socket: &Path) -> Result<()> {
 
 /// [`serve`] on a new multi-threaded tokio runtime, for `lirtup serve`
 /// (which builds the [`Engine`] first, before any thread exists).
-pub fn run(engine: Arc<Engine>, socket: &Path) -> Result<()> {
+pub fn run(engine: Arc<Engine>, socket: &Path, lifecycle: Lifecycle) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("lirtup-serve")
         .build()?;
-    let result = runtime.block_on(serve(engine, socket));
+    let result = runtime.block_on(serve(engine, socket, lifecycle));
     // Client tasks may still wait on their sockets.
     runtime.shutdown_timeout(Duration::from_millis(500));
     result
@@ -91,6 +132,60 @@ pub fn ensure_not_running(socket: &Path) -> Result<()> {
         return Err(CoreError::AlreadyRunning(socket.to_path_buf()));
     }
     Ok(())
+}
+
+/// A desktop notification for `event` while no client is connected: the
+/// daemon started a session (with «Detener»), or one failed. The GUI shows
+/// its own when it is connected (`lirtup-ui/src/notify.rs`).
+fn notify_headless(engine: &Arc<Engine>, event: &Event) {
+    let spanish = ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .find_map(|v| std::env::var(v).ok().filter(|v| !v.is_empty()))
+        .is_some_and(|l| l.starts_with("es"));
+    let (body, stop) = match event {
+        Event::SessionStarted(view) if spanish => (
+            format!(
+                "Escalando: «{}». Utilice «Detener» en este aviso para volver.",
+                view.window.title
+            ),
+            true,
+        ),
+        Event::SessionStarted(view) => (
+            format!(
+                "Scaling «{}». Use «Stop» in this notification to go back.",
+                view.window.title
+            ),
+            true,
+        ),
+        Event::SessionError { message, .. } if spanish => (format!("No se pudo escalar: {message}"), false),
+        Event::SessionError { message, .. } => (format!("Scaling failed: {message}"), false),
+        _ => return,
+    };
+    let engine = Arc::clone(engine);
+    let label = if spanish { "Detener" } else { "Stop" };
+    let spawned = std::thread::Builder::new()
+        .name("lirtup-notify".into())
+        .spawn(move || {
+            let mut command = std::process::Command::new("notify-send");
+            command.arg("--app-name=LirtUp Forge").arg("--icon=lirtup-forge");
+            if stop {
+                command.arg(format!("--action=stop={label}"));
+            }
+            command.arg("LirtUp Forge").arg(body);
+            match command.stdin(std::process::Stdio::null()).output() {
+                Ok(out) if String::from_utf8_lossy(&out.stdout).trim() == "stop" => {
+                    tracing::info!("notification: Detener");
+                    if let Err(e) = engine.handle(Command::Stop) {
+                        tracing::warn!("Stop: {e}");
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => tracing::debug!("notify-send: {e}"),
+            }
+        });
+    if let Err(e) = spawned {
+        tracing::debug!("notification: {e}");
+    }
 }
 
 /// Create the folder (0700), refuse a live socket, remove a stale one, bind.
