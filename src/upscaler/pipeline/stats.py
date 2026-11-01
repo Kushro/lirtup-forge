@@ -37,28 +37,30 @@ _WARNING_COLOR = (255, 110, 90, 255)
 _BG_COLOR = (0, 0, 0, 170)
 # Below this game frame rate (a still image) the GPU budget is not checked
 _MIN_BUDGET_FPS = 5.0
+# The budget is never looser than this rate: when the effects cannot keep up,
+# frames are lost and the measured rate drops with them, hiding the problem
+_TARGET_FPS = 30.0
 
 
 def gpu_budget_warning(
     effects: List[Tuple[str, Optional[float]]], game_fps: float
 ) -> Optional[str]:
     """
-    A warning when the effects take longer on the GPU than the game takes
-    to draw a frame (they cannot keep up), naming the heaviest one.
+    A warning when the effects take longer on the GPU than a game frame
+    lasts (they cannot keep up), naming the heaviest one. The frame lasts
+    1 / *game_fps*, or 1 / _TARGET_FPS when the measured rate is lower:
+    effects that cannot keep up lose frames and lower that rate themselves.
     *effects* holds (name, GPU ms or None) pairs.
     """
     timed = [(name, ms) for name, ms in effects if ms is not None]
     if game_fps < _MIN_BUDGET_FPS or not timed:
         return None
-    budget = 1000.0 / game_fps
+    budget = 1000.0 / max(game_fps, _TARGET_FPS)
     total = sum(ms for _, ms in timed)
     if total <= budget:
         return None
     heaviest = max(timed, key=lambda e: e[1])[0]
-    return (
-        f"{total:.1f} ms > {budget:.1f} ms per game frame: "
-        f"try a lighter effect than {heaviest}"
-    )
+    return f"{total:.1f} ms > {budget:.1f} ms/frame, heaviest: {heaviest}"
 
 
 class _Rate:

@@ -198,8 +198,8 @@ shows:
 - **Source**, **Upscale**, **Effects** (each with its GPU time), **Output**,
   **Post**, **Present** and **Profile**: the processing chain in order.
 - **GPU** (in red, only when it applies): the effects take longer on the GPU
-  than the game takes to draw a frame, so they cannot keep up. It names the
-  heaviest effect, the one to make lighter.
+  than a game frame lasts (at most 33 ms, as for 30 fps), so they cannot keep
+  up. It names the heaviest effect, the one to make lighter.
 
 While the panel is visible, the Magpie effects are timed with GPU timestamp
 queries, which cost a little. With frame generation on, each panel refresh
