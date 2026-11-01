@@ -21,8 +21,6 @@
 //! `unsafe` is allowed in this crate; every block has a `// SAFETY:` comment.
 
 #![allow(unsafe_code)]
-// Round 0 stubs: the bodies are `todo!()`. Front X removes this.
-#![allow(unused_variables)]
 
 pub mod acquire;
 pub mod capture;

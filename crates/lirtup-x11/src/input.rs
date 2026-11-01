@@ -1,8 +1,17 @@
 //! Input forwarding from the overlay to the target window
 //! (`overlay/forwarder.py`, `X11EventForwarder` and `CoordinateMapper`).
 
-use crate::overlay::OverlayEvent;
-use crate::{Rect, Result};
+use x11rb::connection::Connection;
+use x11rb::protocol::xproto::{
+    ButtonPressEvent, ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent, MotionNotifyEvent,
+    Motion, NotifyDetail, NotifyMode, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ENTER_NOTIFY_EVENT, KEY_PRESS_EVENT,
+    KEY_RELEASE_EVENT, LEAVE_NOTIFY_EVENT, MOTION_NOTIFY_EVENT,
+};
+use x11rb::rust_connection::RustConnection;
+
+use crate::error::gone_to_none;
+use crate::overlay::{OverlayEvent, PointerKind};
+use crate::{Rect, Result, X11Error};
 
 /// Maps overlay coordinates to target window coordinates: the inverse of the
 /// scaling (content rect inside the overlay → cropped source rect).
@@ -19,30 +28,254 @@ pub struct CoordinateMapper {
 impl CoordinateMapper {
     /// Target window coordinates of an overlay point; `None` outside the
     /// content (letterbox).
+    ///
+    /// The point is scaled from `content` to `source_size` (rounded down,
+    /// clamped to the last pixel) and shifted by `crop_offset`, like
+    /// `CoordinateMapper.map` of 1.x.
     pub fn to_target(&self, x: i32, y: i32) -> Option<(i32, i32)> {
-        todo!("front X")
+        let c = self.content;
+        let (sw, sh) = self.source_size;
+        if c.width == 0 || c.height == 0 || sw == 0 || sh == 0 {
+            return None;
+        }
+        let (dx, dy) = (i64::from(x) - i64::from(c.x), i64::from(y) - i64::from(c.y));
+        if dx < 0 || dy < 0 || dx >= i64::from(c.width) || dy >= i64::from(c.height) {
+            return None;
+        }
+        let sx = (dx * i64::from(sw) / i64::from(c.width)).min(i64::from(sw) - 1);
+        let sy = (dy * i64::from(sh) / i64::from(c.height)).min(i64::from(sh) - 1);
+        Some((sx as i32 + self.crop_offset.0 as i32, sy as i32 + self.crop_offset.1 as i32))
     }
 }
 
 /// Replays overlay events on the target with `SendEvent` (and XTest where
 /// `SendEvent` is ignored). `Send`; its own connection.
+///
+/// Round 1 sends synthetic events only (what 1.x does); programs that drop
+/// `send_event` events (some SDL and Wine builds) need XTest, which moves the
+/// real pointer and is left for round 2.
 pub struct InputForwarder {
-    _private: (),
+    conn: RustConnection,
+    root: u32,
+    target: u32,
+    mapper: CoordinateMapper,
+    /// Target origin in root coordinates (for `root_x`/`root_y`); re-read
+    /// on every enter and after `set_mapper`.
+    origin: Option<(i32, i32)>,
+    /// The pointer is inside the target (an `EnterNotify` was sent).
+    inside: bool,
+    /// Last target position, for key events.
+    last: (i32, i32),
 }
 
 impl InputForwarder {
     /// Forward to `target`.
     pub fn new(target: u32) -> Result<InputForwarder> {
-        todo!("front X")
+        let (conn, screen) = RustConnection::connect(None)?;
+        let root = conn.setup().roots[screen].root;
+        Ok(InputForwarder {
+            conn,
+            root,
+            target,
+            mapper: CoordinateMapper::default(),
+            origin: None,
+            inside: false,
+            last: (0, 0),
+        })
     }
 
     /// Update the mapping (geometry, zoom or offset changed).
     pub fn set_mapper(&mut self, mapper: CoordinateMapper) {
-        todo!("front X")
+        self.mapper = mapper;
+        self.origin = None;
     }
 
     /// Forward one event; events that do not map are dropped.
     pub fn forward(&mut self, event: &OverlayEvent) -> Result<()> {
-        todo!("front X")
+        match *event {
+            OverlayEvent::Pointer { kind, x, y, state, time } => {
+                let Some((tx, ty)) = self.mapper.to_target(x, y) else {
+                    // Over the letterbox: the target loses the pointer.
+                    return self.leave(state, time);
+                };
+                if !self.inside {
+                    self.origin = None;
+                    self.enter(tx, ty, state, time)?;
+                }
+                self.last = (tx, ty);
+                let (ox, oy) = self.origin()?;
+                let (rx, ry) = (clamp_i16(ox + tx), clamp_i16(oy + ty));
+                let (ex, ey) = (clamp_i16(tx), clamp_i16(ty));
+                let state = KeyButMask::from(state);
+                match kind {
+                    PointerKind::Motion => {
+                        let e = MotionNotifyEvent {
+                            response_type: MOTION_NOTIFY_EVENT,
+                            detail: Motion::NORMAL,
+                            sequence: 0,
+                            time,
+                            root: self.root,
+                            event: self.target,
+                            child: x11rb::NONE,
+                            root_x: rx,
+                            root_y: ry,
+                            event_x: ex,
+                            event_y: ey,
+                            state,
+                            same_screen: true,
+                        };
+                        self.send(EventMask::POINTER_MOTION | EventMask::BUTTON_MOTION, e)?;
+                    }
+                    PointerKind::Press(button) | PointerKind::Release(button) => {
+                        let press = matches!(kind, PointerKind::Press(_));
+                        let e = ButtonPressEvent {
+                            response_type: if press { BUTTON_PRESS_EVENT } else { BUTTON_RELEASE_EVENT },
+                            detail: button,
+                            sequence: 0,
+                            time,
+                            root: self.root,
+                            event: self.target,
+                            child: x11rb::NONE,
+                            root_x: rx,
+                            root_y: ry,
+                            event_x: ex,
+                            event_y: ey,
+                            state,
+                            same_screen: true,
+                        };
+                        let mask = if press { EventMask::BUTTON_PRESS } else { EventMask::BUTTON_RELEASE };
+                        self.send(mask, e)?;
+                    }
+                }
+            }
+            OverlayEvent::Key { pressed, keycode, state, time } => {
+                let (ox, oy) = self.origin()?;
+                let (tx, ty) = self.last;
+                let e = KeyPressEvent {
+                    response_type: if pressed { KEY_PRESS_EVENT } else { KEY_RELEASE_EVENT },
+                    detail: keycode,
+                    sequence: 0,
+                    time,
+                    root: self.root,
+                    event: self.target,
+                    child: x11rb::NONE,
+                    root_x: clamp_i16(ox + tx),
+                    root_y: clamp_i16(oy + ty),
+                    event_x: clamp_i16(tx),
+                    event_y: clamp_i16(ty),
+                    state: KeyButMask::from(state),
+                    same_screen: true,
+                };
+                let mask = if pressed { EventMask::KEY_PRESS } else { EventMask::KEY_RELEASE };
+                self.send(mask, e)?;
+            }
+            OverlayEvent::Leave => self.leave(0, x11rb::CURRENT_TIME)?,
+            OverlayEvent::Enter
+            | OverlayEvent::Configure(_)
+            | OverlayEvent::Expose
+            | OverlayEvent::Close => {}
+        }
+        Ok(())
+    }
+
+    fn enter(&mut self, tx: i32, ty: i32, state: u16, time: u32) -> Result<()> {
+        self.inside = true;
+        let e = self.crossing(ENTER_NOTIFY_EVENT, tx, ty, state, time)?;
+        self.send(EventMask::ENTER_WINDOW, e)
+    }
+
+    fn leave(&mut self, state: u16, time: u32) -> Result<()> {
+        if !self.inside {
+            return Ok(());
+        }
+        self.inside = false;
+        let (tx, ty) = self.last;
+        let e = self.crossing(LEAVE_NOTIFY_EVENT, tx, ty, state, time)?;
+        self.send(EventMask::LEAVE_WINDOW, e)
+    }
+
+    fn crossing(&mut self, kind: u8, tx: i32, ty: i32, state: u16, time: u32) -> Result<EnterNotifyEvent> {
+        let (ox, oy) = self.origin()?;
+        Ok(EnterNotifyEvent {
+            response_type: kind,
+            detail: NotifyDetail::NONLINEAR,
+            sequence: 0,
+            time,
+            root: self.root,
+            event: self.target,
+            child: x11rb::NONE,
+            root_x: clamp_i16(ox + tx),
+            root_y: clamp_i16(oy + ty),
+            event_x: clamp_i16(tx),
+            event_y: clamp_i16(ty),
+            state: KeyButMask::from(state),
+            mode: NotifyMode::NORMAL,
+            // Bit 0: same screen; bit 1: focus.
+            same_screen_focus: 0b11,
+        })
+    }
+
+    /// Target origin in root coordinates, cached.
+    fn origin(&mut self) -> Result<(i32, i32)> {
+        if let Some(o) = self.origin {
+            return Ok(o);
+        }
+        let reply = self.conn.translate_coordinates(self.target, self.root, 0, 0)?.reply();
+        let Some(t) = gone_to_none(reply)? else { return Err(X11Error::NoWindow(self.target)) };
+        let o = (i32::from(t.dst_x), i32::from(t.dst_y));
+        self.origin = Some(o);
+        Ok(o)
+    }
+
+    fn send(&self, mask: EventMask, event: impl Into<[u8; 32]>) -> Result<()> {
+        self.conn.send_event(false, self.target, mask, event)?;
+        self.conn.flush()?;
+        Ok(())
+    }
+}
+
+fn clamp_i16(v: i32) -> i16 {
+    v.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mapper() -> CoordinateMapper {
+        // 640x360 source shown at 2x inside a 1920x1080 overlay, letterboxed.
+        CoordinateMapper {
+            content: Rect { x: 320, y: 180, width: 1280, height: 720 },
+            source_size: (640, 360),
+            crop_offset: (0, 30),
+        }
+    }
+
+    #[test]
+    fn maps_inside_content() {
+        let m = mapper();
+        assert_eq!(m.to_target(320, 180), Some((0, 30)));
+        assert_eq!(m.to_target(321, 181), Some((0, 30)));
+        assert_eq!(m.to_target(322, 182), Some((1, 31)));
+        assert_eq!(m.to_target(1599, 899), Some((639, 389)));
+    }
+
+    #[test]
+    fn letterbox_does_not_map() {
+        let m = mapper();
+        assert_eq!(m.to_target(319, 500), None);
+        assert_eq!(m.to_target(1600, 500), None);
+        assert_eq!(m.to_target(800, 900), None);
+        assert_eq!(CoordinateMapper::default().to_target(0, 0), None);
+    }
+
+    #[test]
+    fn downscaled_content_maps_back() {
+        let m = CoordinateMapper {
+            content: Rect { x: 0, y: 0, width: 100, height: 100 },
+            source_size: (1000, 1000),
+            crop_offset: (5, 5),
+        };
+        assert_eq!(m.to_target(50, 99), Some((505, 995)));
     }
 }
