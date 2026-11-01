@@ -1,0 +1,20 @@
+[package]
+name = "lirtup-gpu"
+description = "Vulkan (ash) device, resources, compute, external memory and swapchain for LirtUp Forge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ash.workspace = true
+gpu-allocator.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+libc.workspace = true
+bitflags.workspace = true
+
+[lints]
+workspace = true

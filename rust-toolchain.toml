@@ -1,0 +1,6 @@
+# Pinned toolchain for the Rust rewrite (rustup reads this; distro cargo ignores
+# it, so keep the distro rustc at this version or newer).
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

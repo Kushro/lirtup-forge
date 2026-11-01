@@ -1,0 +1,20 @@
+[package]
+name = "lirtup-fg"
+description = "Frame generation for LirtUp Forge: lsfg-vk layer setup and the built-in engine over lsfg-sys"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+lirtup-config.workspace = true
+lsfg-sys.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+dirs.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

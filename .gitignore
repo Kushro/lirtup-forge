@@ -154,3 +154,5 @@ config.yaml
 
 # Dummy C files
 **/dummy.c
+### Rust ###
+/target/

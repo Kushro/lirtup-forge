@@ -1,0 +1,121 @@
+# LirtUp Forge 2.0: the Rust rewrite (see docs/developer/rust-refactor-analysis.md
+# and docs/developer/rust-r0-contract.md). The Python app in src/ is still the one
+# that ships until round 4.
+#
+# Only the reviewer edits this file: fronts ask for new dependencies in their
+# branch note.
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/lirtup-config",
+    "crates/lirtup-gpu",
+    "crates/lirtup-x11",
+    "crates/lirtup-effects",
+    "crates/lirtup-magpiefx",
+    "crates/lsfg-sys",
+    "crates/lirtup-fg",
+]
+
+[workspace.package]
+version = "2.0.0-alpha.0"
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Kushro/lirtup-forge"
+authors = ["Luis Coronado"]
+
+[workspace.dependencies]
+# Workspace crates
+lirtup-config = { path = "crates/lirtup-config" }
+lirtup-gpu = { path = "crates/lirtup-gpu" }
+lirtup-x11 = { path = "crates/lirtup-x11" }
+lirtup-effects = { path = "crates/lirtup-effects" }
+lirtup-magpiefx = { path = "crates/lirtup-magpiefx" }
+lsfg-sys = { path = "crates/lsfg-sys" }
+lirtup-fg = { path = "crates/lirtup-fg" }
+lirtup-proto = { path = "crates/lirtup-proto" }
+lirtup-pipeline = { path = "crates/lirtup-pipeline" }
+lirtup-core = { path = "crates/lirtup-core" }
+
+# GPU and X11
+ash = "0.38.0"
+gpu-allocator = { version = "0.28.0", default-features = false, features = ["std", "vulkan"] }
+x11rb = { version = "0.14.0", features = [
+    "allow-unsafe-code",
+    "dl-libxcb",
+    "composite",
+    "damage",
+    "randr",
+    "render",
+    "shape",
+    "shm",
+    "xfixes",
+    "xtest",
+] }
+xxhash-rust = { version = "0.8.19", features = ["xxh64"] }
+libc = "0.2.191"
+memmap2 = "0.9.12"
+bitflags = "2.13.2"
+
+# Configuration and protocol
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serde_yaml_ng = "0.10.0"
+indexmap = { version = "2", features = ["serde"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+regex = "1.13.1"
+dirs = "7.0.0"
+
+# Threads and IPC
+crossbeam-channel = "0.5.17"
+arc-swap = "1.9.3"
+tokio = { version = "1.54.1", features = ["rt", "rt-multi-thread", "macros", "net", "sync", "time", "io-util", "signal"] }
+
+# Images and text
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "bmp", "tiff", "webp"] }
+ab_glyph = "0.2.32"
+
+# GUI (round 3 onwards). Dioxus and `dx` are pinned to the same version.
+dioxus = "=0.7.10"
+# Same versions dioxus-desktop 0.7.10 links (one GTK menu stack).
+tray-icon = "0.21.3"
+muda = "0.17.2"
+ksni = "0.3.7"
+fluent = "0.17.0"
+fluent-templates = "0.15.1"
+material-colors = "0.5.0"
+notify-rust = "4.18.2"
+
+# Errors and logs
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+# Build and tests
+cc = "1.10.0"
+tempfile = "3.27.0"
+
+[workspace.lints.rust]
+# lirtup-gpu, lirtup-x11 and lsfg-sys allow it in their lib.rs; every unsafe
+# block there carries a `// SAFETY:` comment (clippy checks it).
+unsafe_code = "deny"
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+todo = "warn"
+dbg_macro = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[profile.dev]
+# Vulkan setup, image decoding and font rasterization are painfully slow
+# unoptimized; our own crates stay at opt-level 0 for fast rebuilds.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

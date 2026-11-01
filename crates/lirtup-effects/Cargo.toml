@@ -1,0 +1,21 @@
+[package]
+name = "lirtup-effects"
+description = "SRCNN (CuNNy), native scalers and effects, converters and OSD for LirtUp Forge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+serde.workspace = true
+lirtup-config.workspace = true
+lirtup-gpu.workspace = true
+ab_glyph.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

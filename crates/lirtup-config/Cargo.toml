@@ -1,0 +1,25 @@
+[package]
+name = "lirtup-config"
+description = "Configuration, profiles, scaling modes, YAML and command line for LirtUp Forge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_yaml_ng.workspace = true
+indexmap.workspace = true
+clap.workspace = true
+regex.workspace = true
+dirs.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

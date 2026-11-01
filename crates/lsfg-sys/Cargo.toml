@@ -1,0 +1,19 @@
+[package]
+name = "lsfg-sys"
+links = "lsfg"
+build = "build.rs"
+description = "Raw FFI to the vendored lsfg-vk frame generation core (C API in include/lsfg_c.h)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cc.workspace = true
