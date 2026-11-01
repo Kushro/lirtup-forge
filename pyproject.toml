@@ -43,6 +43,9 @@ dependencies = [
     "xcffib",
 ]
 
+[project.optional-dependencies]
+test = ["pytest"]
+
 [project.urls]
 Homepage = "https://github.com/Kushro/lirtup-forge"
 Repository = "https://github.com/Kushro/lirtup-forge.git"
@@ -73,3 +76,7 @@ where = ["src"]
 "upscaler.shaders" = ["**/*.spv"]
 "upscaler.srcnn" = ["**/*.json", "**/*.spv"]
 "upscaler.vulkan" = ["lib/*.cpp", "lib/*.h"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
