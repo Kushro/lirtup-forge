@@ -12,10 +12,7 @@
 
 /// HLSL of the swap-R/B pass (a MagpieFX effect, `internal/SwapRB.hlsl`).
 pub fn swap_rb_source() -> &'static str {
-    include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/internal/SwapRB.hlsl"
-    ))
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/internal/SwapRB.hlsl"))
 }
 
 /// The function the rewritten source calls.

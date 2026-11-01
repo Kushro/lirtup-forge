@@ -959,7 +959,10 @@ impl Inner {
             // 1.x (`config/setup.py`): an unknown `-p` warns and goes on
             // with the base configuration.
             Err(CoreError::Config(lirtup_config::ConfigError::UnknownProfile(name))) => {
-                self.log(Level::Warn, format!("no profile named {name:?}: using the base configuration"));
+                self.log(
+                    Level::Warn,
+                    format!("no profile named {name:?}: using the base configuration"),
+                );
                 match self.resolve_for(&window, None) {
                     Ok(r) => r,
                     Err(e) => return self.fail(Stage::Config, e.to_string(), false),
@@ -1005,13 +1008,18 @@ impl Inner {
             resolve: Some({
                 let inner = Arc::clone(self);
                 let profile = profile.clone();
-                Arc::new(move |window: &WindowInfo| match inner.resolve_for(window, profile.as_deref()) {
-                    Ok(resolved) => Some(resolved),
-                    Err(e) => {
-                        tracing::warn!("follow_focus: cannot resolve the profile of {}: {e}", window.title);
-                        None
-                    }
-                })
+                Arc::new(
+                    move |window: &WindowInfo| match inner.resolve_for(window, profile.as_deref()) {
+                        Ok(resolved) => Some(resolved),
+                        Err(e) => {
+                            tracing::warn!(
+                                "follow_focus: cannot resolve the profile of {}: {e}",
+                                window.title
+                            );
+                            None
+                        }
+                    },
+                )
             }),
         };
         match Session::start(setup) {

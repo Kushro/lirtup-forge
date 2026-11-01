@@ -977,7 +977,10 @@ impl Runner {
         // 1.x pauses on focus loss only where the overlay bypasses the
         // window manager (always-on-top, top-transparent): a fullscreen or
         // windowed overlay is a normal window the manager stacks.
-        if !matches!(self.overlay_mode(), OverlayMode::AlwaysOnTop | OverlayMode::TopTransparent) {
+        if !matches!(
+            self.overlay_mode(),
+            OverlayMode::AlwaysOnTop | OverlayMode::TopTransparent
+        ) {
             return Ok(());
         }
         if !self.focus_paused {
@@ -1601,7 +1604,11 @@ impl Runner {
             Ok(frame) => frame,
             Err(X11Error::NoWindow(_)) => {
                 let reason = self.orphan_or(StopReason::WindowClosed);
-                return Ok(if self.orphaned { FrameResult::Idle } else { FrameResult::Stop(reason) });
+                return Ok(if self.orphaned {
+                    FrameResult::Idle
+                } else {
+                    FrameResult::Stop(reason)
+                });
             }
             Err(X11Error::Resized { .. }) => {
                 return Ok(match self.window_resized()? {

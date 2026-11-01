@@ -1092,10 +1092,73 @@ fn delete_profile(store: &mut Store, name: ProfileName) -> Option<Effect> {
             tab: ProfileTab::default(),
         };
     }
+    let icon = own_icon(store, &name);
     let done = toast("profile-toast-deleted", vec![("name", name.clone())]);
-    write_structure(store, done, |file, edits| {
+    let written = write_structure(store, done, |file, edits| {
         file.profiles.shift_remove(&name);
         edits.retain(|(p, _), _| *p != gone);
+    });
+    match icon {
+        Some(path) => join(written, Some(Effect::WriteIcon { path, png: None })),
+        None => written,
+    }
+}
+
+/// The profile's icon if it is ours (`icons/<name>.png` next to the
+/// config, as «Nuevo perfil» writes it): only those are moved or removed.
+fn own_icon(store: &Store, name: &str) -> Option<PathBuf> {
+    let path = store
+        .config
+        .file
+        .profiles
+        .get(name)?
+        .extra
+        .get("icon")?
+        .as_str()
+        .map(PathBuf::from)?;
+    (path == icon_path(&store.config.file.path, name)).then_some(path)
+}
+
+/// `SetProfileIcon`: the file first, then the `icon:` key.
+fn set_profile_icon(store: &mut Store, name: ProfileName, png: Option<Vec<u8>>) -> Option<Effect> {
+    if !store.config.file.profiles.contains_key(&name) {
+        return None;
+    }
+    let path = icon_path(&store.config.file.path, &name);
+    let old = own_icon(store, &name);
+    let set = png.is_some();
+    let done = toast("profile-toast-saved", Vec::new());
+    let key_path = path.clone();
+    let written = write_structure(store, done, move |file, _| {
+        if let Some(p) = file.profiles.get_mut(&name) {
+            if set {
+                p.extra.insert(
+                    "icon".into(),
+                    Value::String(key_path.to_string_lossy().into_owned()),
+                );
+            } else {
+                p.extra.shift_remove("icon");
+            }
+        }
+    });
+    let file = match (&png, old) {
+        (Some(_), _) => Some(Effect::WriteIcon { path, png }),
+        (None, Some(old)) => Some(Effect::WriteIcon { path: old, png: None }),
+        (None, None) => None,
+    };
+    join(file, written)
+}
+
+/// `MoveProfile`: reorder `profiles:` (the first match wins).
+fn move_profile(store: &mut Store, name: ProfileName, by: i32) -> Option<Effect> {
+    let from = store.config.file.profiles.get_index_of(&name)?;
+    let to = from as i64 + i64::from(by);
+    if by == 0 || to < 0 || to >= store.config.file.profiles.len() as i64 {
+        return None;
+    }
+    let done = toast("profile-toast-moved", vec![("name", name.clone())]);
+    write_structure(store, done, move |file, _| {
+        file.profiles.move_index(from, to as usize);
     })
 }
 
@@ -1113,8 +1176,13 @@ fn rename_profile(store: &mut Store, from: ProfileName, to: ProfileName) -> Opti
     {
         *id = new.clone();
     }
+    let icon = own_icon(store, &from).map(|old| (old, icon_path(&store.config.file.path, &to)));
+    let new_icon = icon.as_ref().map(|(_, new)| new.to_string_lossy().into_owned());
     let done = toast("profile-toast-renamed", vec![("name", to.clone())]);
-    write_structure(store, done, |file, edits| {
+    let written = write_structure(store, done, |file, edits| {
+        if let (Some(path), Some(p)) = (&new_icon, file.profiles.get_mut(&from)) {
+            p.extra.insert("icon".into(), Value::String(path.clone()));
+        }
         let profiles = std::mem::take(&mut file.profiles);
         file.profiles = profiles
             .into_iter()
@@ -1131,7 +1199,11 @@ fn rename_profile(store: &mut Store, from: ProfileName, to: ProfileName) -> Opti
                 }
             })
             .collect();
-    })
+    });
+    match icon {
+        Some((from, to)) => join(Some(Effect::MoveIcon { from, to }), written),
+        None => written,
+    }
 }
 
 fn create_mode(store: &mut Store, name: String, copy_from: Option<ModeId>) -> Option<Effect> {
@@ -1371,6 +1443,8 @@ pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
         Action::DuplicateProfile(name) => duplicate_profile(store, name),
         Action::DeleteProfile(name) => delete_profile(store, name),
         Action::RenameProfile { from, to } => rename_profile(store, from, to),
+        Action::SetProfileIcon { profile, png } => set_profile_icon(store, profile, png),
+        Action::MoveProfile { profile, by } => move_profile(store, profile, by),
         Action::SetMatch { profile, matcher } => {
             let value = matcher
                 .filter(|m| !m.is_empty())
@@ -2516,6 +2590,82 @@ profiles:
             Action::Core(Event::MenuBarDetected { profile: None, crop }),
         );
         assert_eq!(effect, None);
+    }
+
+    #[test]
+    fn move_profile_reorders() {
+        let mut store = store_with(FILE_1X);
+        let names: Vec<String> = store.config.file.profiles.keys().cloned().collect();
+        assert!(names.len() >= 2, "{names:?}");
+        let effect = update(
+            &mut store,
+            Action::MoveProfile {
+                profile: names[1].clone(),
+                by: -1,
+            },
+        );
+        let file = written_config(effect);
+        let moved: Vec<&String> = file.profiles.keys().collect();
+        assert_eq!(moved[0], &names[1]);
+        assert_eq!(moved[1], &names[0]);
+        update(&mut store, Action::Written(Ok(Written::Config)));
+        // Out of range: nothing.
+        let first = store.config.file.profiles.keys().next().unwrap().clone();
+        assert_eq!(
+            update(
+                &mut store,
+                Action::MoveProfile {
+                    profile: first,
+                    by: -1
+                }
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn profile_icon_set_rename_delete() {
+        let mut store = store_with(FILE_1X);
+        let name = store.config.file.profiles.keys().next().unwrap().clone();
+        let path = icon_path(&store.config.file.path, &name);
+        let list = effects(update(
+            &mut store,
+            Action::SetProfileIcon {
+                profile: name.clone(),
+                png: Some(vec![1, 2, 3]),
+            },
+        ));
+        assert!(list.contains(&Effect::WriteIcon {
+            path: path.clone(),
+            png: Some(vec![1, 2, 3])
+        }));
+        assert_eq!(
+            store.config.file.profiles[&name].extra["icon"],
+            Value::String(path.to_string_lossy().into_owned())
+        );
+        update(&mut store, Action::Written(Ok(Written::Config)));
+
+        // Renaming moves our file and the key.
+        let list = effects(update(
+            &mut store,
+            Action::RenameProfile {
+                from: name.clone(),
+                to: "Nuevo nombre".into(),
+            },
+        ));
+        let new_path = icon_path(&store.config.file.path, "Nuevo nombre");
+        assert!(list.contains(&Effect::MoveIcon {
+            from: path,
+            to: new_path.clone()
+        }));
+        update(&mut store, Action::Written(Ok(Written::Config)));
+
+        // Deleting removes it.
+        let list = effects(update(&mut store, Action::DeleteProfile("Nuevo nombre".into())));
+        assert!(list.contains(&Effect::WriteIcon {
+            path: new_path,
+            png: None
+        }));
     }
 
     #[test]

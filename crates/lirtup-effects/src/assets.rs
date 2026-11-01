@@ -7,11 +7,7 @@
 
 macro_rules! shader {
     ($path:literal) => {
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/shaders/",
-            $path
-        ))
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/", $path))
     };
 }
 

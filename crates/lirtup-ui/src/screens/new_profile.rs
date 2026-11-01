@@ -190,7 +190,7 @@ pub fn base64(bytes: &[u8]) -> String {
 }
 
 /// An icon as a 64 px PNG, from any image the `image` crate reads.
-fn png_icon(image: image::DynamicImage) -> Option<Vec<u8>> {
+pub(crate) fn png_icon(image: image::DynamicImage) -> Option<Vec<u8>> {
     let image = image.resize(64, 64, image::imageops::FilterType::Lanczos3);
     let mut out = std::io::Cursor::new(Vec::new());
     image.write_to(&mut out, image::ImageFormat::Png).ok()?;
@@ -199,7 +199,7 @@ fn png_icon(image: image::DynamicImage) -> Option<Vec<u8>> {
 
 /// `_NET_WM_ICON` of a window, as PNG (on a blocking thread: it opens its
 /// own X connection).
-async fn capture_icon(xid: u32) -> Option<Vec<u8>> {
+pub(crate) async fn capture_icon(xid: u32) -> Option<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let x11 = lirtup_x11::X11::connect().ok()?;
         let icon = x11.window_icon(xid, 64).ok()??;

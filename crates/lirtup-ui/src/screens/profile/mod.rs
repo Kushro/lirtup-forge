@@ -150,6 +150,15 @@ fn ProfileHeader(id: ProfileRef) -> Element {
     let dispatch = use_dispatch();
     let mut editing = use_signal(|| false);
     let mut menu = use_signal(|| false);
+    // F2 (`app.rs`): open the editor. The first run only reads the counter.
+    let mut seen_f2 = use_signal(|| *crate::app::EDIT_PROFILE.peek());
+    use_effect(move || {
+        let bumped = *crate::app::EDIT_PROFILE.read();
+        if bumped != *seen_f2.peek() {
+            seen_f2.set(bumped);
+            editing.set(true);
+        }
+    });
     let ProfileRef::Named(name) = id.clone() else {
         return rsx! {
             header { class: "flex items-center gap-4",
@@ -293,6 +302,7 @@ fn ProfileEditor(name: ProfileName, matcher: Option<Match>, on_done: EventHandle
                 error,
                 on_change: move |v: String| new_name.set(v),
             }
+            ProfileIconRow { name: name.clone(), matcher: current.clone() }
             RuleEditor { rules }
             MatchPreview { matcher: current }
             div { class: "flex justify-end",
@@ -308,6 +318,81 @@ fn ProfileEditor(name: ProfileName, matcher: Option<Match>, on_done: EventHandle
                         on_done.call(());
                     },
                 }
+            }
+        }
+    }
+}
+
+/// Change the icon after creating the profile (1.x `dialogs/profile.py`):
+/// from the first open window the rules match, from a file, or remove it.
+/// Saved at once (`Action::SetProfileIcon`).
+#[component]
+fn ProfileIconRow(name: ProfileName, matcher: Option<Match>) -> Element {
+    let store = use_store();
+    let dispatch = use_dispatch();
+    let window = matcher
+        .as_ref()
+        .and_then(|m| store.read().windows_matching(m).first().map(|w| w.xid));
+    let has_icon = store
+        .read()
+        .config
+        .file
+        .profiles
+        .get(&name)
+        .is_some_and(|p| p.extra.contains_key("icon"));
+    let capture_name = name.clone();
+    let file_name = name.clone();
+    let remove_name = name.clone();
+    rsx! {
+        div { class: "flex items-center gap-2",
+            span { class: "t-bm text-on-surface-variant flex-1", {tr("profile-icon")} }
+            IconButton {
+                icon: "screenshot_region",
+                label: tr("new-profile-icon-capture"),
+                size: 32,
+                disabled: window.is_none(),
+                onclick: move |_| {
+                    if let Some(xid) = window {
+                        let profile = capture_name.clone();
+                        spawn(async move {
+                            if let Some(png) = crate::screens::new_profile::capture_icon(xid).await {
+                                dispatch(Action::SetProfileIcon { profile, png: Some(png) });
+                            }
+                        });
+                    }
+                },
+            }
+            label { class: "relative inline-grid", title: tr("new-profile-icon-file"),
+                input {
+                    r#type: "file",
+                    accept: "image/*",
+                    class: "absolute inset-0 opacity-0 cursor-pointer",
+                    "aria-label": tr("new-profile-icon-file"),
+                    onchange: move |e: FormEvent| {
+                        if let Some(file) = e.files().into_iter().next() {
+                            let profile = file_name.clone();
+                            spawn(async move {
+                                let Ok(bytes) = file.read_bytes().await else { return };
+                                let png = image::load_from_memory(&bytes)
+                                    .ok()
+                                    .and_then(crate::screens::new_profile::png_icon);
+                                if png.is_some() {
+                                    dispatch(Action::SetProfileIcon { profile, png });
+                                }
+                            });
+                        }
+                    },
+                }
+                span { class: "size-8 grid place-items-center rounded-full", "aria-hidden": "true",
+                    Icon { name: "upload_file", size: 20 }
+                }
+            }
+            IconButton {
+                icon: "delete",
+                label: tr("new-profile-icon-remove"),
+                size: 32,
+                disabled: !has_icon,
+                onclick: move |_| dispatch(Action::SetProfileIcon { profile: remove_name.clone(), png: None }),
             }
         }
     }

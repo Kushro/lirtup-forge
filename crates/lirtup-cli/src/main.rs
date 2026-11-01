@@ -159,7 +159,8 @@ fn main() -> ExitCode {
             tracing::error!("{e:#}");
             eprintln!("lirtup: {e:#}");
             // 1.x: 2 for a configuration error, 1 for the rest.
-            if e.chain().any(|c| c.downcast_ref::<lirtup_config::ConfigError>().is_some())
+            if e.chain()
+                .any(|c| c.downcast_ref::<lirtup_config::ConfigError>().is_some())
                 || e.chain().any(|c| {
                     c.downcast_ref::<lirtup_core::CoreError>()
                         .is_some_and(|core| matches!(core, lirtup_core::CoreError::Config(_)))
@@ -196,7 +197,13 @@ fn log_settings(command: &CliCommand) -> LogSettings {
         .unwrap_or_default();
     let from_yaml = |key: &str| general.get(key).and_then(|v| v.as_str()).map(str::to_owned);
     let level = args
-        .and_then(|a| if a.options.debug { Some("DEBUG".to_owned()) } else { a.options.log_level.clone() })
+        .and_then(|a| {
+            if a.options.debug {
+                Some("DEBUG".to_owned())
+            } else {
+                a.options.log_level.clone()
+            }
+        })
         .or_else(|| from_yaml("log_level"));
     let file = args
         .and_then(|a| a.options.log_file.clone())
@@ -266,7 +273,10 @@ fn run(config: Box<ConfigArgs>, program: Vec<String>) -> anyhow::Result<ExitCode
     if by_title && !program.is_empty() {
         tracing::warn!("a target title was given: {} is not launched", program[0]);
     }
-    let launched = match program.split_first().filter(|_| !by_title && !config.options.select) {
+    let launched = match program
+        .split_first()
+        .filter(|_| !by_title && !config.options.select)
+    {
         Some((exe, args)) => {
             let child =
                 lirtup_core::lifecycle::launch(exe, args).with_context(|| format!("cannot start {exe}"))?;

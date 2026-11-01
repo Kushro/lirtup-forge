@@ -417,6 +417,22 @@ pub enum Action {
         /// New name.
         to: ProfileName,
     },
+    /// Change a profile's icon after it was created (the header's «Editar
+    /// perfil»): a 64 px PNG, or `None` to remove it. Saved at once.
+    SetProfileIcon {
+        /// Profile.
+        profile: ProfileName,
+        /// The PNG.
+        png: Option<Vec<u8>>,
+    },
+    /// Move a profile one place up or down (Ctrl+Shift+↑/↓; the first
+    /// profile whose rules match wins, as 1.x). Saved at once.
+    MoveProfile {
+        /// Profile.
+        profile: ProfileName,
+        /// −1 up, +1 down.
+        by: i32,
+    },
     /// Change the match rules of a profile (unsaved until Guardar).
     SetMatch {
         /// Profile.
@@ -541,6 +557,21 @@ pub enum Effect {
     /// Show the snackbar and dismiss it after a while
     /// ([`Action::DismissToast`]).
     Toast(Toast),
+    /// Write a profile icon (`png`), or remove it (`None`); only inside the
+    /// `icons/` folder next to `config.yaml`.
+    WriteIcon {
+        /// `icons/<name>.png`.
+        path: std::path::PathBuf,
+        /// The PNG.
+        png: Option<Vec<u8>>,
+    },
+    /// Rename a profile icon (the profile was renamed).
+    MoveIcon {
+        /// Old path.
+        from: std::path::PathBuf,
+        /// New path.
+        to: std::path::PathBuf,
+    },
     /// Run a migration (`lirtup_config::migrate::apply` on a blocking
     /// thread); then [`Action::Migrated`] and the files read again.
     Migrate(lirtup_config::migrate::MigrationPlan),

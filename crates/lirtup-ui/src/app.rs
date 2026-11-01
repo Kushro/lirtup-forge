@@ -45,6 +45,9 @@ const TOAST_TIME: Duration = Duration::from_secs(6);
 /// Below this window width the drawer becomes a rail.
 const RAIL_BELOW: f64 = 1100.0;
 
+/// Bumped by F2: the profile page opens «Editar perfil».
+pub static EDIT_PROFILE: GlobalSignal<u64> = Signal::global(|| 0);
+
 /// Bumped by Ctrl+F: Inicio's filter field takes the focus when it changes.
 pub static FOCUS_FILTER: GlobalSignal<u64> = Signal::global(|| 0);
 
@@ -262,14 +265,18 @@ fn parse_route(text: &str) -> Option<Route> {
 /// read leaves its defaults and a log line (the scaler reports the same
 /// warnings on its side).
 fn load_files() -> Action {
-    let config = ConfigFile::load(&crate::config_path()).map(|(f, _)| f).unwrap_or_else(|e| {
-        tracing::error!("config.yaml: {e}");
-        ConfigFile::default()
-    });
-    let modes = ModeStore::load(&crate::modes_dir()).map(|(m, _)| m).unwrap_or_else(|e| {
-        tracing::error!("modes: {e}");
-        ModeStore::default()
-    });
+    let config = ConfigFile::load(&crate::config_path())
+        .map(|(f, _)| f)
+        .unwrap_or_else(|e| {
+            tracing::error!("config.yaml: {e}");
+            ConfigFile::default()
+        });
+    let modes = ModeStore::load(&crate::modes_dir())
+        .map(|(m, _)| m)
+        .unwrap_or_else(|e| {
+            tracing::error!("modes: {e}");
+            ModeStore::default()
+        });
     let gui = GuiConfig::load(None).unwrap_or_else(|e| {
         tracing::error!("gui-config.yaml: {e}");
         GuiConfig::default()
@@ -331,6 +338,32 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
             });
         }
         Effect::Toast(toast) => dismiss_later(toast, store),
+        Effect::WriteIcon { path, png } => {
+            if !in_icons_dir(&path) {
+                tracing::error!("refusing to touch {} (not in icons/)", path.display());
+                return;
+            }
+            let result = match png {
+                Some(bytes) => path
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|()| std::fs::write(&path, bytes)),
+                None => match std::fs::remove_file(&path) {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    other => other,
+                },
+            };
+            if let Err(e) = result {
+                tracing::warn!("profile icon {}: {e}", path.display());
+            }
+        }
+        Effect::MoveIcon { from, to } => {
+            if in_icons_dir(&from) && in_icons_dir(&to) {
+                if let Err(e) = std::fs::rename(&from, &to) {
+                    tracing::warn!("profile icon {} → {}: {e}", from.display(), to.display());
+                }
+            }
+        }
         Effect::Migrate(plan) => {
             spawn(async move {
                 let result = tokio::task::spawn_blocking(move || {
@@ -373,6 +406,13 @@ fn dismiss_later(toast: Toast, store: Signal<Store>) {
     });
 }
 
+/// A profile icon the GUI may write, move or remove: a `.png` right inside
+/// the `icons/` folder next to `config.yaml`.
+fn in_icons_dir(path: &std::path::Path) -> bool {
+    let icons = crate::config_path().parent().map(|d| d.join("icons"));
+    path.parent() == icons.as_deref() && path.extension().is_some_and(|e| e == "png")
+}
+
 fn flatten(
     result: Result<Result<(), lirtup_config::ConfigError>, tokio::task::JoinError>,
 ) -> Result<(), String> {
@@ -384,13 +424,68 @@ fn flatten(
 }
 
 /// Ctrl+S save, Ctrl+N new profile, Ctrl+D duplicate the profile shown,
-/// Ctrl+F the window filter of Inicio, Ctrl+Shift+G the gallery.
+/// Ctrl+F the window filter of Inicio, Ctrl+Shift+G the gallery; and from
+/// 1.x Ctrl+Q quit, F2 edit and Supr delete the profile shown,
+/// Ctrl+Shift+↑/↓ move it.
 fn app_shortcut(event: KeyboardEvent, dispatch: Callback<Action>, store: Signal<Store>) {
     let mods = event.modifiers();
+    let profile = match store.peek().route.profile() {
+        Some(ProfileRef::Named(name)) => Some(name.clone()),
+        _ => None,
+    };
+    // Without Ctrl (1.x): F2 edits the profile shown, Supr deletes it (not
+    // while typing in a field).
+    if !mods.ctrl() && !mods.alt() && !mods.shift() {
+        match (event.key(), profile) {
+            (Key::F2, Some(_)) => {
+                event.prevent_default();
+                *EDIT_PROFILE.write() += 1;
+            }
+            (Key::Delete, Some(name)) => {
+                spawn(async move {
+                    let typing = document::eval(
+                        "return ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName ?? '')",
+                    )
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                    if !typing {
+                        dispatch(Action::OpenDialog(Dialog::DeleteProfile(name)));
+                    }
+                });
+            }
+            _ => {}
+        }
+        return;
+    }
     if !mods.ctrl() {
         return;
     }
+    // Ctrl+Shift+↑/↓: move the profile shown (the first match wins).
+    if mods.shift()
+        && let Some(name) = profile.clone()
+    {
+        let by = match event.key() {
+            Key::ArrowUp => -1,
+            Key::ArrowDown => 1,
+            _ => 0,
+        };
+        if by != 0 {
+            event.prevent_default();
+            dispatch(Action::MoveProfile { profile: name, by });
+            return;
+        }
+    }
     let key = event.key().to_string().to_lowercase();
+    if key == "q" && !mods.shift() {
+        // Ctrl+Q: «Salir», as the tray (asks about unsaved edits).
+        event.prevent_default();
+        if let Some(core) = try_consume_context::<CoreLink>() {
+            crate::tray::request_quit(store, &dioxus::desktop::window(), &core, dispatch);
+        }
+        return;
+    }
     let action = match (key.as_str(), mods.shift()) {
         ("s", false) => Some(Action::Save),
         ("n", false) => Some(Action::OpenDialog(Dialog::NewProfile { from: None })),
