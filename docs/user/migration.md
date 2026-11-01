@@ -55,8 +55,10 @@ cp ~/.config/linux-rt-upscaler/config.yaml.1x.bak ~/.config/linux-rt-upscaler/co
 
 Also carried over:
 
-- the tray settings of the 1.x GUI (in `~/.config/linux-rt-upscaler.conf`) move
-  to `gui-config.yaml`;
+- the tray settings of the 1.x GUI (in `~/.config/linux-rt-upscaler.conf`:
+  the icon, close and minimize to the tray, start hidden, keep running) move to
+  `gui-config.yaml` when you migrate. The size of the 1.x window and the
+  position of its overlay are not carried over;
 - the named color palette of the 1.x GUI becomes the seed color of the new theme.
   Loose custom colors are not used: the 2.0 theme is built from the seed;
 - your MagpieFX effects in `~/.config/linux-rt-upscaler/effects/` and the
