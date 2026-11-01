@@ -18,7 +18,7 @@ in the GUI's Effects tab):
 
 | | Native | MagpieFX |
 |---|---|---|
-| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | 86 bundled from Magpie, plus any MagpieFX `.hlsl` you add |
+| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | All 117 of Magpie bundled, plus any MagpieFX `.hlsl` you add |
 | Loading | Precompiled, instant | Compiled on first load, then cached |
 | Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
 | Settings | `anime4k_enabled`, `luma_sharpen_*`, `crt_*` | `magpie_effects` chain |
@@ -47,14 +47,17 @@ Set `UPSCALER_MAGPIEFX_COMPILER=dxc|glslang|auto` to force a backend and
 `~/.cache/linux-rt-upscaler/magpiefx`, so only the first start of an effect
 pays the compile time.
 
+`UPSCALER_MAGPIEFX_FP16=auto|0` controls FP16 (see [FP16](#fp16)); `auto`
+is the default.
+
 ## Choosing effects
 
-The package bundles the 86 effects of Magpie's `src/Effects` that do not need
-`.dds` lookup textures: Anime4K, ACNet, ArtCNN, CuNNy2, FSRCNNX, NNEDI3,
-k7_modernAnime, the CRT and pixel-art families, FSR, CAS, FXAA, xBRZ, the
-classic scalers and more (`upscale --list-magpie-effects` prints them). Any
-other MagpieFX effect can be copied to `~/.config/linux-rt-upscaler/effects/`
-(with the `.hlsli` files it includes) or given as a path.
+The package bundles all 117 effects of Magpie's `src/Effects`: Anime4K,
+ACNet, ArtCNN, CuNNy2, FSRCNNX, NNEDI3, RAVU, k7_modernAnime, the CRT and
+pixel-art families, FSR, NIS, CAS, FXAA, SMAA, xBRZ, the classic scalers and
+more (`upscale --list-magpie-effects` prints them). Any other MagpieFX effect
+can be copied to `~/.config/linux-rt-upscaler/effects/` (with the `.hlsli`
+files it includes and the lookup textures it reads) or given as a path.
 
 ```bash
 upscale --list-magpie-effects
@@ -95,6 +98,56 @@ chain keeps working.
 - `scripts/magpiefx-compile-all.py MAGPIE/src/Effects --run` tries every
   effect of a Magpie checkout and prints a compatibility table.
 
+## Lookup textures (`//!SOURCE`)
+
+Some effects read precomputed tables from files next to them:
+
+```hlsl
+//!TEXTURE
+//!SOURCE ravu_lut2_f16.dds
+//!FORMAT R16G16B16A16_FLOAT
+Texture2D ravu_lut2;
+```
+
+The 26 RAVU effects, the 4 SMAA effects and NIS use them. The loader reads
+the file when the effect loads, uploads it once to a GPU texture and binds
+it to the passes that list it in `//!IN`. As in Magpie:
+
+- The path is relative to the effect's folder; it cannot point outside it.
+- `//!FORMAT` is optional. When present it must match the file's format,
+  otherwise the effect fails with an error that names both formats.
+- Supported files: uncompressed `.dds` (legacy header or `DX10` header) in
+  any of the intermediate formats (`R16G16B16A16_FLOAT`, `R8G8B8A8_UNORM`,
+  `R8_UNORM`, ...), and `.png`, `.bmp`, `.jpg` and `.tif` images, read as
+  `R8G8B8A8_UNORM`. Only the first mip level is used.
+- Block-compressed `.dds` (BC1-BC7), cube maps, volumes and texture arrays
+  are rejected with a clear error. None of Magpie's effects use them.
+
+## FP16
+
+Effects with `//!CAPABILITY FP16` declare that their `MF` types (`MF`,
+`MF2`, `MF4x4`, ...) may be 16-bit floats. When the GPU supports 16-bit
+floats in shaders (`shaderFloat16`), the loader compiles those effects with
+`MF` = `min16float` and 16-bit types enabled (dxc: shader model 6.2 and
+`-enable-16bit-types`; glslang: `--hlsl-enable-16bit-types`), and defines
+`MP_FP16`, which some effects (FSR, CAS, NIS) use to pick packed half-float
+code. Textures are still declared with 32-bit texel types, because Vulkan
+cannot sample 16-bit texels; values are converted when the effect stores
+them in `MF` variables.
+
+The effect falls back to 32-bit floats when:
+
+- the GPU has no FP16 support,
+- `UPSCALER_MAGPIEFX_FP16=0` is set, or
+- an FP16 pass does not compile (a warning with the compiler message is
+  logged and the whole effect is compiled again in FP32).
+
+The log says `MagpieFX <effect>: using FP16` when an effect runs in FP16.
+
+With dxc, all 42 bundled FP16 effects compile in FP16. glslang rejects the
+implicit float-to-half conversions the effects rely on, so with the glslang
+backend they fall back to FP32.
+
 ## Color channels
 
 Captured frames travel through the app as BGRA bytes, while MagpieFX effects
@@ -105,11 +158,13 @@ store to `OUTPUT`), at no measurable cost. Effects that pass `INPUT` or
 
 ## Limitations
 
-- `//!SOURCE` textures (lookup tables loaded from `.dds` files, used by
-  RAVU, SMAA and NIS) are not supported yet, so those 31 effects are not
-  bundled; copied by hand they fail with a clear error.
+- `//!SOURCE` reads uncompressed textures only (see
+  [Lookup textures](#lookup-textures-source)).
+- `NIS`, `NVSharpen`, `FineSharp` and the 4 `SMAA` effects need dxc:
+  glslang crashes or rejects them.
 - `Anime4K_Denoise_Bilateral_*` do not compile with dxc (it rejects their
   array sizes); they need `glslangValidator` installed as the fallback.
-- FP16 (`//!CAPABILITY FP16`) is ignored: `MF` types are always 32-bit floats.
+- The 4 SMAA effects pass `INPUT` to a function, so, like FXAA, they use a
+  separate red/blue swap pass for their input.
 - With the glslang backend, storage image formats are inferred from the
   HLSL texel type instead of being declared explicitly.

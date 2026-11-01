@@ -89,7 +89,7 @@ selected engine runs.
 | | Native | MagpieFX |
 |---|---|---|
 | How | Each effect ported by hand to a fixed shader class | Magpie's `.hlsl` files run unmodified by a generic loader |
-| Effects | 3 | 86 bundled, plus any you add to `~/.config/linux-rt-upscaler/effects` |
+| Effects | 3 | All 117 of Magpie bundled, plus any you add to `~/.config/linux-rt-upscaler/effects` |
 | Loading | Precompiled, instant | Compiled on first load (dxc, or glslangValidator as fallback), then cached |
 | Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
 | Settings | Tuned controls | Controls generated from each effect's parameters |
@@ -125,8 +125,15 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
   intermediate textures.
 - The red/blue swap is built into the generated shaders, at no measurable
   cost. Only the 3 FXAA effects still need a separate swap pass.
-- 86 effects from Magpie's `src/Effects` (commit `241e0a44`) are bundled
-  unmodified under GPLv3.
+- `//!SOURCE` lookup textures: uncompressed `.dds` files (and PNG/BMP/JPEG/
+  TIFF images) are read when the effect loads and uploaded once. This
+  enables the 26 `RAVU` effects, the 4 `SMAA` effects and `NIS`.
+- FP16 (`//!CAPABILITY FP16`): on GPUs with `shaderFloat16` those effects
+  are compiled with 16-bit `MF` types, with a fallback to 32-bit floats
+  (no GPU support, `UPSCALER_MAGPIEFX_FP16=0`, or a pass that does not
+  compile in FP16).
+- All 117 effects from Magpie's `src/Effects` (commit `241e0a44`) are
+  bundled unmodified under GPLv3, with their `.dds` files.
 - Changing a parameter in the GUI updates the running effect without
   recompiling it.
 
@@ -141,9 +148,11 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
 
 **Verified**
 
-- All 86 bundled effects compile and run once on a 1280x720 frame: 83 with
-  dxc, and the three `Anime4K_Denoise_Bilateral_*` with glslang (dxc rejects
-  their array sizes).
+- The first 86 bundled effects compile and run once on a 1280x720 frame: 83
+  with dxc, and the three `Anime4K_Denoise_Bilateral_*` with glslang (dxc
+  rejects their array sizes).
+- The 31 effects with lookup textures read their `.dds` files and compile
+  with dxc (without running them yet).
 - Both engines give correct colors, checked in the running app with a
   red/green/blue test image. Their output matches the reference
   bit for bit.
@@ -152,13 +161,13 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
   without a window).
 - Picking an engine turns the other one off. A parameter change applies in
   about 0.02 ms without recompiling.
-- The built wheel contains the 86 effects, their license and the Native
-  shaders.
+- The built wheel of 1.2 contains the 86 effects, their license and the
+  Native shaders.
 
 **Not included**
 
-- The 31 Magpie effects that need `.dds` lookup textures: the 26 `RAVU`
-  effects, the 4 `SMAA` effects and `NIS`.
+- Block-compressed `.dds` lookup textures (BC1-BC7). No Magpie effect uses
+  them.
 
 **Not tested yet**
 
@@ -168,15 +177,15 @@ Details: [MagpieFX guide](docs/user/magpiefx.md) and
   drivers that do not discard out-of-range writes.
 - How the MagpieFX engine behaves on a system without `glslangValidator` (the
   three Denoise effects should fail with a clear error).
+- RAVU, SMAA and NIS on the GPU (output and timings), and FP16 effects in
+  FP16 compared with FP32.
 
 **Pending**
 
-- Reading `.dds` textures, to support RAVU, SMAA and NIS.
 - Enabling `robustImageAccess` so out-of-range writes are well defined on
   every driver.
 - A "Measure on my GPU" button in the GUI, to replace the fixed reference
   numbers.
-- FP16 (`//!CAPABILITY FP16`), which is currently ignored.
 - More native ports, where the effort pays off.
 
 ## Stats panel
