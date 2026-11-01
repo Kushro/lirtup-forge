@@ -926,7 +926,7 @@ impl Inner {
 
     /// Find the window, resolve its configuration, open the device and start
     /// the session (on a start thread).
-    fn run_start(&self, generation: u64, request: StartRequest) {
+    fn run_start(self: &Arc<Self>, generation: u64, request: StartRequest) {
         let config = self.config.load_full();
         let x11 = match X11::connect() {
             Ok(x) => x,
@@ -993,6 +993,17 @@ impl Inner {
             layer: self.layer.clone(),
             events: self.pipeline_tx.clone(),
             timestamps: lock(&self.state).gpu_watchers > 0,
+            resolve: Some({
+                let inner = Arc::clone(self);
+                let profile = profile.clone();
+                Arc::new(move |window: &WindowInfo| match inner.resolve_for(window, profile.as_deref()) {
+                    Ok(resolved) => Some(resolved),
+                    Err(e) => {
+                        tracing::warn!("follow_focus: cannot resolve the profile of {}: {e}", window.title);
+                        None
+                    }
+                })
+            }),
         };
         match Session::start(setup) {
             Ok(session) => {

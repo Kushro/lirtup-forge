@@ -120,7 +120,14 @@ pub struct SessionSetup {
     /// `SetTimestamps` changes it). The stats panel asks for them too while
     /// it is visible.
     pub timestamps: bool,
+    /// Resolve the configuration for another window (`follow_focus`: the
+    /// new window takes the profile that matches it, as 1.x). `None` keeps
+    /// the session's configuration. `Engine` passes its `resolve_for`.
+    pub resolve: Option<Resolver>,
 }
+
+/// See [`SessionSetup::resolve`].
+pub type Resolver = Arc<dyn Fn(&WindowInfo) -> Option<lirtup_config::resolve::Resolved> + Send + Sync>;
 
 /// What `Engine` can ask of a running session.
 #[derive(Debug, Clone, PartialEq)]
@@ -300,6 +307,8 @@ const ZOOM_STEP: u32 = 25;
 const GEOMETRIES: [&str; 3] = ["fit", "stretch", "cover"];
 /// Offset hotkey step, in pixels (`controller.py`).
 const OFFSET_STEP: i32 = 25;
+/// How often `magpie_profile` logs the GPU times (1.x: 5 s).
+const PROFILE_LOG_INTERVAL: Duration = Duration::from_secs(5);
 /// How often `Event::Stats` and the panel are refreshed.
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -497,6 +506,17 @@ struct Runner {
     view: Arc<ArcSwapOption<SessionView>>,
     /// [`SessionSetup::timestamps`].
     timestamps: bool,
+    /// [`SessionSetup::resolve`].
+    resolve: Option<Resolver>,
+    /// The last swapchain recreation asked by a present (debounce).
+    last_recreate: Option<Instant>,
+    /// A recreation waits for the debounce.
+    recreate_pending: bool,
+    /// Next `magpie_profile` log line.
+    next_profile_log: Option<Instant>,
+    /// `follow_focus` and the target closed: waiting, overlay hidden, for
+    /// the next window to take the focus (1.x does not end the session).
+    orphaned: bool,
     /// The target is minimized: paused with the overlay hidden.
     minimized: bool,
     next_minimized_check: Instant,
@@ -549,6 +569,11 @@ impl Runner {
             damage: Vec::new(),
             view,
             timestamps: setup.timestamps,
+            resolve: setup.resolve,
+            last_recreate: None,
+            recreate_pending: false,
+            next_profile_log: None,
+            orphaned: false,
             minimized: false,
             next_minimized_check: now,
             moved: None,
@@ -710,12 +735,17 @@ impl Runner {
                 return Ok(reason);
             }
             self.check_focus()?;
-            if let Some(reason) = self.check_minimized()? {
-                return Ok(reason);
+            if !self.orphaned
+                && let Some(reason) = self.check_minimized()?
+            {
+                let reason = self.orphan_or(reason);
+                if !self.orphaned {
+                    return Ok(reason);
+                }
             }
             self.screenshot_results();
 
-            if self.user_paused || self.focus_paused || self.minimized {
+            if self.user_paused || self.focus_paused || self.minimized || self.orphaned {
                 self.wait_paused(rx);
                 continue;
             }
@@ -905,6 +935,9 @@ impl Runner {
         if !self.config.follow_focus && !self.config.pause_on_focus_loss {
             return Ok(());
         }
+        if self.orphaned && !self.config.follow_focus {
+            return Ok(());
+        }
         let now = Instant::now();
         if now < self.next_focus_check {
             return Ok(());
@@ -923,7 +956,7 @@ impl Runner {
         if active.xid != target && active.xid != overlay && self.x11.is_lirtup_window(&active)? {
             return Ok(());
         }
-        if active.xid == target || active.xid == overlay {
+        if !self.orphaned && (active.xid == target || active.xid == overlay) {
             if self.focus_paused {
                 self.focus_paused = false;
                 self.show_overlay();
@@ -931,7 +964,21 @@ impl Runner {
             return Ok(());
         }
         if self.config.follow_focus {
-            return self.switch_window(active);
+            if active.xid == overlay {
+                return Ok(());
+            }
+            self.switch_window(active)?;
+            if std::mem::take(&mut self.orphaned) {
+                tracing::info!("follow_focus: scaling the focused window again");
+                self.show_overlay();
+            }
+            return Ok(());
+        }
+        // 1.x pauses on focus loss only where the overlay bypasses the
+        // window manager (always-on-top, top-transparent): a fullscreen or
+        // windowed overlay is a normal window the manager stacks.
+        if !matches!(self.overlay_mode(), OverlayMode::AlwaysOnTop | OverlayMode::TopTransparent) {
+            return Ok(());
         }
         if !self.focus_paused {
             self.focus_paused = true;
@@ -962,6 +1009,40 @@ impl Runner {
         }
     }
 
+    /// Recreate the swapchain at the overlay's size, at most once every
+    /// `swapchain_debounce` seconds (1.x `SwapchainManager`); a request
+    /// inside that time waits for a later frame.
+    fn recreate_swapchain(&mut self) -> Result<()> {
+        let debounce = Duration::from_secs_f64(self.config.swapchain_debounce.max(0.0));
+        let now = Instant::now();
+        if self.last_recreate.is_some_and(|t| now < t + debounce) {
+            self.recreate_pending = true;
+            return Ok(());
+        }
+        self.recreate_pending = false;
+        self.last_recreate = Some(now);
+        let Some(rect) = self.parts.as_ref().map(|p| p.overlay.rect()) else {
+            return Ok(());
+        };
+        self.resize(rect.width, rect.height)
+    }
+
+    /// The target closed: with `follow_focus`, wait for the next focused
+    /// window with the overlay hidden ([`Runner::orphaned`]); otherwise
+    /// stop with `reason`.
+    fn orphan_or(&mut self, reason: StopReason) -> StopReason {
+        if self.config.follow_focus && reason == StopReason::WindowClosed {
+            if !self.orphaned {
+                tracing::info!("follow_focus: the window closed; waiting for the next one");
+                self.orphaned = true;
+                if let Some(p) = self.parts.as_ref() {
+                    p.overlay.send(OverlayCommand::SetVisible(false));
+                }
+            }
+        }
+        reason
+    }
+
     fn switch_window(&mut self, window: WindowInfo) -> Result<()> {
         if self.parts.as_ref().is_some_and(|p| p.window.xid == window.xid) {
             return Ok(());
@@ -978,9 +1059,25 @@ impl Runner {
             return Ok(());
         };
         let xid = window.xid;
+        let resolved = self.resolve.as_ref().and_then(|resolve| resolve(&window));
         parts.window = window;
         parts.overlay.send(OverlayCommand::SetTarget(xid));
-        self.rebuild_capture()?;
+        match resolved {
+            // The new window's profile (1.x `_apply_profile_for`): the
+            // configuration changes, and with it the capture.
+            Some(resolved) if resolved.profile != self.profile || resolved.config != self.config => {
+                tracing::info!(
+                    "follow_focus: profile {:?}, mode {:?}",
+                    resolved.profile,
+                    resolved.mode
+                );
+                self.profile = resolved.profile;
+                self.mode = resolved.mode;
+                self.update_config(resolved.config)?;
+                self.rebuild_capture()?;
+            }
+            _ => self.rebuild_capture()?,
+        }
         if self.overlay_mode() == OverlayMode::Windowed
             && let Some(parts) = self.parts.as_ref()
         {
@@ -1003,7 +1100,7 @@ impl Runner {
             return Ok(None);
         };
         let Some(info) = self.x11.window_info(parts.window.xid)? else {
-            return Ok(Some(StopReason::WindowClosed));
+            return Ok(Some(self.orphan_or(StopReason::WindowClosed)).filter(|_| !self.orphaned));
         };
         parts.window = info;
         self.rebuild_capture()?;
@@ -1502,7 +1599,10 @@ impl Runner {
         };
         let frame = match grabbed {
             Ok(frame) => frame,
-            Err(X11Error::NoWindow(_)) => return Ok(FrameResult::Stop(StopReason::WindowClosed)),
+            Err(X11Error::NoWindow(_)) => {
+                let reason = self.orphan_or(StopReason::WindowClosed);
+                return Ok(if self.orphaned { FrameResult::Idle } else { FrameResult::Stop(reason) });
+            }
             Err(X11Error::Resized { .. }) => {
                 return Ok(match self.window_resized()? {
                     Some(reason) => FrameResult::Stop(reason),
@@ -1579,9 +1679,8 @@ impl Runner {
                 kind: FrameKind::Real,
                 multiplier: 1,
             });
-            if outcome.recreate {
-                let rect = parts.overlay.rect();
-                self.resize(rect.width, rect.height)?;
+            if outcome.recreate || self.recreate_pending {
+                self.recreate_swapchain()?;
             }
             self.last_frame = Some(capture_time);
             self.poll_stats();
@@ -1592,7 +1691,7 @@ impl Runner {
         // 5. Upscale.
         let render_start = Instant::now();
         let full = frame.full || !frame.dirty;
-        let timed = self.timestamps || parts.panel.visible();
+        let timed = self.timestamps || parts.panel.visible() || self.config.scaling.magpie_profile;
         let upscale = parts
             .upscaler
             .process(&parts.buffer, frame.stride, full, &self.damage, timed)?;
@@ -1642,10 +1741,9 @@ impl Runner {
             self.mapper = Some(mapper);
         }
 
-        // 8. Swapchain recreation.
-        if outcome.recreate {
-            let rect = parts.overlay.rect();
-            self.resize(rect.width, rect.height)?;
+        // 8. Swapchain recreation (debounced, `swapchain_debounce`).
+        if outcome.recreate || self.recreate_pending {
+            self.recreate_swapchain()?;
         }
 
         // 9. Started, stats.
@@ -1661,7 +1759,19 @@ impl Runner {
     }
 
     fn poll_stats(&mut self) {
-        if let Some(sample) = self.stats.poll(Instant::now()) {
+        let now = Instant::now();
+        if let Some(sample) = self.stats.poll(now) {
+            // `magpie_profile` (1.x `_log_magpie_stats`): the GPU time of
+            // each pass, in the log every few seconds.
+            if self.config.scaling.magpie_profile && self.next_profile_log.is_none_or(|t| now >= t) {
+                self.next_profile_log = Some(now + PROFILE_LOG_INTERVAL);
+                let passes: Vec<String> = sample
+                    .stages
+                    .iter()
+                    .map(|s| format!("{} {:.3} ms", s.name, s.ms))
+                    .collect();
+                tracing::info!("GPU {:.3} ms: {}", sample.gpu_ms, passes.join(", "));
+            }
             let _ = self.events.send(Event::Stats(sample));
         }
         let disabled = self
