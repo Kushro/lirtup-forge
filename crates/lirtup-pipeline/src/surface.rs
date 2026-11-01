@@ -28,6 +28,23 @@
 //!
 //! The X connection is the window's own, shared with the swapchain (the
 //! Vulkan WSI uses it from the presenting threads; libxcb is thread-safe).
+//!
+//! # The bar over the game (round 4, front T)
+//!
+//! Pointer events go through a [`ToolbarRouter`] with the zone of
+//! [`OverlayCommand::SetToolbarZone`]: what is the bar's comes back as
+//! [`OverlayNotice::Pointer`] instead of going to the game, and the cursor
+//! shows over the bar even when `hide_cursor` hid it. Also here, from the
+//! 1.x overlay:
+//!
+//! - in click-through `top-transparent`, where the window gets no pointer
+//!   events, the input region is the bar while it shows, and the pointer is
+//!   polled ([`POINTER_POLL`]) for the reveal band and for the opacity:
+//!   [`OverlayCommand::SetDimmedOpacity`] outside the target, the full one
+//!   inside (`opacity.py`);
+//! - the last motion is sent again every [`HOVER_KEEPALIVE`] while the
+//!   pointer rests on the content, so games keep their hover
+//!   (`HOVER_KEEPALIVE_INTERVAL_MS`).
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
@@ -40,8 +57,10 @@ use lirtup_gpu::{
 };
 use lirtup_proto::Stage;
 use lirtup_x11::input::HotkeyMatcher;
+use lirtup_x11::overlay::PointerKind;
+use lirtup_x11::overlay_input::{Routed, ToolbarRouter, ToolbarZone};
 use lirtup_x11::{
-    CoordinateMapper, InputForwarder, OverlayEvent, OverlayOptions, OverlaySurface, OverlayWindow, Rect,
+    CoordinateMapper, InputForwarder, OverlayEvent, OverlayOptions, OverlaySurface, OverlayWindow, Rect, X11,
     X11Error,
 };
 
@@ -57,6 +76,14 @@ const CONFIGURE_GRACE: Duration = Duration::from_millis(250);
 
 /// How long dropping an [`OverlayThread`] waits for it.
 const DROP_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// How often the pointer is polled in click-through mode (1.x
+/// `opacity.py` checks at 10 Hz; the reveal band wants a little more).
+pub const POINTER_POLL: Duration = Duration::from_millis(50);
+
+/// The last motion over the content is sent again this often while the
+/// pointer rests (1.x `HOVER_KEEPALIVE_INTERVAL_MS`).
+pub const HOVER_KEEPALIVE: Duration = Duration::from_millis(100);
 
 /// What the session thread asks of the overlay window.
 #[derive(Debug, Clone, PartialEq)]
@@ -80,6 +107,10 @@ pub enum OverlayCommand {
     /// `_NET_WM_WINDOW_OPACITY`, 0 to 1 (`overlay_opacity`, the fade of
     /// 1.x `opacity.py`).
     SetOpacity(f32),
+    /// Click-through mode: the opacity while the pointer is outside the
+    /// target (`overlay_opacity_min`; `None` = always the full one). Inside
+    /// it is the one of [`OverlayCommand::SetOpacity`].
+    SetDimmedOpacity(Option<f32>),
     /// Show or hide the window (`ToggleScaling` pauses with it hidden).
     SetVisible(bool),
     /// Show or hide the cursor over the overlay. Hidden wins over
@@ -266,8 +297,27 @@ struct Overlay {
     /// The idle timer hid the cursor.
     cursor_idle_hidden: bool,
     last_motion: Instant,
-    /// `SetToolbarZone` (round 4, front T).
-    toolbar_zone: Option<lirtup_x11::overlay_input::ToolbarZone>,
+    /// The bar's share of the pointer (`SetToolbarZone`).
+    router: ToolbarRouter,
+    /// The pointer is over the bar: the cursor shows.
+    over_bar: bool,
+    /// The window lets the pointer through (`top-transparent`).
+    click_through: bool,
+    /// Its own connection, to poll the pointer in click-through mode.
+    probe: Option<X11>,
+    next_poll: Instant,
+    /// Last polled pointer, root coordinates.
+    polled: Option<(i32, i32)>,
+    /// The target, for the opacity (`SetTarget`).
+    target: u32,
+    opacity: f32,
+    dimmed: Option<f32>,
+    /// The opacity the window has now.
+    applied_opacity: f32,
+    /// The last motion forwarded to the content, sent again while the
+    /// pointer rests there.
+    hover: Option<OverlayEvent>,
+    last_keepalive: Instant,
 }
 
 /// An X11 error of the overlay, as the session reports it.
@@ -287,6 +337,16 @@ impl Overlay {
             tracing::warn!("overlay: no hotkeys over the overlay: {e}");
             HotkeyMatcher::default()
         });
+        let probe = if options.click_through {
+            X11::connect()
+                .inspect_err(|e| {
+                    tracing::warn!("overlay: no pointer polling ({e}); the bar needs the pointer")
+                })
+                .ok()
+        } else {
+            None
+        };
+        let now = Instant::now();
         Ok(Overlay {
             window,
             forwarder,
@@ -298,8 +358,19 @@ impl Overlay {
             cursor_forced_hidden: false,
             cursor_idle: None,
             cursor_idle_hidden: false,
-            last_motion: Instant::now(),
-            toolbar_zone: None,
+            last_motion: now,
+            router: ToolbarRouter::new(),
+            over_bar: false,
+            click_through: options.click_through,
+            probe,
+            next_poll: now,
+            polled: None,
+            target: options.target,
+            opacity: options.opacity,
+            dimmed: None,
+            applied_opacity: options.opacity,
+            hover: None,
+            last_keepalive: now,
         })
     }
 
@@ -322,6 +393,12 @@ impl Overlay {
                 let _ = notices.send(OverlayNotice::Configured(rect));
             }
             self.hide_idle_cursor();
+            if let Some(notice) = self.poll_pointer()
+                && notices.send(notice).is_err()
+            {
+                return;
+            }
+            self.keep_hover();
             match self.window.wait_event(EVENT_SLICE) {
                 Ok(Some(event)) => {
                     if let Some(notice) = self.event(event)
@@ -355,7 +432,17 @@ impl Overlay {
                 self.set_rect(self.window.rect());
                 moved
             }
-            OverlayCommand::SetOpacity(opacity) => self.window.set_opacity(opacity),
+            OverlayCommand::SetOpacity(opacity) => {
+                self.opacity = opacity;
+                self.applied_opacity = opacity;
+                self.window.set_opacity(opacity)
+            }
+            OverlayCommand::SetDimmedOpacity(dimmed) => {
+                self.dimmed = dimmed;
+                // The next poll applies it.
+                self.polled = None;
+                Ok(())
+            }
             OverlayCommand::SetVisible(visible) => self.window.set_visible(visible),
             OverlayCommand::SetCursorVisible(visible) => {
                 self.cursor_forced_hidden = !visible;
@@ -370,6 +457,8 @@ impl Overlay {
             }
             OverlayCommand::SetTarget(target) => {
                 self.target_gone = false;
+                self.target = target;
+                self.hover = None;
                 self.window
                     .set_target(target)
                     .and_then(|()| self.forwarder.set_target(target))
@@ -380,13 +469,12 @@ impl Overlay {
                 Ok(())
             }
             OverlayCommand::SetInputRegion(region) => self.window.set_input_region(region.as_deref()),
-            // Front T routes the window's pointer events through
-            // `overlay_input::route` with this zone.
-            OverlayCommand::SetToolbarZone(zone) => {
-                self.toolbar_zone = zone;
-                Ok(())
+            OverlayCommand::SetToolbarZone(zone) => self.set_toolbar_zone(zone),
+            OverlayCommand::BeginMove { x, y, button } => {
+                // The window manager takes the pointer: no release comes.
+                self.router.release_capture();
+                self.window.begin_move(x, y, button)
             }
-            OverlayCommand::BeginMove { x, y, button } => self.window.begin_move(x, y, button),
             OverlayCommand::Close => Ok(()),
         };
         if let Err(e) = result {
@@ -394,10 +482,109 @@ impl Overlay {
         }
     }
 
+    /// The bar showed, hid or moved. In click-through mode the input
+    /// region follows it, so the bar can be clicked.
+    fn set_toolbar_zone(&mut self, zone: Option<ToolbarZone>) -> lirtup_x11::Result<()> {
+        let old_bar = self.router.zone().and_then(|z| z.bar);
+        self.router.set_zone(zone);
+        let bar = zone.and_then(|z| z.bar);
+        if bar.is_none() && self.over_bar {
+            self.set_over_bar(false)?;
+        }
+        if self.click_through && bar != old_bar {
+            let region: Vec<Rect> = bar.into_iter().collect();
+            self.window.set_input_region(Some(&region))?;
+        }
+        Ok(())
+    }
+
+    /// Show the cursor over the bar, whatever `hide_cursor` says; give it
+    /// back to the rules when the pointer leaves.
+    fn set_over_bar(&mut self, over: bool) -> lirtup_x11::Result<()> {
+        if over == self.over_bar {
+            return Ok(());
+        }
+        self.over_bar = over;
+        if over {
+            self.window.set_cursor_visible(true)
+        } else {
+            self.last_motion = Instant::now();
+            self.window
+                .set_cursor_visible(!self.cursor_forced_hidden && !self.cursor_idle_hidden)
+        }
+    }
+
+    /// Click-through mode: poll the pointer for the reveal band (as motion
+    /// for the bar) and the opacity of 1.x `opacity.py`.
+    fn poll_pointer(&mut self) -> Option<OverlayNotice> {
+        let probe = self.probe.as_ref()?;
+        let now = Instant::now();
+        if now < self.next_poll {
+            return None;
+        }
+        self.next_poll = now + POINTER_POLL;
+        let (x, y) = match probe.pointer_position() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!("overlay: pointer: {e}");
+                return None;
+            }
+        };
+        if self.polled == Some((x, y)) {
+            return None;
+        }
+        self.polled = Some((x, y));
+        if let Some(dimmed) = self.dimmed {
+            let inside = probe
+                .window_info(self.target)
+                .ok()
+                .flatten()
+                .is_none_or(|w| lirtup_x11::overlay_input::contains(w.rect, x, y));
+            let wanted = if inside { self.opacity } else { dimmed };
+            if wanted != self.applied_opacity {
+                self.applied_opacity = wanted;
+                if let Err(e) = self.window.set_opacity(wanted) {
+                    tracing::warn!("overlay: {e}");
+                }
+            }
+        }
+        // Motion for the bar only: the game gets the real events (the
+        // window lets them through).
+        let rect = self.window.rect();
+        let motion = OverlayEvent::Pointer {
+            kind: PointerKind::Motion,
+            x: x - rect.x,
+            y: y - rect.y,
+            state: 0,
+            time: 0,
+        };
+        match self.router.route(&motion) {
+            Routed::Toolbar(e) | Routed::Both(e) => Some(OverlayNotice::Pointer(e)),
+            Routed::Forward => None,
+        }
+    }
+
+    /// Send the last motion again while the pointer rests on the content.
+    fn keep_hover(&mut self) {
+        let Some(motion) = self.hover else { return };
+        if self.last_motion.elapsed() < HOVER_KEEPALIVE || self.last_keepalive.elapsed() < HOVER_KEEPALIVE {
+            return;
+        }
+        self.last_keepalive = Instant::now();
+        if let Err(e) = self.forwarder.forward(&motion) {
+            tracing::debug!("overlay: hover keepalive: {e}");
+            self.hover = None;
+        }
+    }
+
     /// Hide the cursor once the pointer has been still for `cursor_idle`.
     fn hide_idle_cursor(&mut self) {
         let Some(idle) = self.cursor_idle else { return };
-        if self.cursor_forced_hidden || self.cursor_idle_hidden || self.last_motion.elapsed() < idle {
+        if self.over_bar
+            || self.cursor_forced_hidden
+            || self.cursor_idle_hidden
+            || self.last_motion.elapsed() < idle
+        {
             return;
         }
         self.cursor_idle_hidden = true;
@@ -412,7 +599,8 @@ impl Overlay {
             return Ok(());
         }
         self.cursor_idle_hidden = false;
-        self.window.set_cursor_visible(!self.cursor_forced_hidden)
+        self.window
+            .set_cursor_visible(self.over_bar || !self.cursor_forced_hidden)
     }
 
     /// One event: forward it, or turn it into a notice.
@@ -452,6 +640,40 @@ impl Overlay {
             }
             _ => {}
         }
+        let mut notice = None;
+        if matches!(event, OverlayEvent::Pointer { .. } | OverlayEvent::Leave) {
+            match self.router.route(&event) {
+                Routed::Forward => {}
+                Routed::Toolbar(e) => {
+                    self.hover = None;
+                    if let Err(e) = self.set_over_bar(true) {
+                        tracing::warn!("overlay: {e}");
+                    }
+                    return Some(OverlayNotice::Pointer(e));
+                }
+                Routed::Both(e) => notice = Some(OverlayNotice::Pointer(e)),
+            }
+            if let Err(e) = self.set_over_bar(false) {
+                tracing::warn!("overlay: {e}");
+            }
+            self.hover = match event {
+                OverlayEvent::Pointer {
+                    kind: PointerKind::Motion,
+                    x,
+                    y,
+                    state,
+                    ..
+                } if !self.click_through => Some(OverlayEvent::Pointer {
+                    kind: PointerKind::Motion,
+                    x,
+                    y,
+                    state,
+                    time: 0,
+                }),
+                OverlayEvent::Pointer { .. } => self.hover,
+                _ => None,
+            };
+        }
         match self.forwarder.forward(&event) {
             Ok(()) => {}
             Err(X11Error::NoWindow(xid)) => {
@@ -462,7 +684,7 @@ impl Overlay {
             }
             Err(e) => tracing::debug!("overlay: forwarding: {e}"),
         }
-        None
+        notice
     }
 }
 
