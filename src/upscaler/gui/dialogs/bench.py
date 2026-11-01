@@ -128,6 +128,7 @@ class BenchDialog(QDialog):
         self._reader = EventReader()
         self._stderr = b""
         self._finished_event: Optional[str] = None
+        self._cancel_requested = False
         self._saved = False
 
         self.setWindowTitle(self.tr("Measure on my GPU", "Benchmark dialog title"))
@@ -369,6 +370,7 @@ class BenchDialog(QDialog):
         self._reader = EventReader()
         self._stderr = b""
         self._finished_event = None
+        self._cancel_requested = False
         self._progress.setRange(0, 0)  # busy until the case count is known
         self._status.setText(self.tr("Starting…", "Benchmark dialog"))
 
@@ -399,6 +401,7 @@ class BenchDialog(QDialog):
         process = self._process
         if process is None:
             return
+        self._cancel_requested = True
         self._status.setText(self.tr("Cancelling…", "Benchmark dialog"))
         self._cancel_btn.setEnabled(False)
         process.terminate()
@@ -468,7 +471,10 @@ class BenchDialog(QDialog):
         process, self._process = self._process, None
         if process is not None:
             process.deleteLater()
-        if self._finished_event is None:
+        if self._finished_event is None and self._cancel_requested:
+            # Stopped before it could report (for example while loading)
+            self._status.setText(self.tr("Cancelled.", "Benchmark dialog"))
+        elif self._finished_event is None:
             # Killed, or crashed before it could say anything
             tail = self._stderr.decode("utf-8", "replace").strip().splitlines()[-1:]
             self._status.setText(
@@ -495,11 +501,13 @@ class BenchDialog(QDialog):
         process = self._process
         if process is not None:
             # Give the run a moment to finish its frame and release lsfg
+            self._cancel_requested = True
             process.terminate()
             if not process.waitForFinished(2000):
                 process.kill()
                 process.waitForFinished(1000)
-            self._on_finished(process.exitCode())
+            if self._process is process:  # finished was not delivered
+                self._on_finished(process.exitCode())
         self._session_timer.stop()
         super().reject()
 
