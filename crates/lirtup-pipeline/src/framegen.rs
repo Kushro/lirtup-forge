@@ -58,13 +58,13 @@ use lirtup_fg::layer::{self, LayerSetup};
 use lirtup_fg::multiplier::{AUTO_START_MULTIPLIER, AutoMultiplier};
 use lirtup_fg::native::{EngineOptions, EngineStart, LsfgContext, LsfgEngine};
 use lirtup_gpu::{
-    Device, ExternalSemaphore, ExternalTexture, Format, PresentOptions, PresentStatus, Submission, SubmitOptions,
-    Texture, TextureDesc, TextureUsage,
+    Device, ExternalSemaphore, ExternalTexture, Format, PresentOptions, PresentStatus, Submission,
+    SubmitOptions, Texture, TextureDesc, TextureUsage,
 };
 use lirtup_proto::{Event, FrameGenStatus, Stage};
 
 use crate::pacing::{FrameInterval, FramePacer, sleep_until};
-use crate::stats::{FrameKind, PresentRecord, PresentSink};
+use crate::stats::{FrameGenLine, FrameKind, PresentRecord, PresentSink};
 use crate::surface::SharedSurface;
 use crate::{PipelineError, Result};
 
@@ -267,7 +267,14 @@ fn show(
             wait_semaphore(device, ready)?;
         }
         pacer.real_presented(Instant::now());
-        present_on(surface, sink, &cycle.real, cycle.capture, FrameKind::Real, cycle.multiplier)?;
+        present_on(
+            surface,
+            sink,
+            &cycle.real,
+            cycle.capture,
+            FrameKind::Real,
+            cycle.multiplier,
+        )?;
         return Ok(());
     }
 
@@ -278,10 +285,24 @@ fn show(
             wait_semaphore(device, ready)?;
         }
         sleep_until(times[i]);
-        present_on(surface, sink, frame, cycle.capture, FrameKind::Generated, cycle.multiplier)?;
+        present_on(
+            surface,
+            sink,
+            frame,
+            cycle.capture,
+            FrameKind::Generated,
+            cycle.multiplier,
+        )?;
     }
     sleep_until(times[cycle.generated.len()]);
-    present_on(surface, sink, &cycle.real, cycle.capture, FrameKind::Real, cycle.multiplier)
+    present_on(
+        surface,
+        sink,
+        &cycle.real,
+        cycle.capture,
+        FrameKind::Real,
+        cycle.multiplier,
+    )
 }
 
 /// Present `texture` (the whole swapchain) and report it. An out-of-date
@@ -462,7 +483,8 @@ impl FrameGen {
     /// The multiplier in effect (`None` when not generating, also while
     /// lsfg starts or restarts).
     pub fn active_multiplier(&self) -> Option<u8> {
-        (self.state == FrameGenState::Active && matches!(self.lsfg, Lsfg::Ready(_))).then(|| self.multiplier())
+        (self.state == FrameGenState::Active && matches!(self.lsfg, Lsfg::Ready(_)))
+            .then(|| self.multiplier())
     }
 
     /// The monitor changed.
@@ -547,11 +569,49 @@ impl FrameGen {
             self.report();
             return;
         }
-        if let Err(e) = self.drain().map_err(reason_error).and_then(|()| self.restart(generated)) {
+        if let Err(e) = self
+            .drain()
+            .map_err(reason_error)
+            .and_then(|()| self.restart(generated))
+        {
             self.fail(e.to_string());
             return;
         }
         self.report();
+    }
+
+    /// The «Frame gen» row of the stats panel, as 1.x `_stats_rows`
+    /// (`None` when off).
+    pub fn panel_line(&self) -> Option<FrameGenLine> {
+        let m = self.multiplier();
+        let mode = if self.auto.is_some() {
+            format!("auto x{m}")
+        } else {
+            format!("x{m}")
+        };
+        match self.state {
+            FrameGenState::NoNative => Some(FrameGenLine {
+                text: format!("{mode} built-in failed, off"),
+                warning: true,
+                ..FrameGenLine::default()
+            }),
+            FrameGenState::Active => Some(match &self.lsfg {
+                Lsfg::Ready(engine) => FrameGenLine {
+                    text: format!("{mode} built-in {}", if engine.fp16() { "FP16" } else { "FP32" }),
+                    multiplier: Some(m),
+                    suffix: format!(
+                        ", pacing {:.1} ms",
+                        self.interval.interval().as_secs_f64() * 1000.0
+                    ),
+                    ..FrameGenLine::default()
+                },
+                _ => FrameGenLine {
+                    text: format!("{mode} built-in, restarting lsfg"),
+                    ..FrameGenLine::default()
+                },
+            }),
+            _ => None,
+        }
     }
 
     /// For `EngineSnapshot.framegen` and `Event::FrameGen`.
@@ -657,12 +717,16 @@ impl FrameGen {
                     self.lsfg = Lsfg::Ready(engine);
                     Ok(true)
                 }
-                Some(Err(e)) => Err(PipelineError::other(Stage::FrameGen, format!("starting lsfg: {e}"))),
+                Some(Err(e)) => Err(PipelineError::other(
+                    Stage::FrameGen,
+                    format!("starting lsfg: {e}"),
+                )),
             },
             Lsfg::Idle => {
                 let waiting = self.auto.as_ref().is_some_and(|a| a.chosen().is_none());
                 if !waiting {
-                    self.lsfg = Lsfg::Starting(EngineStart::spawn(None, self.engine_options(self.generated))?);
+                    self.lsfg =
+                        Lsfg::Starting(EngineStart::spawn(None, self.engine_options(self.generated))?);
                 }
                 Ok(false)
             }
@@ -729,7 +793,9 @@ impl FrameGen {
             .iter()
             .map(ExternalSemaphore::export_fd)
             .collect::<lirtup_gpu::Result<Vec<_>>>()?;
-        shared.context.present(shared.input_ready.export_fd()?, outputs_ready)?;
+        shared
+            .context
+            .present(shared.input_ready.export_fd()?, outputs_ready)?;
         let first = shared.frames == 0;
         shared.frames += 1;
         Ok(Cycle {
@@ -1078,7 +1144,10 @@ mod tests {
             )
             .unwrap();
 
-        for (frame, color) in [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]].into_iter().enumerate() {
+        for (frame, color) in [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]
+            .into_iter()
+            .enumerate()
+        {
             let mut recorder = device.recorder().unwrap();
             recorder.clear(inputs[frame % 2].texture(), color);
             device
@@ -1093,7 +1162,10 @@ mod tests {
                 .wait(COPY_TIMEOUT_NS)
                 .unwrap();
             context
-                .present(input_ready.export_fd().unwrap(), vec![output_ready.export_fd().unwrap()])
+                .present(
+                    input_ready.export_fd().unwrap(),
+                    vec![output_ready.export_fd().unwrap()],
+                )
                 .unwrap();
             wait_semaphore(&device, &output_ready).unwrap();
         }

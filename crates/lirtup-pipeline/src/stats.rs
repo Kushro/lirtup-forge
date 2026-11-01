@@ -20,7 +20,7 @@ use crossbeam_channel::{Receiver, Sender, TrySendError};
 use lirtup_effects::Pass;
 use lirtup_effects::osd::{OverlayBlend, TextRenderer, TextStyle};
 use lirtup_gpu::{Device, Texture, Timestamps};
-use lirtup_proto::{GpuWarning, StageTime, StatsSample};
+use lirtup_proto::{GpuWarning, KindLatency, StageTime, StatsSample};
 
 use crate::Result;
 use crate::latency::LatencyLog;
@@ -141,8 +141,8 @@ pub struct Stats {
     generated: Rate,
     /// `(when, cpu ms)` of full renders.
     render_ms: VecDeque<(Instant, f32)>,
-    /// `(present, latency ms)` of presents with a capture time.
-    latency: VecDeque<(Instant, f32)>,
+    /// `(present, latency ms, kind)` of presents with a capture time.
+    latency: VecDeque<(Instant, f32, FrameKind)>,
     /// Smoothed GPU ms per pass label, in dispatch order.
     gpu: Vec<(String, f64)>,
     gpu_total: Option<f64>,
@@ -160,8 +160,10 @@ impl Stats {
     /// session runs anyway.
     pub fn new(options: StatsOptions) -> Result<Stats> {
         let now = Instant::now();
-        let log = options.latency_csv.as_deref().and_then(|path| {
-            match LatencyLog::create(path, now) {
+        let log = options
+            .latency_csv
+            .as_deref()
+            .and_then(|path| match LatencyLog::create(path, now) {
                 Ok(log) => {
                     tracing::info!("logging frame latency to {}", path.display());
                     Some(log)
@@ -170,8 +172,7 @@ impl Stats {
                     tracing::error!("cannot write the latency log {}: {e}", path.display());
                     None
                 }
-            }
-        });
+            });
         let (tx, rx) = crossbeam_channel::bounded(SINK_CAPACITY);
         Ok(Stats {
             next_sample: now + options.sample_interval,
@@ -267,7 +268,7 @@ impl Stats {
             }
             if let Some(capture) = record.capture {
                 let ms = record.presented.saturating_duration_since(capture).as_secs_f32() * 1000.0;
-                self.latency.push_back((record.presented, ms));
+                self.latency.push_back((record.presented, ms, record.kind));
             }
             if let Some(log) = &mut self.log
                 && let Err(e) = log.write(&record)
@@ -301,15 +302,28 @@ impl Stats {
     }
 
     fn sample(&mut self, now: Instant) -> StatsSample {
-        // Rates of 1.x: `captures` (polled) is not in the sample; the panel
-        // shows new frames as the game rate.
-        let _polled = self.captures.per_second(now);
+        // Rates of 1.x: the game rate is new frames; `poll_fps` counts every
+        // capture.
+        let poll_fps = self.captures.per_second(now);
         let capture_fps = self.new_frames.per_second(now);
         let present_fps = self.presents.per_second(now);
         let generated_fps = self.generated.per_second(now);
         expire(&mut self.render_ms, now, |e| e.0);
         expire(&mut self.latency, now, |e| e.0);
         let (latency_ms, latency_p95_ms) = latency_summary(self.latency.iter().map(|e| e.1));
+        let render_ms = (!self.render_ms.is_empty())
+            .then(|| self.render_ms.iter().map(|e| e.1).sum::<f32>() / self.render_ms.len() as f32);
+        let latency_by_kind = [FrameKind::Real, FrameKind::Generated]
+            .into_iter()
+            .filter_map(|kind| {
+                let values: Vec<f32> = self.latency.iter().filter(|e| e.2 == kind).map(|e| e.1).collect();
+                (!values.is_empty()).then(|| KindLatency {
+                    kind: kind.as_str().to_owned(),
+                    mean_ms: values.iter().sum::<f32>() / values.len() as f32,
+                    max_ms: values.iter().copied().fold(0.0, f32::max),
+                })
+            })
+            .collect();
 
         let stages: Vec<StageTime> = self
             .gpu
@@ -334,6 +348,9 @@ impl Stats {
             tiles: self.tiles,
             multiplier: self.multiplier,
             gpu_warning,
+            poll_fps,
+            render_ms,
+            latency_by_kind,
         }
     }
 }
@@ -387,25 +404,55 @@ pub fn gpu_budget_warning(stages: &[StageTime], gpu_ms: f32, refresh_hz: f32) ->
     })
 }
 
-/// What the panel shows besides the sample (`_stats_rows` of 1.x).
+/// What the panel shows besides the sample (`_stats_rows` of 1.x). The
+/// session thread fills it (front P); the strings are already formatted.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PanelContext {
-    /// Window title.
+    /// Window title (not shown; kept for logs and the GUI).
     pub title: String,
     /// Profile, if any.
     pub profile: Option<String>,
-    /// Mode, if any.
+    /// Mode, if any (new in 2.0).
     pub mode: Option<String>,
     /// SRCNN model (`none`, `2x16`, ...).
     pub model: String,
-    /// Source size.
+    /// `double_upscale` (×4) or not (×2).
+    pub double_upscale: bool,
+    /// Source size, after the crop.
     pub src: (u32, u32),
+    /// Crop in effect (configured plus menu bar).
+    pub crop: lirtup_config::Crop,
     /// Output size.
     pub dst: (u32, u32),
+    /// `output_geometry`, `upsampler/downsampler` (1.x «Output» row).
+    pub output: String,
     /// Effect chain labels, in order.
     pub chain: Vec<String>,
-    /// Frame generation line («×2 integrado», «capa ×3», «apagada»).
-    pub framegen: String,
+    /// `Native` or `MagpieFX`.
+    pub engine: String,
+    /// The post effects that are on (`Deband`, `CAS`, `Bloom`, `Vignette`,
+    /// `LUT <preset>`, `Grain`).
+    pub post: Vec<String>,
+    /// Present mode, with `, new frames only` when it applies.
+    pub present: String,
+    /// Frame generation (`None`: no row, as 1.x when it is off).
+    pub framegen: Option<FrameGenLine>,
+}
+
+/// The «Frame gen» row of the panel.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FrameGenLine {
+    /// What runs: `x2 built-in FP16`, `auto x3 built-in, restarting lsfg`,
+    /// `x2 lsfg-vk`, `lsfg-vk (LSFGVK_* env)`.
+    pub text: String,
+    /// Multiplier for the `~N fps` estimate (`None`: no estimate).
+    pub multiplier: Option<u8>,
+    /// After the estimate: `, pacing 16.7 ms` (built-in) or ` est.` (layer).
+    pub suffix: String,
+    /// Drawn as a warning (the built-in engine failed).
+    pub warning: bool,
+    /// The lsfg-vk layer adds its own latency after ours (`+ lsfg-vk`).
+    pub layer: bool,
 }
 
 /// One panel row: label (empty continues the previous row), value, and
@@ -434,39 +481,62 @@ impl Row {
     }
 }
 
-/// The rows of the panel, in the order of 1.x `_stats_rows` (with what the
-/// sample and the context carry).
+/// The rows of the panel, as 1.x `_stats_rows` (plus «Mode», new in 2.0,
+/// and the tiles of the last frame in «Upscale»).
 fn panel_rows(sample: &StatsSample, context: &PanelContext) -> Vec<Row> {
-    let mut rows = Vec::new();
-    if !context.title.is_empty() {
-        rows.push(Row::new("Window", context.title.clone()));
-    }
-    rows.push(Row::new("Game", format!("{:5.1} fps new", sample.capture_fps)));
-    rows.push(Row::new("Shown", format!("{:5.1} fps", sample.present_fps)));
-    if !context.framegen.is_empty() {
-        let mut value = context.framegen.clone();
-        if let Some(m) = sample.multiplier {
-            value += &format!("  ~{:.0} fps", sample.capture_fps * f32::from(m));
+    let mut rows = vec![
+        Row::new(
+            "Game",
+            format!(
+                "{:5.1} fps new  ({:.0}/s polled)",
+                sample.capture_fps, sample.poll_fps
+            ),
+        ),
+        Row::new(
+            "Shown",
+            format!("{:5.1} fps", sample.present_fps)
+                + &sample
+                    .render_ms
+                    .map(|ms| format!("  render {ms:.1} ms"))
+                    .unwrap_or_default(),
+        ),
+    ];
+    if let Some(fg) = &context.framegen {
+        let mut value = fg.text.clone();
+        if let Some(m) = fg.multiplier {
+            value += &format!("  ~{:.0} fps{}", sample.capture_fps * f32::from(m), fg.suffix);
         }
-        if sample.generated_fps > 0.0 {
-            value += &format!(" ({:.0} generated/s)", sample.generated_fps);
-        }
-        rows.push(Row::new("Frame gen", value));
+        rows.push(if fg.warning {
+            Row::warning("Frame gen", value)
+        } else {
+            Row::new("Frame gen", value)
+        });
     }
-    if sample.latency_ms > 0.0 {
-        rows.push(Row::new(
-            "Latency",
-            format!("{:.1} ms (p95 {:.0})", sample.latency_ms, sample.latency_p95_ms),
-        ));
+    let mut latency: Vec<String> = sample
+        .latency_by_kind
+        .iter()
+        .map(|k| format!("{} {:.1} ms (max {:.0})", k.kind, k.mean_ms, k.max_ms))
+        .collect();
+    if !latency.is_empty() {
+        if context.framegen.as_ref().is_some_and(|fg| fg.layer) {
+            latency.push("+ lsfg-vk".to_owned());
+        }
+        rows.push(Row::new("Latency", latency.join("  ")));
     }
     if context.src != (0, 0) {
-        rows.push(Row::new("Source", format!("{}x{}", context.src.0, context.src.1)));
+        let c = &context.crop;
+        let mut source = format!("{}x{}", context.src.0, context.src.1);
+        if c.top + c.bottom + c.left + c.right > 0 {
+            source += &format!("  crop T{} B{} L{} R{}", c.top, c.bottom, c.left, c.right);
+        }
+        rows.push(Row::new("Source", source));
     }
     let mode = match sample.tiles {
         Some(tiles) => format!("tiles ({tiles}, {:.0} %)", sample.dirty_fraction * 100.0),
         None => "full frame".to_owned(),
     };
-    rows.push(Row::new("Upscale", format!("{}  {mode}", context.model)));
+    let factor = if context.double_upscale { "x4" } else { "x2" };
+    rows.push(Row::new("Upscale", format!("{} {factor}  {mode}", context.model)));
     for (i, label) in context.chain.iter().enumerate() {
         let ms = sample
             .stages
@@ -474,20 +544,40 @@ fn panel_rows(sample: &StatsSample, context: &PanelContext) -> Vec<Row> {
             .find(|s| &s.name == label)
             .map(|s| format!("  {:.2} ms", s.ms))
             .unwrap_or_default();
-        rows.push(Row::new(if i == 0 { "Effects" } else { "" }, format!("{label}{ms}")));
-    }
-    if let Some(w) = &sample.gpu_warning {
-        let heaviest = w.heaviest.first().map_or("", |(name, _)| name.as_str());
-        rows.push(Row::warning(
-            "GPU",
-            format!("{:.1} ms > {:.1} ms/frame, heaviest: {heaviest}", w.gpu_ms, w.budget_ms),
+        rows.push(Row::new(
+            if i == 0 { "Effects" } else { "" },
+            format!("{label}{ms}"),
         ));
     }
-    rows.push(Row::new("Output", format!("{}x{}", context.dst.0, context.dst.1)));
-    if sample.gpu_ms > 0.0 {
-        rows.push(Row::new("GPU", format!("{:.2} ms/frame", sample.gpu_ms)));
+    if !context.chain.is_empty() {
+        rows.push(Row::new("", format!("({})", context.engine)));
+        if let Some(w) = &sample.gpu_warning {
+            let heaviest = w.heaviest.first().map_or("", |(name, _)| name.as_str());
+            rows.push(Row::warning(
+                "GPU",
+                format!(
+                    "{:.1} ms > {:.1} ms/frame, heaviest: {heaviest}",
+                    w.gpu_ms, w.budget_ms
+                ),
+            ));
+        }
     }
-    rows.push(Row::new("Mode", context.mode.clone().unwrap_or_else(|| "none".to_owned())));
+    rows.push(Row::new(
+        "Output",
+        format!("{}x{}  {}", context.dst.0, context.dst.1, context.output),
+    ));
+    rows.push(Row::new(
+        "Post",
+        if context.post.is_empty() {
+            "none".to_owned()
+        } else {
+            context.post.join(", ")
+        },
+    ));
+    rows.push(Row::new("Present", context.present.clone()));
+    if let Some(mode) = &context.mode {
+        rows.push(Row::new("Mode", mode.clone()));
+    }
     rows.push(Row::new(
         "Profile",
         context.profile.clone().unwrap_or_else(|| "none".to_owned()),
@@ -496,7 +586,11 @@ fn panel_rows(sample: &StatsSample, context: &PanelContext) -> Vec<Row> {
 }
 
 /// Monospace fonts of the panel, in order (1.x `_FONTS`).
-const PANEL_FONTS: &[&str] = &["DejaVuSansMono.ttf", "LiberationMono-Regular.ttf", "NotoSansMono-Regular.ttf"];
+const PANEL_FONTS: &[&str] = &[
+    "DejaVuSansMono.ttf",
+    "LiberationMono-Regular.ttf",
+    "NotoSansMono-Regular.ttf",
+];
 /// Pixels from the top-left corner of the screen.
 const MARGIN: u32 = 12;
 const LABEL_COLOR: [f32; 4] = [150.0 / 255.0, 200.0 / 255.0, 1.0, 1.0];
@@ -617,12 +711,18 @@ impl StatsPanel {
                 } else {
                     (LABEL_COLOR, VALUE_COLOR)
                 };
-                let label = (!row.label.is_empty()).then(|| self.renderer.render(&row.label, &style(label_color)));
+                let label =
+                    (!row.label.is_empty()).then(|| self.renderer.render(&row.label, &style(label_color)));
                 let value = self.renderer.render(&row.value, &style(value_color));
                 (label, value)
             })
             .collect();
-        let label_w = cells.iter().filter_map(|(l, _)| l.as_ref()).map(|l| l.width).max().unwrap_or(0);
+        let label_w = cells
+            .iter()
+            .filter_map(|(l, _)| l.as_ref())
+            .map(|l| l.width)
+            .max()
+            .unwrap_or(0);
         let value_w = cells.iter().map(|(_, v)| v.width).max().unwrap_or(0);
         let width = pad * 2 + label_w + gap + value_w;
         let height = pad * 2 + line_h * rows.len() as u32;
@@ -639,7 +739,8 @@ impl StatsPanel {
         canvas.rounded_rect(pad as f32, BG_COLOR);
         let image = canvas.finish();
         // OverlayBlend crops what does not fit (1.x clipped to the screen).
-        self.blend.set_image(Some(&image), (MARGIN as i32, MARGIN as i32))?;
+        self.blend
+            .set_image(Some(&image), (MARGIN as i32, MARGIN as i32))?;
         Ok(())
     }
 }
@@ -776,7 +877,10 @@ mod tests {
         };
         stats.set_gpu_times(&times(1.0));
         stats.set_gpu_times(&times(6.0));
-        assert_eq!(stats.gpu, vec![("bloom".into(), 2.0 * 0.8 + 12.0 * 0.2), ("cas".into(), 1.0)]);
+        assert_eq!(
+            stats.gpu,
+            vec![("bloom".into(), 2.0 * 0.8 + 12.0 * 0.2), ("cas".into(), 1.0)]
+        );
         stats.set_gpu_times(&Timestamps {
             dispatches: vec![("cas".into(), 1.0)],
             total_ms: 1.0,
@@ -788,31 +892,75 @@ mod tests {
     fn rows_follow_the_1x_order() {
         let sample = StatsSample {
             capture_fps: 30.0,
+            poll_fps: 120.0,
             present_fps: 60.0,
-            latency_ms: 12.34,
-            latency_p95_ms: 20.0,
+            render_ms: Some(1.25),
             stages: stages(&[("cas", 0.5)]),
             multiplier: Some(2),
+            latency_by_kind: vec![
+                KindLatency {
+                    kind: "real".into(),
+                    mean_ms: 20.04,
+                    max_ms: 31.0,
+                },
+                KindLatency {
+                    kind: "generated".into(),
+                    mean_ms: 12.34,
+                    max_ms: 20.0,
+                },
+            ],
             ..StatsSample::default()
         };
         let context = PanelContext {
             model: "2x16".into(),
             src: (1280, 720),
+            crop: lirtup_config::Crop {
+                top: 20,
+                ..Default::default()
+            },
             dst: (2560, 1440),
+            output: "fit  lanczos/catmull_rom".into(),
             chain: vec!["cas".into(), "lut".into()],
-            framegen: "x2 built-in".into(),
+            engine: "Native".into(),
+            present: "fifo, new frames only".into(),
+            framegen: Some(FrameGenLine {
+                text: "x2 built-in FP16".into(),
+                multiplier: Some(2),
+                suffix: ", pacing 33.3 ms".into(),
+                ..FrameGenLine::default()
+            }),
             ..PanelContext::default()
         };
         let rows = panel_rows(&sample, &context);
         let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
         assert_eq!(
             labels,
-            ["Game", "Shown", "Frame gen", "Latency", "Source", "Upscale", "Effects", "", "Output", "Mode", "Profile"]
+            [
+                "Game",
+                "Shown",
+                "Frame gen",
+                "Latency",
+                "Source",
+                "Upscale",
+                "Effects",
+                "",
+                "",
+                "Output",
+                "Post",
+                "Present",
+                "Profile"
+            ]
         );
-        assert_eq!(rows[0].value, " 30.0 fps new");
-        assert_eq!(rows[2].value, "x2 built-in  ~60 fps");
-        assert_eq!(rows[3].value, "12.3 ms (p95 20)");
+        assert_eq!(rows[0].value, " 30.0 fps new  (120/s polled)");
+        assert_eq!(rows[1].value, " 60.0 fps  render 1.2 ms");
+        assert_eq!(rows[2].value, "x2 built-in FP16  ~60 fps, pacing 33.3 ms");
+        assert_eq!(rows[3].value, "real 20.0 ms (max 31)  generated 12.3 ms (max 20)");
+        assert_eq!(rows[4].value, "1280x720  crop T20 B0 L0 R0");
+        assert_eq!(rows[5].value, "2x16 x2  full frame");
         assert_eq!(rows[6].value, "cas  0.50 ms");
         assert_eq!(rows[7].value, "lut");
+        assert_eq!(rows[8].value, "(Native)");
+        assert_eq!(rows[9].value, "2560x1440  fit  lanczos/catmull_rom");
+        assert_eq!(rows[10].value, "none");
     }
 }

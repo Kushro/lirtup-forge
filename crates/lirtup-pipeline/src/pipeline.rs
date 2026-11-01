@@ -76,7 +76,7 @@ use crate::framegen::{FrameGen, FrameGenSetup};
 use crate::menubar::{MenuBarCheck, MenuBarDetector};
 use crate::osd::Osd;
 use crate::presenter::{Presenter, output_geometry};
-use crate::stats::{FrameKind, PanelContext, PresentRecord, Stats, StatsOptions, StatsPanel};
+use crate::stats::{FrameGenLine, FrameKind, PanelContext, PresentRecord, Stats, StatsOptions, StatsPanel};
 use crate::surface::{OverlayCommand, OverlayNotice, OverlayThread, PresentSurface, SurfaceDesc};
 use crate::upscale::{Upscaler, next_model};
 use crate::{PipelineError, Result};
@@ -296,7 +296,10 @@ pub fn overlay_rect(config: &Config, mode: OverlayMode, window: (u32, u32), moni
     if mode != OverlayMode::Windowed {
         return monitor;
     }
-    let geometry = config.output_geometry.parse().unwrap_or(lirtup_config::Geometry::Fit);
+    let geometry = config
+        .output_geometry
+        .parse()
+        .unwrap_or(lirtup_config::Geometry::Fit);
     let ((w, h), _, _) = output_geometry(&geometry, window, (monitor.width, monitor.height));
     let (w, h) = (w.max(1), h.max(1));
     Rect {
@@ -480,7 +483,12 @@ impl Runner {
         let buffer = vec![0u8; capture.buffer_len()];
 
         let mode = self.overlay_mode();
-        let rect = overlay_rect(&self.config, mode, (window.width(), window.height()), self.monitor);
+        let rect = overlay_rect(
+            &self.config,
+            mode,
+            (window.width(), window.height()),
+            self.monitor,
+        );
         let (hotkeys, _) = self.config.hotkey_bindings();
         let overlay = OverlayThread::spawn(
             OverlayOptions {
@@ -646,7 +654,11 @@ impl Runner {
             PipelineCommand::Hotkey(action) => self.handle_hotkey(action)?,
             PipelineCommand::SetPaused(paused) => self.set_paused(paused),
             PipelineCommand::SwitchWindow(window) => self.switch_window(window)?,
-            PipelineCommand::UpdateConfig { config, profile, mode } => {
+            PipelineCommand::UpdateConfig {
+                config,
+                profile,
+                mode,
+            } => {
                 self.profile = profile;
                 self.mode = mode;
                 self.update_config((*config).clone())?;
@@ -658,7 +670,9 @@ impl Runner {
     fn drain_notices(&mut self) -> Result<Option<StopReason>> {
         loop {
             let notice = {
-                let Some(parts) = self.parts.as_ref() else { return Ok(None) };
+                let Some(parts) = self.parts.as_ref() else {
+                    return Ok(None);
+                };
                 match parts.overlay.notices().try_recv() {
                     Ok(n) => n,
                     Err(TryRecvError::Empty) => return Ok(None),
@@ -681,7 +695,9 @@ impl Runner {
 
     /// The overlay (swapchain) has a new size.
     fn resize(&mut self, width: u32, height: u32) -> Result<()> {
-        let Some(parts) = self.parts.as_mut() else { return Ok(()) };
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(());
+        };
         parts.presenter.resize(width, height)?;
         parts.osd.rebind(&self.device, parts.presenter.screen())?;
         parts.panel.rebind(&self.device, parts.presenter.screen())?;
@@ -699,7 +715,9 @@ impl Runner {
             return Ok(());
         }
         self.next_focus_check = now + Duration::from_secs_f64(self.config.focus_poll_interval.max(0.05));
-        let Some(active) = self.x11.active_window()? else { return Ok(()) };
+        let Some(active) = self.x11.active_window()? else {
+            return Ok(());
+        };
         let (target, overlay) = match self.parts.as_ref() {
             Some(p) => (p.window.xid, p.overlay.surface().window()),
             None => return Ok(()),
@@ -752,7 +770,10 @@ impl Runner {
             Runner::teardown(parts);
         }
         self.menu_crop = Crop::default();
-        self.menubar = self.config.auto_crop_menu_bar.then(|| MenuBarDetector::new(Instant::now()));
+        self.menubar = self
+            .config
+            .auto_crop_menu_bar
+            .then(|| MenuBarDetector::new(Instant::now()));
         self.parts = Some(self.build(window)?);
         self.started_at_ms = None;
         Ok(())
@@ -761,7 +782,9 @@ impl Runner {
     /// The window changed size: new capture and upscaler (and overlay size
     /// in windowed mode).
     fn window_resized(&mut self) -> Result<Option<StopReason>> {
-        let Some(parts) = self.parts.as_mut() else { return Ok(None) };
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(None);
+        };
         let Some(info) = self.x11.window_info(parts.window.xid)? else {
             return Ok(Some(StopReason::WindowClosed));
         };
@@ -787,7 +810,9 @@ impl Runner {
     /// New capture (crop or size changed) and the upscaler for its size.
     fn rebuild_capture(&mut self) -> Result<()> {
         let crop = add_crop(self.config.crop(), self.menu_crop);
-        let Some(parts) = self.parts.as_mut() else { return Ok(()) };
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(());
+        };
         if cropped((parts.window.width(), parts.window.height()), &crop).is_none() {
             return Err(PipelineError::other(
                 Stage::Capture,
@@ -812,7 +837,9 @@ impl Runner {
     }
 
     fn recreate_upscaler(&mut self) -> Result<()> {
-        let Some(parts) = self.parts.as_mut() else { return Ok(()) };
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(());
+        };
         // The old one may still be in flight.
         parts.upscaler.finish()?;
         parts.upscaler = Upscaler::new(&self.device, &self.config, parts.capture.size())?;
@@ -856,7 +883,9 @@ impl Runner {
         } else if needs_upscaler {
             self.recreate_upscaler()?;
         }
-        let Some(parts) = self.parts.as_mut() else { return Ok(()) };
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(());
+        };
         parts.presenter.update_config(&self.config)?;
         parts.osd.update_config(&self.config);
         if old.show_stats != self.config.show_stats {
@@ -868,9 +897,9 @@ impl Runner {
                 .send(OverlayCommand::SetOpacity(self.config.overlay_opacity_max));
         }
         if old.hide_cursor != self.config.hide_cursor {
-            parts
-                .overlay
-                .send(OverlayCommand::SetCursorVisible(self.config.hide_cursor.is_none()));
+            parts.overlay.send(OverlayCommand::SetCursorVisible(
+                self.config.hide_cursor.is_none(),
+            ));
         }
         let mut parts = self.parts.take().expect("checked above");
         self.apply_view(&mut parts);
@@ -1062,7 +1091,9 @@ impl Runner {
                         format!("{} capture failures in a row: {e}", self.capture_failures),
                     ));
                 }
-                std::thread::sleep(Duration::from_secs_f64(self.config.capture_failure_delay.max(0.0)));
+                std::thread::sleep(Duration::from_secs_f64(
+                    self.config.capture_failure_delay.max(0.0),
+                ));
                 return Ok(FrameResult::Done);
             }
         };
@@ -1072,7 +1103,13 @@ impl Runner {
         // 2. Menu bar.
         if let Some(detector) = self.menubar.as_mut() {
             let parts = self.parts.as_ref().expect("parts while running");
-            match detector.check(capture_time, &parts.buffer, frame.width, frame.height, frame.stride) {
+            match detector.check(
+                capture_time,
+                &parts.buffer,
+                frame.width,
+                frame.height,
+                frame.stride,
+            ) {
                 MenuBarCheck::Pending => {}
                 MenuBarCheck::NotFound => self.menubar = None,
                 MenuBarCheck::Found(crop) => {
@@ -1154,7 +1191,8 @@ impl Runner {
         }
         self.stats
             .set_multiplier(parts.presenter.framegen().and_then(|fg| fg.active_multiplier()));
-        self.stats.record_render(render_start.elapsed().as_secs_f32() * 1000.0);
+        self.stats
+            .record_render(render_start.elapsed().as_secs_f32() * 1000.0);
         self.last_frame = Some(capture_time);
 
         // 7. Input mapping.
@@ -1195,7 +1233,9 @@ impl Runner {
     // ---------------------------------------------------------------------
 
     fn chain(&self) -> Vec<String> {
-        let Some(parts) = self.parts.as_ref() else { return Vec::new() };
+        let Some(parts) = self.parts.as_ref() else {
+            return Vec::new();
+        };
         let mut chain = parts.upscaler.labels();
         chain.extend(parts.presenter.chain());
         chain
@@ -1210,7 +1250,10 @@ impl Runner {
             profile: self.profile.clone(),
             mode: self.mode.clone(),
             kind: self.kind,
-            src: Size { width: sw, height: sh },
+            src: Size {
+                width: sw,
+                height: sh,
+            },
             dst: Size {
                 width: screen.width(),
                 height: screen.height(),
@@ -1228,31 +1271,84 @@ impl Runner {
     }
 
     fn panel_context(&self) -> PanelContext {
-        let Some(parts) = self.parts.as_ref() else { return PanelContext::default() };
+        let Some(parts) = self.parts.as_ref() else {
+            return PanelContext::default();
+        };
+        let c = &self.config;
+        let m = &c.scaling;
         let screen = parts.presenter.screen();
         let framegen = match parts.presenter.framegen() {
-            Some(fg) => match fg.active_multiplier() {
-                Some(m) => tr(&format!("×{m} integrado"), &format!("×{m} built-in")),
-                None => tr("integrado, en espera", "built-in, waiting"),
+            Some(fg) => fg.panel_line(),
+            None => match self.layer.state {
+                lirtup_fg::FrameGenState::Active
+                    if c.frame_gen_engine == lirtup_config::FrameGenEngine::Layer =>
+                {
+                    Some(FrameGenLine {
+                        text: format!("x{} lsfg-vk", self.layer.multiplier),
+                        multiplier: Some(self.layer.multiplier),
+                        suffix: " est.".to_owned(),
+                        layer: true,
+                        ..FrameGenLine::default()
+                    })
+                }
+                lirtup_fg::FrameGenState::External => Some(FrameGenLine {
+                    text: "lsfg-vk (LSFGVK_* env)".to_owned(),
+                    ..FrameGenLine::default()
+                }),
+                _ => None,
             },
-            None if self.config.frame_gen_engine == lirtup_config::FrameGenEngine::Layer
-                && self.layer.state == lirtup_fg::FrameGenState::Active =>
-            {
-                tr(&format!("capa ×{}", self.layer.multiplier), &format!("layer ×{}", self.layer.multiplier))
-            }
-            None => tr("apagada", "off"),
         };
+        let post = [
+            ("Deband".to_owned(), m.deband_enabled),
+            ("CAS".to_owned(), m.cas_enabled),
+            ("Bloom".to_owned(), m.bloom_enabled),
+            ("Vignette".to_owned(), m.vignette_enabled),
+            (format!("LUT {}", m.lut_preset), m.lut_enabled),
+            ("Grain".to_owned(), m.grain_enabled),
+        ]
+        .into_iter()
+        .filter_map(|(name, on)| on.then_some(name))
+        .collect();
+        let generating = parts.presenter.framegen().is_some_and(|fg| fg.is_active())
+            || (self.layer.state == lirtup_fg::FrameGenState::Active
+                && c.frame_gen_engine == lirtup_config::FrameGenEngine::Layer);
+        let mut present = serde_name(&c.vulkan_present_mode);
+        if c.present_on_change_only || generating {
+            present += ", new frames only";
+        }
         PanelContext {
             title: parts.window.title.clone(),
             profile: self.profile.clone(),
             mode: self.mode.clone(),
-            model: self.config.scaling.model.as_str().to_owned(),
+            model: m.model.as_str().to_owned(),
+            double_upscale: m.double_upscale,
             src: parts.capture.size(),
+            crop: parts.crop,
             dst: (screen.width(), screen.height()),
+            output: format!(
+                "{}  {}/{}",
+                c.output_geometry.0,
+                serde_name(&m.upsampler),
+                serde_name(&m.downsampler)
+            ),
             chain: self.chain(),
+            engine: match m.effects_engine {
+                lirtup_config::EffectsEngine::Magpiefx => "MagpieFX".to_owned(),
+                _ => "Native".to_owned(),
+            },
+            post,
+            present,
             framegen,
         }
     }
+}
+
+/// The config spelling of a unit enum (`lanczos`, `fifo`, ...).
+fn serde_name<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
 }
 
 /// What one turn of the loop did.
@@ -1268,12 +1364,13 @@ enum FrameResult {
 /// One zoom step in or out, wrapping like 1.x (`50 %` ↔ `800 %`).
 pub fn step_zoom(zoom: u32, zoom_in: bool) -> u32 {
     let levels: Vec<u32> = ZOOM_LEVELS.map(|i| i * ZOOM_STEP).collect();
-    let i = levels
-        .iter()
-        .position(|&l| l >= zoom)
-        .unwrap_or(levels.len() - 1);
+    let i = levels.iter().position(|&l| l >= zoom).unwrap_or(levels.len() - 1);
     let i = if zoom_in {
-        if levels[i] > zoom { i } else { (i + 1) % levels.len() }
+        if levels[i] > zoom {
+            i
+        } else {
+            (i + 1) % levels.len()
+        }
     } else if i == 0 {
         levels.len() - 1
     } else {
@@ -1331,7 +1428,10 @@ pub fn screenshot_path(dir: &Path, template: &str, vars: &ScreenshotVars<'_>) ->
     }
     name.push_str(rest);
     let lower = name.to_lowercase();
-    if ![".png", ".jpg", ".jpeg", ".bmp"].iter().any(|e| lower.ends_with(e)) {
+    if ![".png", ".jpg", ".jpeg", ".bmp"]
+        .iter()
+        .any(|e| lower.ends_with(e))
+    {
         name.push_str(".png");
     }
     lirtup_config::paths::expand_tilde(dir).join(name)
@@ -1340,7 +1440,13 @@ pub fn screenshot_path(dir: &Path, template: &str, vars: &ScreenshotVars<'_>) ->
 /// A title as a file name part: no path separators or control characters.
 fn sanitize(s: &str) -> String {
     s.chars()
-        .map(|c| if c == '/' || c == '\\' || c.is_control() { '_' } else { c })
+        .map(|c| {
+            if c == '/' || c == '\\' || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect()
 }
 
@@ -1388,9 +1494,21 @@ fn save_png(path: &Path, image: &RgbaImage) -> Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     // 1.x saves RGB.
-    let rgb: Vec<u8> = image.data.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
-    image::save_buffer(path, &rgb, image.width, image.height, image::ExtendedColorType::Rgb8)
-        .map_err(|e| PipelineError::other(Stage::Runtime, format!("saving '{}': {e}", path.display())))
+    let rgb: Vec<u8> = image
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|p| [p[0], p[1], p[2]])
+        .collect();
+    image::save_buffer(
+        path,
+        &rgb,
+        image.width,
+        image.height,
+        image::ExtendedColorType::Rgb8,
+    )
+    .map_err(|e| PipelineError::other(Stage::Runtime, format!("saving '{}': {e}", path.display())))
 }
 
 #[cfg(test)]
@@ -1399,8 +1517,14 @@ mod tests {
 
     #[test]
     fn overlay_mode_follows_the_session_kind() {
-        assert_eq!(overlay_mode(SessionKind::Windowed, OverlayMode::Fullscreen), OverlayMode::Windowed);
-        assert_eq!(overlay_mode(SessionKind::Fullscreen, OverlayMode::Windowed), OverlayMode::Fullscreen);
+        assert_eq!(
+            overlay_mode(SessionKind::Windowed, OverlayMode::Fullscreen),
+            OverlayMode::Windowed
+        );
+        assert_eq!(
+            overlay_mode(SessionKind::Fullscreen, OverlayMode::Windowed),
+            OverlayMode::Fullscreen
+        );
         assert_eq!(
             overlay_mode(SessionKind::Fullscreen, OverlayMode::TopTransparent),
             OverlayMode::TopTransparent
@@ -1416,7 +1540,10 @@ mod tests {
             height: 1080,
         };
         let mut config = Config::default();
-        assert_eq!(overlay_rect(&config, OverlayMode::AlwaysOnTop, (800, 600), monitor), monitor);
+        assert_eq!(
+            overlay_rect(&config, OverlayMode::AlwaysOnTop, (800, 600), monitor),
+            monitor
+        );
         config.output_geometry = OutputGeometry("1600x".into());
         config.offset_x = 10;
         assert_eq!(
@@ -1461,9 +1588,17 @@ mod tests {
             width: 1920,
             height: 1080,
         };
-        let path = screenshot_path(Path::new("/tmp/shots"), "Screenshot_{timestamp:%Y%m%d_%H%M%S}.png", &vars);
+        let path = screenshot_path(
+            Path::new("/tmp/shots"),
+            "Screenshot_{timestamp:%Y%m%d_%H%M%S}.png",
+            &vars,
+        );
         assert_eq!(path, PathBuf::from("/tmp/shots/Screenshot_20231114_221320.png"));
-        let path = screenshot_path(Path::new("/tmp"), "{profile}/{model}_{width}x{height}_{title}", &vars);
+        let path = screenshot_path(
+            Path::new("/tmp"),
+            "{profile}/{model}_{width}x{height}_{title}",
+            &vars,
+        );
         assert_eq!(path, PathBuf::from("/tmp/game/4x12_1920x1080_a_b.png"));
         let path = screenshot_path(Path::new("/tmp"), "{unknown}.jpg", &vars);
         assert_eq!(path, PathBuf::from("/tmp/{unknown}.jpg"));

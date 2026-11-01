@@ -138,7 +138,9 @@ pub enum Event {
         /// Why.
         reason: StopReason,
     },
-    /// The session failed (or could not start).
+    /// The session failed (or could not start). Always followed by
+    /// `SessionStopped { reason: Error }`, also when it failed before the
+    /// session existed.
     SessionError {
         /// Where.
         stage: Stage,

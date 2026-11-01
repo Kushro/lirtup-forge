@@ -240,6 +240,20 @@ fn events() -> Vec<Event> {
                 gpu_ms: 18.0,
                 heaviest: vec![("CuNNy 8x32".into(), 15.5), ("bloom".into(), 1.25)],
             }),
+            poll_fps: 120.0,
+            render_ms: Some(1.5),
+            latency_by_kind: vec![
+                KindLatency {
+                    kind: "real".into(),
+                    mean_ms: 20.5,
+                    max_ms: 31.0,
+                },
+                KindLatency {
+                    kind: "generated".into(),
+                    mean_ms: 12.25,
+                    max_ms: 18.0,
+                },
+            ],
         }),
         Event::Stats(StatsSample::default()),
         Event::FrameGen(framegen()),

@@ -160,6 +160,28 @@ pub struct StatsSample {
     pub multiplier: Option<u8>,
     /// GPU warning.
     pub gpu_warning: Option<GpuWarning>,
+    /// Captures per second, changed or not (1.x «N/s polled»).
+    #[serde(default)]
+    pub poll_fps: f32,
+    /// CPU time of a full render, mean ms over the last second (`None`
+    /// when nothing was rendered).
+    #[serde(default)]
+    pub render_ms: Option<f32>,
+    /// Latency per kind of frame over the last second, real first (1.x
+    /// «real 12.3 ms (max 20)  generated …»).
+    #[serde(default)]
+    pub latency_by_kind: Vec<KindLatency>,
+}
+
+/// Latency of one kind of frame.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct KindLatency {
+    /// `real` or `generated` (the CSV spelling).
+    pub kind: String,
+    /// Mean, ms.
+    pub mean_ms: f32,
+    /// Maximum, ms.
+    pub max_ms: f32,
 }
 
 /// Frame generation, as the GUI shows it (Presentación, tray, toolbar).
