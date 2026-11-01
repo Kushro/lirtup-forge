@@ -81,3 +81,40 @@ impl MenuItem {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    /// Every `t!("cmp-…")` of the components exists in Spanish and English.
+    #[test]
+    fn component_texts_are_translated() {
+        let sources = [
+            include_str!("buttons.rs"),
+            include_str!("hotkey.rs"),
+            include_str!("inputs.rs"),
+            include_str!("misc.rs"),
+            include_str!("nav.rs"),
+            include_str!("overlays.rs"),
+            include_str!("rows.rs"),
+            include_str!("tile.rs"),
+        ];
+        let mut keys: Vec<&str> = sources
+            .iter()
+            .flat_map(|s| s.split("t!(\"").skip(1))
+            .filter_map(|rest| rest.split('"').next())
+            .filter(|k| k.starts_with("cmp-"))
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert!(keys.len() > 20, "{keys:?}");
+        // Read the files: `i18n::has_key` fails on messages with variables.
+        for (lang, ftl) in [
+            ("es", include_str!("../../i18n/es/components.ftl")),
+            ("en", include_str!("../../i18n/en/components.ftl")),
+        ] {
+            for key in &keys {
+                assert!(ftl.lines().any(|l| l.starts_with(&format!("{key} ="))), "{key} missing in {lang}");
+            }
+        }
+    }
+}

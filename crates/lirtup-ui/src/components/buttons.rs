@@ -1,11 +1,9 @@
 //! Buttons: round at rest, squared while pressed (the M3 Expressive shape
-//! morph, `press-morph` in `tailwind.css`).
-// Front A: remove when the bodies are written.
-#![allow(unused_variables)]
+//! morph, `.lf-btn:active` in `main.css`).
 
 use dioxus::prelude::*;
 
-use super::MenuItem;
+use super::{Icon, Menu, MenuItem, Tooltip};
 
 /// [`Button`] styles (`.btn-*` of `lf.css`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -25,6 +23,19 @@ pub enum ButtonVariant {
     Danger,
 }
 
+impl ButtonVariant {
+    fn class(self) -> &'static str {
+        match self {
+            ButtonVariant::Filled => "filled",
+            ButtonVariant::Tonal => "tonal",
+            ButtonVariant::Outlined => "outlined",
+            ButtonVariant::Text => "text",
+            ButtonVariant::Tertiary => "tertiary",
+            ButtonVariant::Danger => "danger",
+        }
+    }
+}
+
 /// [`Button`] heights: XS 32, S 40, M 56, L 96 px (L only for «Escalar»
 /// on the empty session).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -38,6 +49,17 @@ pub enum ButtonSize {
     M,
     /// 96 px.
     L,
+}
+
+impl ButtonSize {
+    fn class(self) -> &'static str {
+        match self {
+            ButtonSize::Xs => "xs",
+            ButtonSize::S => "",
+            ButtonSize::M => "m",
+            ButtonSize::L => "l",
+        }
+    }
 }
 
 /// A button with an optional leading icon.
@@ -54,7 +76,28 @@ pub fn Button(
     title: Option<String>,
     onclick: Option<EventHandler<MouseEvent>>,
 ) -> Element {
-    todo!()
+    let button = rsx! {
+        button {
+            r#type: "button",
+            class: "lf-btn lf-state {variant.class()} {size.class()}",
+            disabled,
+            onclick: move |e| {
+                if let Some(onclick) = onclick {
+                    onclick(e);
+                }
+            },
+            if let Some(icon) = icon {
+                Icon { name: icon, fill: size == ButtonSize::L }
+            }
+            "{label}"
+        }
+    };
+    match title {
+        Some(text) => rsx! {
+            Tooltip { text, {button} }
+        },
+        None => button,
+    }
 }
 
 /// [`IconButton`] styles (`.ibtn.*`).
@@ -88,8 +131,41 @@ pub fn IconButton(
     size: u8,
     #[props(default)] disabled: bool,
     onclick: Option<EventHandler<MouseEvent>>,
+    /// Where the tooltip opens (see [`Tooltip`]); `"right"` for buttons at
+    /// the right edge of the window.
+    #[props(default)]
+    tip: &'static str,
 ) -> Element {
-    todo!()
+    let variant = match variant {
+        IconButtonVariant::Standard => "",
+        IconButtonVariant::Tonal => "tonal",
+        IconButtonVariant::Outlined => "outlined",
+        IconButtonVariant::Filled => "filled",
+    };
+    let size_class = match size {
+        0..=36 => "s32",
+        37..=48 => "",
+        _ => "s56",
+    };
+    let icon_size = if size <= 36 { 20 } else { 24 };
+    rsx! {
+        Tooltip { text: label.clone(), place: tip,
+            button {
+                r#type: "button",
+                class: "lf-ibtn lf-state {variant} {size_class}",
+                class: if selected { "sel" },
+                "aria-label": label,
+                "aria-pressed": selected.then_some("true"),
+                disabled,
+                onclick: move |e| {
+                    if let Some(onclick) = onclick {
+                        onclick(e);
+                    }
+                },
+                Icon { name: icon, fill: selected, size: icon_size }
+            }
+        }
+    }
 }
 
 /// A button with a menu half (Restablecer ▾ of the save bar).
@@ -107,5 +183,25 @@ pub fn SplitButton(
     /// A menu entry, by [`MenuItem::id`].
     on_select: EventHandler<&'static str>,
 ) -> Element {
-    todo!()
+    let mut open = use_signal(|| false);
+    rsx! {
+        span { class: "lf-split lf-menu-anchor",
+            button {
+                r#type: "button",
+                class: "lf-btn lf-state {variant.class()}",
+                onclick: on_click,
+                "{label}"
+            }
+            button {
+                r#type: "button",
+                class: "lf-btn lf-state menu-half {variant.class()}",
+                "aria-label": menu_label,
+                "aria-haspopup": "menu",
+                "aria-expanded": "{open}",
+                onclick: move |_| open.toggle(),
+                Icon { name: "keyboard_arrow_down", size: 20 }
+            }
+            Menu { open, items: menu, at: None, on_select }
+        }
+    }
 }
