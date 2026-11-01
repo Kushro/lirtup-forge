@@ -2864,7 +2864,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "lirtup-cli"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2880,7 +2880,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-config"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "clap",
  "dirs 7.0.0",
@@ -2895,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-core"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "arc-swap",
  "crossbeam-channel",
@@ -2915,7 +2915,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-effects"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "ab_glyph",
  "image",
@@ -2929,7 +2929,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-fg"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "dirs 7.0.0",
  "lirtup-config",
@@ -2942,7 +2942,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-gpu"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "ash",
  "bitflags 2.13.2",
@@ -2953,7 +2953,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-magpiefx"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "image",
  "lirtup-config",
@@ -2969,7 +2969,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-pipeline"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "arc-swap",
  "crossbeam-channel",
@@ -2989,7 +2989,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-proto"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "lirtup-config",
  "serde",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-ui"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "dioxus",
  "fluent-templates",
@@ -3020,7 +3020,7 @@ dependencies = [
 
 [[package]]
 name = "lirtup-x11"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "crossbeam-channel",
  "image",
@@ -3073,7 +3073,7 @@ dependencies = [
 
 [[package]]
 name = "lsfg-sys"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "cc",
 ]
