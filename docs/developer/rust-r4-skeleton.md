@@ -11,22 +11,23 @@ Compilé con `CARGO_TARGET_DIR=$HOME/.cache/lirtup-forge/target-r3-integration`.
 Notas anteriores: [rust-r3-integration.md](rust-r3-integration.md) (lo que pasa a esta ronda) y
 [rust-r0-contract.md](rust-r0-contract.md) (las reglas de siempre).
 
-## Decisiones que necesita la persona
+## Decisiones de la persona
 
-1. **¿La 2.0 reemplaza a la app de Python o se publica aparte?** Hoy la 1.x se publica en PyPI
-   (`.github/workflows/build_wheels.yml`) con `setup.py` y `pyproject.toml`. De esto dependen:
-   - el nombre del paquete de AUR (el mismo que la 1.x o uno nuevo);
-   - si se retira Python del repositorio, con `src/upscaler/`, `setup.py`, `pyproject.toml` y
-     el workflow de wheels;
-   - **si se mueven los datos**: los `.spv`, los modelos CuNNy, los 117 efectos de Magpie y el
-     C++ de lsfg siguen en `src/upscaler/…` y los crates los leen de ahí (regla 5 del contrato de
-     la ronda 0). Se mueven solo si se retira Python.
-
-   Mientras no se decida, P arma el paquete de AUR y la AppImage de la 2.0 con otro nombre y no
-   toca nada de Python.
-2. **La versión.** `2.0.0-alpha.0` hoy. Propongo `2.0.0-beta.1` al cerrar esta ronda y `2.0.0`
-   cuando la persona pruebe el paquete en una máquina limpia. La versión y el `CHANGELOG.md`
-   son míos, no de P.
+1. **La 2.0 reemplaza a la 1.x**, con el mismo nombre de paquete. En esta ronda:
+   - P usa el mismo paquete de AUR, borra el workflow de wheels, agrega el de Rust y escribe el
+     README de la 2.0 como reemplazo de la 1.x;
+   - en la integración, después de los merges M → T → Y → P y en commits propios, el revisor:
+     - retira Python del repositorio: `src/upscaler/` (el código), `setup.py`, `pyproject.toml`,
+       `uv.lock`, `MANIFEST.in` y los tests y scripts que solo sirven a la 1.x;
+     - mueve los datos a los crates: los `.spv`, los modelos CuNNy, los 117 efectos de Magpie y
+       el C++ de lsfg;
+     - ajusta los `include_bytes!`, los `build.rs` y los scripts que los usan, como
+       `rust-parity-refs.py`, que corre la 1.3.0 de pipx y no el repositorio. Antes de borrar,
+       comprueba que nada de Rust siga leyendo de `src/upscaler/`;
+   - lo antiguo queda en la rama local **`py_historical_backup`** (el `main` de hoy,
+     `454d7962`), sin push; publicarla lo decide la persona.
+2. **La versión es `2.0.0` al cerrar la ronda.** La versión y el `CHANGELOG.md` son míos.
+3. Las filas de la CLI (19 a 27) entran en mi pasada de la integración.
 
 ## Qué escribí (`9de59450`)
 
@@ -105,7 +106,7 @@ de la GUI, para Y. La bandeja usa `dioxus::desktop::trayicon` y no necesita depe
 | `swapchain_buffers` en la configuración (hoy fijo en 2) | Revisor, en la integración |
 | `restart_self` con variables, para retomar la sesión | Y (`Resume`) |
 | `{timestamp}` de las capturas en hora local | T (fila 15 de la lista de paridad) |
-| Mover los datos de `src/upscaler/…` | Revisor, solo si la decisión 1 retira Python |
+| Mover los datos de `src/upscaler/…` | Revisor, en la integración (decisión 1) |
 | La lista de paridad con la 1.x | Abajo |
 
 ## Lista de paridad con la 1.x
@@ -303,11 +304,8 @@ una sección «Cambios respecto de la 1.x» del README.
 - **Pendientes de la ronda 3**: el ícono en el cajón, Deshacer de modos, `Route::Modes { from }`
   y `Action::Toast`.
 - **Según las mediciones de T**: el anillo por cuadro y `create_into`.
-- **Según la decisión 1**: mover los datos de `src/upscaler/`.
-- La versión y el `CHANGELOG.md`.
-
-Es mucho para una pasada. Si la persona prefiere, las filas de la CLI (19 a 27) pueden ser un
-quinto frente chico, porque solo tocan `lirtup-cli`.
+- **Decisión 1**: retirar Python y mover los datos a los crates, en commits propios después de los merges.
+- La versión `2.0.0` y el `CHANGELOG.md`, al cerrar la ronda.
 
 ## Al integrar (5.7)
 
