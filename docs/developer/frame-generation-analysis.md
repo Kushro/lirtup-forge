@@ -237,6 +237,9 @@ Hallazgos (verificado):
 
 1. **El ajuste nuevo funciona.** `present_on_change_only` (CLI `--present-on-change-only`) se
    saltea `present_unchanged()` y espera 1 ms entre capturas cuando no hay cuadro nuevo.
+   **Corregido después:** esos 1 ms daban unas 530 capturas por segundo y casi 40 % de un
+   núcleo. Ahora espera un periodo de refresco del monitor (7 ms a 144 Hz): con el video de
+   30 fps baja de 41 % a 14 % de CPU y sigue presentando 33,3 fps.
 2. **lsfg-vk 2.0.0 no acepta `Lossless.dll`.**
    - El nombre de archivo del ajuste `dll` (o `LSFGVK_DLL_PATH`) se ignora: la capa siempre carga
      `lsfg-vk.dll` de esa carpeta. Con `dll = "/home/octavio/Lossless.dll"` busca

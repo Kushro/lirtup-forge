@@ -41,15 +41,37 @@ from ..window import WindowInfo, WindowTracker
 
 logger = logging.getLogger(__name__)
 
-# Seconds between captures while waiting for a new frame with
-# present_on_change_only (short, so a new frame is not delayed).
-_CHANGE_POLL_INTERVAL = 0.001
+# While waiting for a new frame with present_on_change_only, the loop
+# captures once per display refresh: the same rate as presenting every loop
+# with fifo, and no frame can be shown sooner than the next refresh anyway.
+# Used when the display does not report its rate, and bounds for it.
+_DEFAULT_REFRESH_RATE = 60.0
+_MIN_CHANGE_POLL_INTERVAL = 0.002  # 500 Hz
+_MAX_CHANGE_POLL_INTERVAL = 1 / 30
 
 # Menu bar detection: seconds between samples, how many samples in a row
 # must agree before cropping, and how many to take before giving up.
 _MENU_BAR_INTERVAL = 0.25
 _MENU_BAR_AGREE = 3
 _MENU_BAR_MAX_SAMPLES = 12
+
+
+def _refresh_interval(overlay: OverlayWindow) -> float:
+    """Seconds per refresh of the overlay's display, within sane bounds."""
+    try:
+        screen = overlay.screen()
+        rate = screen.refreshRate() if screen is not None else 0.0
+    except Exception:  # Qt objects may be gone during teardown
+        rate = 0.0
+    if not rate or rate < 1:
+        rate = _DEFAULT_REFRESH_RATE
+    interval = 1.0 / rate
+    logger.debug(
+        "Display refresh %.1f Hz: polling every %.1f ms when idle",
+        rate,
+        interval * 1000,
+    )
+    return min(max(interval, _MIN_CHANGE_POLL_INTERVAL), _MAX_CHANGE_POLL_INTERVAL)
 
 
 class PauseReason(Enum):
@@ -129,6 +151,9 @@ class Pipeline(QObject):
             _, _, _, _, self._scale_factor = get_base_geometry(
                 config.monitor or "primary", None
             )
+
+        # Capture interval while waiting for a new frame (present_on_change_only)
+        self._change_poll_interval = _refresh_interval(overlay)
 
         # Physical size for swapchain and presenter
         self._screen_width = overlay.physical_width
@@ -439,7 +464,7 @@ class Pipeline(QObject):
                 return
             if self.config.present_on_change_only or framegen.is_active():
                 # Nothing was presented, so no fence paces the loop
-                self._wake_event.wait(timeout=_CHANGE_POLL_INTERVAL)
+                self._wake_event.wait(timeout=self._change_poll_interval)
                 self._wake_event.clear()
                 return
             self.presenter.present_unchanged()
