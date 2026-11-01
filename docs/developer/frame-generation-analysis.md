@@ -402,6 +402,11 @@ generados. RX 9070 XT, RADV. Una corrida por caso.
     no pasa: genera después de que lirtup presenta y no frena el bucle. El motor integrado comparte
     el hilo (y la GPU) con los efectos; el hilo de presentación aparte y un `flow_scale` menor son
     lo siguiente a probar.
+  - **Con el hilo de presentación** (misma cadena, ×2, 85 s jugando): 33,3 fps en los tramos con
+    movimiento (antes 24,6), con tramos de 100 a 125 cuadros seguidos a 27,6–29 ms y desvío de
+    0,13 a 0,17 ms (antes alternaba 33 y 43–52 ms). Lo que limita ahora es la GPU: los efectos UL
+    (34,5 ms) más lsfg a 2560×1440 dejan unos 17 cuadros reales por segundo. Más se consigue con
+    efectos más livianos, `frame_gen_flow_scale` menor o el modo de rendimiento.
   - La detección de la barra dio 21 filas en esta corrida y 23 en otra. Revisado después con
     cuadros reales: 21 era lo correcto. Debajo de la barra hay un marco hundido de 2 px (Win32
     client edge) alrededor de la imagen de 1280×720, y con una escena lisa arriba el detector
