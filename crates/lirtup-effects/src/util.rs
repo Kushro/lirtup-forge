@@ -203,6 +203,37 @@ pub fn upload_texture(device: &Arc<Device>, texture: &Texture, data: &[u8]) -> R
     Ok(())
 }
 
+/// Name of the first GLCompute `OpEntryPoint` of a SPIR-V module (1.x
+/// `vk_spirv_get_entry_point`): `main` for the precompiled shaders, `__M`
+/// for MagpieFX passes.
+pub fn spirv_entry_point(spirv: &[u8]) -> Option<String> {
+    const MAGIC: u32 = 0x0723_0203;
+    const OP_ENTRY_POINT: u32 = 15;
+    const GL_COMPUTE: u32 = 5;
+    if spirv.len() % 4 != 0 || spirv.len() < 20 {
+        return None;
+    }
+    let words: Vec<u32> = spirv.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    if words[0] != MAGIC {
+        return None;
+    }
+    let mut i = 5;
+    while i < words.len() {
+        let count = (words[i] >> 16) as usize;
+        let opcode = words[i] & 0xFFFF;
+        if count == 0 || i + count > words.len() {
+            return None;
+        }
+        if opcode == OP_ENTRY_POINT && count >= 4 && words[i + 1] == GL_COMPUTE {
+            let bytes: Vec<u8> = words[i + 3..i + count].iter().flat_map(|w| w.to_le_bytes()).collect();
+            let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+            return String::from_utf8(bytes[..end].to_vec()).ok();
+        }
+        i += count;
+    }
+    None
+}
+
 /// Clamp helper (`max(lo, min(v, hi))` of 1.x).
 pub(crate) fn clampf(v: f32, lo: f32, hi: f32) -> f32 {
     v.min(hi).max(lo)
@@ -222,6 +253,15 @@ mod tests {
         assert_eq!(&bytes[12..16], &[0; 4]);
         assert_eq!(CbWriter::new().finish().len(), 16);
         assert_eq!(CbWriter::new().f32s(&[0.0; 5]).finish().len(), 32);
+    }
+
+    #[test]
+    fn entry_point_of_the_embedded_shaders() {
+        for path in crate::assets::native_paths() {
+            let spirv = crate::assets::native_spirv(path).unwrap();
+            assert_eq!(spirv_entry_point(spirv).as_deref(), Some("main"), "{path}");
+        }
+        assert_eq!(spirv_entry_point(b"not spirv at all...."), None);
     }
 
     #[test]
