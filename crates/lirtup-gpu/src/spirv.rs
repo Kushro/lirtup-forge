@@ -26,11 +26,13 @@ const BUILT_IN_WORKGROUP_SIZE: u32 = 25;
 
 /// SPIR-V bytes as words (copied: `include_bytes!` data is not aligned).
 pub(crate) fn words(bytes: &[u8]) -> Result<Vec<u32>> {
-    if bytes.len() < HEADER_WORDS * 4 || bytes.len() % 4 != 0 {
+    if bytes.len() < HEADER_WORDS * 4 || !bytes.len().is_multiple_of(4) {
         return Err(GpuError::Invalid(format!("SPIR-V of {} bytes", bytes.len())));
     }
     let words: Vec<u32> = bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect();
     if words[0] != MAGIC {
@@ -76,7 +78,7 @@ pub(crate) fn compute_entry(words: &[u32], name: &str) -> Option<(String, u32)> 
 /// Value of an `OpConstant`/`OpSpecConstant` with result `id`.
 fn constant(words: &[u32], id: u32) -> Option<u32> {
     instructions(words).find_map(|(op, ops)| {
-        ((op == OP_CONSTANT || op == OP_SPEC_CONSTANT) && ops.len() >= 3 && ops[1] == id).then_some(ops[2])
+        ((op == OP_CONSTANT || op == OP_SPEC_CONSTANT) && ops.len() >= 3 && ops[1] == id).then(|| ops[2])
     })
 }
 
@@ -89,7 +91,7 @@ pub(crate) fn workgroup_size(words: &[u32], entry_id: u32) -> Option<[u32; 3]> {
             && ops.len() >= 3
             && ops[1] == DECORATION_BUILT_IN
             && ops[2] == BUILT_IN_WORKGROUP_SIZE)
-            .then_some(ops[0])
+            .then(|| ops[0])
     });
     if let Some(id) = builtin {
         let composite = instructions(words).find_map(|(op, ops)| {
@@ -176,7 +178,7 @@ pub(crate) mod tests {
     fn string(s: &str) -> Vec<u32> {
         let mut bytes = s.as_bytes().to_vec();
         bytes.push(0);
-        while bytes.len() % 4 != 0 {
+        while !bytes.len().is_multiple_of(4) {
             bytes.push(0);
         }
         bytes
@@ -223,6 +225,31 @@ pub(crate) mod tests {
         let m = sample_module();
         assert_eq!(workgroup_size(&m, 1), Some([16, 8, 1]));
         assert_eq!(workgroup_size(&m, 2), None);
+    }
+
+    #[test]
+    fn short_instructions_are_skipped() {
+        // OpFunctionEnd (56) and OpReturn (253) have no operands; a real
+        // module has them before anything the searches match.
+        let mut m = vec![MAGIC, 0x0001_0300, 0, 100, 0];
+        m.extend(inst(253, &[]));
+        m.extend(inst(56, &[]));
+        m.extend(inst(OP_DECORATE, &[5, 34]));
+        m.extend(sample_module()[HEADER_WORDS..].iter().copied());
+        assert_eq!(workgroup_size(&m, 1), Some([16, 8, 1]));
+        assert_eq!(constant(&m, 7), None);
+    }
+
+    #[test]
+    fn reads_real_dxc_output() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../src/upscaler/shaders/misc/clear/clear.spv"
+        );
+        let Ok(bytes) = std::fs::read(path) else { return };
+        let w = words(&bytes).unwrap();
+        let (_, id) = compute_entry(&w, "").unwrap();
+        assert_eq!(workgroup_size(&w, id), Some([16, 16, 1]));
     }
 
     #[test]
