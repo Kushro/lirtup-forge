@@ -21,12 +21,11 @@
 //! `unsafe` is allowed in this crate; every block has a `// SAFETY:` comment.
 
 #![allow(unsafe_code)]
-// Round 0 stubs: the bodies are `todo!()`. Front X removes this.
-#![allow(unused_variables)]
 
 pub mod acquire;
 pub mod capture;
 pub mod conn;
+mod cursor;
 pub mod error;
 pub mod hotkeys;
 pub mod image;
@@ -51,3 +50,13 @@ pub use window::{Rect, WindowClass, WindowInfo};
 /// Pixel layout of captured frames: 4 bytes per pixel, B, G, R, X (alpha
 /// undefined), rows tightly packed unless [`Frame::stride`] says otherwise.
 pub const PIXEL_FORMAT: &str = "B8G8R8A8_UNORM";
+
+// The thread-safety the contract promises.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<X11>();
+    assert_send::<Capture>();
+    assert_send::<Hotkeys>();
+    assert_send::<InputForwarder>();
+    assert_send::<OverlayWindow>();
+};
