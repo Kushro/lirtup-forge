@@ -709,6 +709,8 @@ impl Runner {
                 OverlayNotice::Failed => {
                     return Err(PipelineError::other(Stage::Overlay, "the overlay window failed"));
                 }
+                // The bar over the game (round 4, front T).
+                OverlayNotice::Pointer(event) => tracing::trace!("toolbar pointer {event:?}"),
             }
         }
     }
@@ -967,6 +969,8 @@ impl Runner {
                 self.set_paused(paused);
             }
             HotkeyAction::Screenshot => self.screenshot(),
+            // The bar over the game (round 4, front T: `crate::toolbar`).
+            HotkeyAction::ToggleToolbar => self.toggle_toolbar(),
             HotkeyAction::ToggleStats => {
                 if let Some(p) = self.parts.as_mut() {
                     let visible = !p.panel.visible();
@@ -1063,6 +1067,13 @@ impl Runner {
 
     /// Read the screen back and save it on another thread
     /// (`_save_screenshot`).
+    /// `ToggleToolbar`: show or hide the bar over the game (round 4,
+    /// front T wires [`crate::toolbar::Toolbar`] here; until then the
+    /// hotkey only logs).
+    fn toggle_toolbar(&mut self) {
+        tracing::debug!("toggle_toolbar: the bar over the game is round 4");
+    }
+
     fn screenshot(&mut self) {
         let Some(parts) = self.parts.as_ref() else { return };
         let image = match parts.presenter.screenshot() {

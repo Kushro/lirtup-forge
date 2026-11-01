@@ -125,6 +125,9 @@ fn Root() -> Element {
     windows::use_window_list(dispatch);
     let thumbs = thumbs::use_thumbnails();
     use_context_provider(|| thumbs);
+    // Tray and notifications (round 4, front Y).
+    crate::tray::use_tray(store, dispatch);
+    crate::notify::use_notifications(store, dispatch);
 
     // The origin notes of the rows depend on the page's layer.
     let layer = use_memo(move || match &store.read().route {
@@ -328,6 +331,28 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
             });
         }
         Effect::Toast(toast) => dismiss_later(toast, store),
+        Effect::Migrate(plan) => {
+            spawn(async move {
+                let result = tokio::task::spawn_blocking(move || {
+                    let (mut file, _) = ConfigFile::load_default()?;
+                    let (mut modes, _) = ModeStore::load_default()?;
+                    lirtup_config::migrate::apply(&mut file, &mut modes, &plan)
+                })
+                .await;
+                let result = match result {
+                    Ok(Ok(backup)) => Ok(backup.display().to_string()),
+                    Ok(Err(e)) => Err(e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                };
+                let ok = result.is_ok();
+                if let Some(dispatch) = try_consume_context::<Callback<Action>>() {
+                    dispatch(Action::Migrated(result));
+                    if ok {
+                        dispatch(load_files());
+                    }
+                }
+            });
+        }
         Effect::Many(effects) => {
             for effect in effects {
                 run_effect(effect, core, store);
@@ -629,5 +654,6 @@ fn Dialogs() -> Element {
         Some(Dialog::EffectPicker { mode }) => rsx! { screens::modes::EffectPickerDialog { mode } },
         Some(Dialog::DeleteProfile(name)) => rsx! { screens::profile::DeleteProfileDialog { name } },
         Some(Dialog::DeleteMode(id)) => rsx! { screens::modes::DeleteModeDialog { id } },
+        Some(Dialog::Migrate(plan)) => rsx! { screens::migrate::MigrateDialog { plan } },
     }
 }

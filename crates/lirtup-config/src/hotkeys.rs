@@ -46,12 +46,14 @@ pub enum HotkeyAction {
     OffsetLeft,
     /// Move the content right.
     OffsetRight,
+    /// Show or hide the bar over the game (new in 2.0, round 4 front T).
+    ToggleToolbar,
 }
 
 impl HotkeyAction {
     /// All actions: activation (2.0), then the 1.x groups (session, view,
     /// zooming, panning).
-    pub const ALL: [HotkeyAction; 15] = [
+    pub const ALL: [HotkeyAction; 16] = [
         HotkeyAction::StartFullscreen,
         HotkeyAction::StartWindowed,
         HotkeyAction::ToggleScaling,
@@ -67,6 +69,7 @@ impl HotkeyAction {
         HotkeyAction::OffsetRight,
         HotkeyAction::OffsetUp,
         HotkeyAction::OffsetDown,
+        HotkeyAction::ToggleToolbar,
     ];
 
     /// The YAML key (`toggle_scaling`, ...).
@@ -87,6 +90,7 @@ impl HotkeyAction {
             HotkeyAction::OffsetDown => "offset_down",
             HotkeyAction::OffsetLeft => "offset_left",
             HotkeyAction::OffsetRight => "offset_right",
+            HotkeyAction::ToggleToolbar => "toggle_toolbar",
         }
     }
 
@@ -108,6 +112,7 @@ impl HotkeyAction {
             HotkeyAction::OffsetDown => "Alt+Shift+Down",
             HotkeyAction::OffsetLeft => "Alt+Shift+Left",
             HotkeyAction::OffsetRight => "Alt+Shift+Right",
+            HotkeyAction::ToggleToolbar => "Alt+Shift+D",
         }
     }
 }

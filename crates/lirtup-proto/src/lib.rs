@@ -125,6 +125,15 @@ pub enum Command {
         /// Wanted or not.
         on: bool,
     },
+    /// Release the global hotkeys while this client captures a key
+    /// combination (Ajustes ▸ Atajos): a combo `lirtup serve` grabs never
+    /// reaches the GUI otherwise. Counted per connection, as
+    /// `WatchGpuTimes`; a connection that closes counts as `on: false`.
+    /// The hotkeys come back when no client pauses them.
+    PauseHotkeys {
+        /// Paused or not.
+        on: bool,
+    },
     /// Stop the session and exit `lirtup serve`.
     Quit,
 }
@@ -177,6 +186,19 @@ pub enum Event {
         window: WindowRef,
         /// The profile.
         profile: String,
+    },
+    /// The scaler changed a setting live and wants it kept (the bar over the
+    /// game: the frame generation multiplier, «fijar»). The GUI is the only
+    /// writer of YAML: it sets `key` in the profile's layer (`None`, or a
+    /// global key, = *Predeterminado*), saves and sends `ReloadConfig`.
+    /// With no GUI connected the change lasts only for the session.
+    SaveSetting {
+        /// Profile (`None` = top level).
+        profile: Option<String>,
+        /// YAML key (`frame_gen_multiplier`, ...).
+        key: String,
+        /// The new value.
+        value: lirtup_config::Value,
     },
     /// A Wine menu bar was detected; the GUI saves the crop in the profile.
     MenuBarDetected {

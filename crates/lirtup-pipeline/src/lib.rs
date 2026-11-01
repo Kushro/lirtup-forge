@@ -60,6 +60,8 @@ pub mod presenter;
 pub mod stats;
 pub mod surface;
 pub mod tiles;
+pub mod tokens;
+pub mod toolbar;
 pub mod upscale;
 
 pub use error::{PipelineError, Result};

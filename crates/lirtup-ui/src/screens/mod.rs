@@ -10,10 +10,12 @@
 //! | [`modes`] | D | `Route::Modes`, `Dialog::EffectPicker`, `Dialog::DeleteMode` |
 //! | [`settings`] | D | `Route::Settings` |
 //! | [`bench`] | D | `Dialog::Bench` |
+//! | [`migrate`] | M (round 4) | `Dialog::Migrate` |
 
 pub mod about;
 pub mod bench;
 pub mod home;
+pub mod migrate;
 pub mod modes;
 pub mod new_profile;
 pub mod profile;

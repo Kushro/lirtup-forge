@@ -28,6 +28,8 @@ fluent-templates.workspace = true
 material-colors.workspace = true
 # Thumbnails (thumbs.rs, front B)
 image.workspace = true
+# Desktop notifications (notify.rs, round 4 front Y)
+notify-rust.workspace = true
 
 [lints]
 workspace = true

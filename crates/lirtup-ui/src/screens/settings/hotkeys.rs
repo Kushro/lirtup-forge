@@ -34,6 +34,7 @@ pub(crate) const GROUPS: [(&str, &[HotkeyAction]); 4] = [
             HotkeyAction::ExitApp,
             HotkeyAction::Screenshot,
             HotkeyAction::ToggleStats,
+            HotkeyAction::ToggleToolbar,
         ],
     ),
     (
@@ -75,6 +76,7 @@ pub(crate) fn icon(action: HotkeyAction) -> &'static str {
         HotkeyAction::OffsetDown => "keyboard_arrow_down",
         HotkeyAction::OffsetLeft => "keyboard_arrow_left",
         HotkeyAction::OffsetRight => "keyboard_arrow_right",
+        HotkeyAction::ToggleToolbar => "toolbar",
     }
 }
 

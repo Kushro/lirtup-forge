@@ -402,6 +402,12 @@ impl OverlayWindow {
         Ok(())
     }
 
+    /// Start moving the window with the window manager from the pointer
+    /// at root `(x, y)` (the bar's drag; round 4, front T).
+    pub fn begin_move(&self, x: i32, y: i32, button: u8) -> Result<()> {
+        crate::overlay_input::begin_move(&*self.conn, self.root, self.window, x, y, button)
+    }
+
     /// Input region: `None` = whole window takes input, `Some(empty)` = all
     /// clicks pass through, otherwise only those rectangles take input (the
     /// in-game toolbar of round 4).

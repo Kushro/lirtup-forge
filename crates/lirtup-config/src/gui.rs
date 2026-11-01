@@ -63,6 +63,16 @@ pub struct GuiConfig {
     pub start_hidden: bool,
     /// Keep `lirtup serve` running (daemon) after the GUI quits.
     pub keep_running_after_exit: bool,
+    /// Show the tray icon (round 4, front Y). Off: closing quits, whatever
+    /// `close_to_tray` says.
+    pub show_tray_icon: bool,
+    /// Minimizing hides the window to the tray instead of the taskbar.
+    pub minimize_to_tray: bool,
+    /// Seconds of the deferred scaling of Inicio («Empezar»), 0 to 60.
+    pub start_delay_s: f32,
+    /// «Ahora no» of the migration to modes: do not offer it again
+    /// (round 4, front M).
+    pub migration_declined: bool,
     /// Milliseconds between window list refreshes (Inicio).
     pub auto_refresh_ms: u32,
     /// Milliseconds between thumbnail refreshes.
@@ -96,6 +106,10 @@ impl Default for GuiConfig {
             close_to_tray: true,
             start_hidden: false,
             keep_running_after_exit: false,
+            show_tray_icon: true,
+            minimize_to_tray: false,
+            start_delay_s: 3.0,
+            migration_declined: false,
             auto_refresh_ms: 1000,
             tile_preview_interval_ms: 500,
             tile_aspect: TileAspect::Auto,
@@ -150,6 +164,18 @@ impl GuiConfig {
                 *v = c;
             }
         };
+        if !(0.0..=60.0).contains(&self.start_delay_s) || self.start_delay_s.is_nan() {
+            let c = if self.start_delay_s.is_nan() {
+                3.0
+            } else {
+                self.start_delay_s.clamp(0.0, 60.0)
+            };
+            tracing::warn!(
+                "gui.start_delay_s: {} is out of 0 to 60, using {c}",
+                self.start_delay_s
+            );
+            self.start_delay_s = c;
+        }
         clamp(&mut self.zoom, 50, 250, "zoom");
         clamp(&mut self.font_scale, 80, 150, "font_scale");
         if self.tile_columns != 0 {

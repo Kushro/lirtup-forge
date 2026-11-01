@@ -11,6 +11,8 @@
 //!   them (`ListDevices`, `ListEffects`, `lirtup list`).
 //! - [`signals`]: SIGINT/SIGTERM for the blocking subcommands.
 //! - [`daemon`]: matching windows against profiles (round 4, front Y).
+//! - [`lifecycle`]: when `lirtup serve` exits, and the session carried
+//!   across a `Restart` that `exec`s (round 4, front Y).
 
 pub use lirtup_proto as proto;
 /// The channel of [`Engine::subscribe`] (its `Receiver` and errors), for
@@ -21,6 +23,7 @@ pub mod client;
 pub mod daemon;
 pub mod engine;
 pub mod error;
+pub mod lifecycle;
 pub mod listing;
 pub mod server;
 pub mod signals;

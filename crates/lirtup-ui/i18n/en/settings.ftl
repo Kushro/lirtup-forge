@@ -47,6 +47,7 @@ settings-hotkey-toggle_scaling = Show or hide the scaling
 settings-hotkey-exit_app = End the session
 settings-hotkey-screenshot = Take a screenshot
 settings-hotkey-toggle_stats = Show statistics
+settings-hotkey-toggle_toolbar = Show or hide the bar
 settings-hotkey-cycle_model = Cycle model
 settings-hotkey-cycle_geometry = Cycle geometry
 settings-hotkey-restore_view = Restore view

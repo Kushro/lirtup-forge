@@ -98,6 +98,20 @@ pub enum OverlayCommand {
     /// Input region: `None` = the whole window takes input, `Some(&[])` =
     /// click-through.
     SetInputRegion(Option<Vec<Rect>>),
+    /// Where the bar over the game takes the pointer (`None` = no bar):
+    /// events there come back as [`OverlayNotice::Pointer`] instead of going
+    /// to the game (round 4, front T; `lirtup_x11::overlay_input`).
+    SetToolbarZone(Option<lirtup_x11::overlay_input::ToolbarZone>),
+    /// Start moving the window from the bar (windowed mode): root
+    /// coordinates and the button held.
+    BeginMove {
+        /// Root X.
+        x: i32,
+        /// Root Y.
+        y: i32,
+        /// X button.
+        button: u8,
+    },
     /// Destroy the window and end the thread.
     Close,
 }
@@ -120,6 +134,9 @@ pub enum OverlayNotice {
     /// The thread failed (lost X connection); the session stops with
     /// `Stage::Overlay`.
     Failed,
+    /// The pointer over the bar over the game or its reveal band (see
+    /// [`OverlayCommand::SetToolbarZone`]).
+    Pointer(lirtup_x11::overlay_input::PointerEvent),
 }
 
 /// The overlay window thread. Dropping it sends `Close` and joins.
@@ -249,6 +266,8 @@ struct Overlay {
     /// The idle timer hid the cursor.
     cursor_idle_hidden: bool,
     last_motion: Instant,
+    /// `SetToolbarZone` (round 4, front T).
+    toolbar_zone: Option<lirtup_x11::overlay_input::ToolbarZone>,
 }
 
 /// An X11 error of the overlay, as the session reports it.
@@ -280,6 +299,7 @@ impl Overlay {
             cursor_idle: None,
             cursor_idle_hidden: false,
             last_motion: Instant::now(),
+            toolbar_zone: None,
         })
     }
 
@@ -360,6 +380,13 @@ impl Overlay {
                 Ok(())
             }
             OverlayCommand::SetInputRegion(region) => self.window.set_input_region(region.as_deref()),
+            // Front T routes the window's pointer events through
+            // `overlay_input::route` with this zone.
+            OverlayCommand::SetToolbarZone(zone) => {
+                self.toolbar_zone = zone;
+                Ok(())
+            }
+            OverlayCommand::BeginMove { x, y, button } => self.window.begin_move(x, y, button),
             OverlayCommand::Close => Ok(()),
         };
         if let Err(e) = result {

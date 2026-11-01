@@ -32,6 +32,7 @@ pub mod image;
 pub mod input;
 pub mod monitor;
 pub mod overlay;
+pub mod overlay_input;
 pub mod pick;
 pub mod thumbs;
 pub mod tiles;

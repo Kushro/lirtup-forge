@@ -37,6 +37,7 @@
 //! | `ListEffects`, `CompileEffect` | `lirtup_magpiefx::Catalog` and `compile_effect` on a blocking task (cache in `paths::magpiefx_cache_dir`) |
 //! | `SetDaemon` | state only in round 2 (the daemon is round 4) |
 //! | `Diagnostics` | gather `DiagReport` |
+//! | `PauseHotkeys` | count the pausers ([`Engine::pause_hotkeys`], per connection in the server); ungrab every hotkey when the count leaves 0, grab them again when it returns |
 //! | `WatchGpuTimes` | count the watchers ([`Engine::watch_gpu_times`]; the server counts per connection); `PipelineCommand::SetTimestamps` when the count goes to or from 0 |
 //! | `Quit` | shutdown |
 //!
@@ -180,6 +181,8 @@ struct State {
     last_start: Option<(u32, SessionKind, Option<String>)>,
     /// Clients that show GPU times (`WatchGpuTimes`).
     gpu_watchers: u32,
+    /// Clients that capture a key combination (`PauseHotkeys`).
+    hotkey_pausers: u32,
 }
 
 impl State {
@@ -346,6 +349,13 @@ impl Engine {
     /// one watcher.
     pub fn watch_gpu_times(&self, on: bool) {
         self.inner.watch_gpu_times(on);
+    }
+
+    /// One client more (`on`) or less captures a key combination: while any
+    /// does, the global hotkeys are released. The server calls it once per
+    /// connection, as [`Engine::watch_gpu_times`].
+    pub fn pause_hotkeys(&self, on: bool) {
+        self.inner.pause_hotkeys(on);
     }
 
     /// Subscribe to events. A lagging receiver gets `RecvError::Lagged` and
@@ -608,12 +618,44 @@ impl Inner {
                 inner.publish(Event::Diagnostics(report));
             }),
             Command::WatchGpuTimes { on } => self.watch_gpu_times(on),
+            Command::PauseHotkeys { on } => self.pause_hotkeys(on),
             Command::Quit => {
                 self.stop_session(StopReason::Quit);
                 self.quit.send_replace(true);
             }
         }
         Ok(())
+    }
+
+    fn pause_hotkeys(&self, on: bool) {
+        let mut st = lock(&self.state);
+        let before = st.hotkey_pausers > 0;
+        st.hotkey_pausers = if on {
+            st.hotkey_pausers.saturating_add(1)
+        } else {
+            st.hotkey_pausers.saturating_sub(1)
+        };
+        let after = st.hotkey_pausers > 0;
+        drop(st);
+        if before != after {
+            tracing::debug!("global hotkeys {}", if after { "paused" } else { "resumed" });
+            self.rebind_hotkeys();
+        }
+    }
+
+    /// Grab the configured hotkeys again, or none while they are paused.
+    fn rebind_hotkeys(&self) {
+        let bindings = if lock(&self.state).hotkey_pausers > 0 {
+            Vec::new()
+        } else {
+            self.config.load().hotkey_bindings().0
+        };
+        if let Some(hotkeys) = lock(&self.hotkeys).as_ref() {
+            match hotkeys.rebind(&bindings) {
+                Ok(errors) => errors.iter().for_each(|e| tracing::warn!("hotkey: {e}")),
+                Err(e) => tracing::warn!("cannot rebind the hotkeys: {e}"),
+            }
+        }
     }
 
     fn watch_gpu_times(&self, on: bool) {
@@ -931,13 +973,7 @@ impl Inner {
         self.config.store(Arc::new(config));
         let config = self.config.load_full();
 
-        let (bindings, _) = config.hotkey_bindings();
-        if let Some(hotkeys) = lock(&self.hotkeys).as_ref() {
-            match hotkeys.rebind(&bindings) {
-                Ok(errors) => errors.iter().for_each(|e| tracing::warn!("hotkey: {e}")),
-                Err(e) => tracing::warn!("cannot rebind the hotkeys: {e}"),
-            }
-        }
+        self.rebind_hotkeys();
 
         let (daemon, live) = {
             let st = lock(&self.state);

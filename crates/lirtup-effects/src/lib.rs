@@ -21,6 +21,7 @@ mod lut;
 pub mod osd;
 pub mod scalers;
 pub mod srcnn;
+pub mod ui_draw;
 pub mod util;
 
 pub use error::{EffectError, Result};

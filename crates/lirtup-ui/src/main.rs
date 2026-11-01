@@ -13,6 +13,7 @@
 //! | [`theme`] | A | the scheme from the seed color |
 //! | [`screens`] | B, C, D | one folder per front |
 //! | [`windows`], [`thumbs`] | B | window list, previews and icons |
+//! | [`tray`], [`notify`] | Y (round 4) | the tray and desktop notifications |
 
 // The skeleton declares every signature with `todo!()` bodies; each front
 // removes the allowances of its files when it writes them.
@@ -23,12 +24,16 @@
 mod i18n;
 mod app;
 mod components;
+#[cfg(test)]
+mod i18n_check;
 mod link;
+mod notify;
 mod route;
 mod screens;
 mod state;
 mod theme;
 mod thumbs;
+mod tray;
 mod windows;
 
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};

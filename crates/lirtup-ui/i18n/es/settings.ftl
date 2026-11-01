@@ -47,6 +47,7 @@ settings-hotkey-toggle_scaling = Mostrar u ocultar el escalado
 settings-hotkey-exit_app = Terminar la sesión
 settings-hotkey-screenshot = Capturar pantalla
 settings-hotkey-toggle_stats = Mostrar estadísticas
+settings-hotkey-toggle_toolbar = Mostrar u ocultar la barra
 settings-hotkey-cycle_model = Cambiar modelo
 settings-hotkey-cycle_geometry = Cambiar geometría
 settings-hotkey-restore_view = Restaurar vista

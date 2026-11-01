@@ -15,6 +15,8 @@
 //! Logs go to stderr (`-v`, `-q`, or `RUST_LOG`); stdout is for what a
 //! subcommand prints (`ctl` and `bench --json` print protocol lines).
 
+mod serve;
+
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -107,6 +109,17 @@ enum CliCommand {
         /// What to list.
         what: String,
     },
+    /// Move the loose 1.x mode fields of config.yaml into scaling modes
+    /// (backup in config.yaml.1x.bak).
+    Migrate {
+        /// Only print what would change.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Config file (default: ~/.config/linux-rt-upscaler/config.yaml).
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -118,10 +131,11 @@ fn main() -> ExitCode {
             socket,
             daemon,
             config,
-        } => serve(socket, daemon, config),
+        } => serve::serve(socket, daemon, config),
         CliCommand::Ctl { command, follow } => ctl(&command, follow),
         CliCommand::Bench { request, json, gpu } => bench(&request, json, gpu.as_deref()),
         CliCommand::List { what } => list(&what),
+        CliCommand::Migrate { dry_run, config } => migrate(dry_run, config),
     };
     match result {
         Ok(code) => code,
@@ -304,18 +318,41 @@ fn select_window() -> anyhow::Result<u32> {
     Ok(window.xid)
 }
 
-// ---- serve -----------------------------------------------------------------
+// ---- migrate ---------------------------------------------------------------
 
-fn serve(socket: Option<PathBuf>, daemon: bool, config: Option<PathBuf>) -> anyhow::Result<ExitCode> {
-    let socket = socket.unwrap_or_else(socket_path);
-    lirtup_core::server::ensure_not_running(&socket)?;
-    // The engine first (it runs `layer::prepare`), the runtime after.
-    let engine = Arc::new(Engine::new(EngineOptions {
-        daemon,
-        config_path: config,
-        ..EngineOptions::default()
-    })?);
-    lirtup_core::server::run(engine, &socket)?;
+fn migrate(dry_run: bool, config: Option<PathBuf>) -> anyhow::Result<ExitCode> {
+    use lirtup_config::{ConfigFile, ModeStore, migrate, paths};
+
+    let path = config.unwrap_or_else(paths::config_path);
+    let modes_dir = path
+        .parent()
+        .map(|d| d.join("modes"))
+        .unwrap_or_else(paths::modes_dir);
+    let (mut file, _) = ConfigFile::load(&path)?;
+    let (mut modes, _) = ModeStore::load(&modes_dir)?;
+    let plan = migrate::plan(&file, &modes);
+    if plan.is_empty() {
+        println!("nothing to migrate: {} has no loose mode fields", path.display());
+        return Ok(ExitCode::SUCCESS);
+    }
+    for (id, raw) in &plan.modes {
+        println!("mode {id}: {} fields", raw.len().saturating_sub(1));
+    }
+    if let Some(top) = &plan.top_mode {
+        println!("top level: mode {top}");
+    }
+    for (profile, mode) in &plan.profiles {
+        println!("profile {profile}: {}", mode.as_deref().unwrap_or("(inherits)"));
+    }
+    if dry_run {
+        return Ok(ExitCode::SUCCESS);
+    }
+    let backup = migrate::apply(&mut file, &mut modes, &plan)?;
+    println!(
+        "{} fields moved; backup in {}",
+        plan.moved_fields,
+        backup.display()
+    );
     Ok(ExitCode::SUCCESS)
 }
 
@@ -335,6 +372,7 @@ fn answer_timeout(command: &Command) -> Option<Duration> {
         | Command::SetDaemon { .. }
         | Command::Hotkey { .. }
         | Command::WatchGpuTimes { .. }
+        | Command::PauseHotkeys { .. }
         | Command::CancelBench => 1,
     };
     Some(Duration::from_secs(secs))

@@ -152,9 +152,15 @@ async fn client(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
     let mut lines = BufReader::new(read).lines();
     // `None` until `Hello`.
     let mut events: Option<broadcast::Receiver<Event>> = None;
-    let mut gpu_watch = GpuWatch {
+    let mut gpu_watch = Counted {
         engine: Arc::clone(&engine),
         on: false,
+        apply: Engine::watch_gpu_times,
+    };
+    let mut hotkey_pause = Counted {
+        engine: Arc::clone(&engine),
+        on: false,
+        apply: Engine::pause_hotkeys,
     };
 
     loop {
@@ -173,6 +179,7 @@ async fn client(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
                         write_event(&mut write, &Event::Snapshot(engine.snapshot())).await?;
                     }
                     Line::Command(Command::WatchGpuTimes { on }) => gpu_watch.set(on),
+                    Line::Command(Command::PauseHotkeys { on }) => hotkey_pause.set(on),
                     Line::Command(command) => {
                         let engine = Arc::clone(&engine);
                         let name = format!("{command:?}");
@@ -212,23 +219,24 @@ async fn client(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
     }
 }
 
-/// Whether one connection counts as a GPU-time watcher; a closed
-/// connection stops counting.
-struct GpuWatch {
+/// Whether one connection counts for a per-connection request
+/// (`WatchGpuTimes`, `PauseHotkeys`); a closed connection stops counting.
+struct Counted {
     engine: Arc<Engine>,
     on: bool,
+    apply: fn(&Engine, bool),
 }
 
-impl GpuWatch {
+impl Counted {
     fn set(&mut self, on: bool) {
         if on != self.on {
             self.on = on;
-            self.engine.watch_gpu_times(on);
+            (self.apply)(&self.engine, on);
         }
     }
 }
 
-impl Drop for GpuWatch {
+impl Drop for Counted {
     fn drop(&mut self) {
         self.set(false);
     }

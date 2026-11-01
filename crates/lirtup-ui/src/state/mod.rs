@@ -170,6 +170,10 @@ pub enum Dialog {
     DeleteProfile(ProfileName),
     /// Confirm deleting a mode.
     DeleteMode(ModeId),
+    /// «Pasar a modos de escalado» (round 4, front M): offered after
+    /// `Loaded` when the config has loose 1.x mode fields and
+    /// `gui.migration_declined` is off.
+    Migrate(lirtup_config::migrate::MigrationPlan),
 }
 
 /// The answer of [`Dialog::Unsaved`].
@@ -499,6 +503,14 @@ pub enum Action {
     },
     /// An [`Effect`] that writes finished.
     Written(Result<Written, String>),
+    /// «Migrar» of [`Dialog::Migrate`] (round 4, front M).
+    Migrate,
+    /// «Ahora no» of [`Dialog::Migrate`]: do not ask again
+    /// (`gui.migration_declined`).
+    SkipMigration,
+    /// [`Effect::Migrate`] finished: the backup's path, or the error. The
+    /// files are read again (`Loaded`) by the runner after a success.
+    Migrated(Result<String, String>),
 }
 
 /// What [`update`] asks the outside world to do (run by `app.rs`).
@@ -529,6 +541,9 @@ pub enum Effect {
     /// Show the snackbar and dismiss it after a while
     /// ([`Action::DismissToast`]).
     Toast(Toast),
+    /// Run a migration (`lirtup_config::migrate::apply` on a blocking
+    /// thread); then [`Action::Migrated`] and the files read again.
+    Migrate(lirtup_config::migrate::MigrationPlan),
     /// Several, in order.
     Many(Vec<Effect>),
 }

@@ -923,6 +923,7 @@ fn core(store: &mut Store, event: Event) -> Option<Effect> {
         }
         Event::DaemonMatch { .. } => {}
         Event::MenuBarDetected { profile, crop } => return menu_bar(store, profile, crop),
+        Event::SaveSetting { profile, key, value } => return save_setting(store, profile, key, value),
         Event::WindowPicked { window } => store.picked = Some(window),
         Event::Effects { effects } => store.effects = effects,
         Event::EffectCompile {
@@ -979,6 +980,34 @@ fn menu_bar(store: &mut Store, profile: Option<String>, crop: lirtup_config::Cro
                 set_in(&mut p.options, key, Some(Value::from(value)));
             }
             set_in(&mut p.options, "auto_crop_menu_bar", Some(Value::Bool(false)));
+        }
+    })
+}
+
+/// `SaveSetting` from the bar over the game: write the key in the session's
+/// profile (or *Predeterminado* for a global key or no profile). Unsaved
+/// edits of the same key are dropped: the live value wins.
+fn save_setting(store: &mut Store, profile: Option<String>, key: String, value: Value) -> Option<Effect> {
+    let found = profile
+        .as_deref()
+        .and_then(|name| lirtup_config::resolve::find_profile(&store.config.file, name))
+        .map(|(name, _)| ProfileRef::Named(name.to_owned()))
+        .unwrap_or(ProfileRef::Default);
+    let Scope::Profile(target) = effective_scope(&Scope::Profile(found), &key) else {
+        return None;
+    };
+    store.config.edits.shift_remove(&(target.clone(), key.clone()));
+    let done = match &target {
+        ProfileRef::Default => toast("profile-toast-setting-default", Vec::new()),
+        ProfileRef::Named(name) => toast("profile-toast-setting", vec![("name", name.clone())]),
+    };
+    write_structure(store, done, move |file, _| {
+        let layer = match &target {
+            ProfileRef::Default => Some(&mut file.general),
+            ProfileRef::Named(name) => file.profiles.get_mut(name).map(|p| &mut p.options),
+        };
+        if let Some(layer) = layer {
+            set_in(layer, &key, Some(value));
         }
     })
 }
@@ -1440,6 +1469,8 @@ pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
             None
         }
         Action::Written(result) => written(store, result),
+        // Round 4, front M.
+        Action::Migrate | Action::SkipMigration | Action::Migrated(_) => todo!(),
     };
 
     // A profile page whose profile is gone (deleted, a failed create, a
@@ -2441,6 +2472,43 @@ profiles:
             Action::Core(Event::MenuBarDetected { profile: None, crop }),
         );
         assert_eq!(effect, None);
+    }
+
+    #[test]
+    fn save_setting_from_the_bar() {
+        // A global key goes to Predeterminado, even from a profile.
+        let mut store = store_with(FILE_1X);
+        let effect = update(
+            &mut store,
+            Action::Core(Event::SaveSetting {
+                profile: Some("BALDR SKY".into()),
+                key: "frame_gen_multiplier".into(),
+                value: Value::from(3),
+            }),
+        );
+        let file = written_config(effect);
+        assert_eq!(file.general["frame_gen_multiplier"], Value::from(3));
+        assert!(
+            !file.profiles["BALDR SKY"]
+                .options
+                .contains_key("frame_gen_multiplier")
+        );
+        update(&mut store, Action::Written(Ok(Written::Config)));
+
+        // A profile key goes to the session's profile.
+        let effect = update(
+            &mut store,
+            Action::Core(Event::SaveSetting {
+                profile: Some("BALDR SKY".into()),
+                key: "output_geometry".into(),
+                value: Value::from("stretch"),
+            }),
+        );
+        let file = written_config(effect);
+        assert_eq!(
+            file.profiles["BALDR SKY"].options["output_geometry"],
+            Value::from("stretch")
+        );
     }
 
     #[test]

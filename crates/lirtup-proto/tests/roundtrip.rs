@@ -130,6 +130,7 @@ fn commands() -> Vec<Command> {
         Command::CancelBench,
         Command::Diagnostics,
         Command::WatchGpuTimes { on: true },
+        Command::PauseHotkeys { on: true },
         Command::Quit,
     ]
 }
@@ -294,6 +295,16 @@ fn events() -> Vec<Event> {
         Event::DaemonMatch {
             window: window(),
             profile: "Ys VIII".into(),
+        },
+        Event::SaveSetting {
+            profile: Some("Ys VIII".into()),
+            key: "frame_gen_multiplier".into(),
+            value: lirtup_config::Value::Number(3.into()),
+        },
+        Event::SaveSetting {
+            profile: None,
+            key: "frame_gen_multiplier".into(),
+            value: lirtup_config::Value::String("auto".into()),
         },
         Event::MenuBarDetected {
             profile: Some("Ys VIII".into()),
@@ -505,10 +516,11 @@ fn every_command_and_event_variant_is_covered() {
             Command::CancelBench => "CancelBench",
             Command::Diagnostics => "Diagnostics",
             Command::WatchGpuTimes { .. } => "WatchGpuTimes",
+            Command::PauseHotkeys { .. } => "PauseHotkeys",
             Command::Quit => "Quit",
         });
     }
-    assert_eq!(seen_commands.len(), 17);
+    assert_eq!(seen_commands.len(), 18);
 
     let mut seen_events = std::collections::BTreeSet::new();
     for e in events() {
@@ -523,6 +535,7 @@ fn every_command_and_event_variant_is_covered() {
             Event::DaemonState { .. } => "DaemonState",
             Event::DaemonMatch { .. } => "DaemonMatch",
             Event::MenuBarDetected { .. } => "MenuBarDetected",
+            Event::SaveSetting { .. } => "SaveSetting",
             Event::WindowPicked { .. } => "WindowPicked",
             Event::Effects { .. } => "Effects",
             Event::EffectCompile { .. } => "EffectCompile",
@@ -533,7 +546,7 @@ fn every_command_and_event_variant_is_covered() {
             Event::Log { .. } => "Log",
         });
     }
-    assert_eq!(seen_events.len(), 18);
+    assert_eq!(seen_events.len(), 19);
 }
 
 #[test]
