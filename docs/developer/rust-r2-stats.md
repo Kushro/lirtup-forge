@@ -8,16 +8,9 @@ Notas anteriores: [rust-r2-skeleton.md](rust-r2-skeleton.md) (el reparto y las f
 
 ## `cargo check`
 
-| Crate | `cargo check -p <crate> --all-targets` |
-| --- | --- |
-| `lirtup-magpiefx` | **pasa, sin avisos** |
-| `lirtup-effects` | la biblioteca pasa; `tests/parity.rs` falla solo porque falta `image` en `[dev-dependencies]` (2 errores) |
-| `lirtup-pipeline` | falla solo porque falta `serde_json` en `bench.rs` (4 errores, todos `serde_json`) |
-
-Las dos dependencias ya están en `[workspace.dependencies]`; las pido abajo. Para comprobar el
-resto, las agregué un momento a los `Cargo.toml` de los crates, sin commitearlas: con ellas, los
-tres crates pasan `cargo check --all-targets`, y `cargo clippy` no da avisos en mis archivos.
-Después restauré los `Cargo.toml` y el `Cargo.lock`.
+`cargo check -p <crate> --all-targets` (con las dos dependencias de abajo): **pasa** en
+`lirtup-pipeline`, `lirtup-effects` y `lirtup-magpiefx`. `cargo clippy` no da avisos en mis
+archivos.
 
 No corrí `cargo build`, `cargo test` ni la 1.x. Los tests están escritos y sin correr. El script
 de Python solo pasó `py_compile`.
@@ -28,6 +21,8 @@ de Python solo pasó `py_compile`.
 2. `lirtup-pipeline`: detección de la barra de menú de Wine.
 3. `lirtup-pipeline`: medición «Medir en mi GPU» y `bench.json`.
 4. La paridad de E: los casos, los tests `#[ignore]` y `scripts/rust-parity-refs.py`.
+5. La nota.
+6. Las dos dependencias, en un commit aparte (ver «Dependencias»).
 
 ## Qué hice
 
@@ -188,8 +183,6 @@ integración.
 
 ## Pendiente
 
-- **Dependencias** (abajo). Sin ellas, `lirtup-pipeline` y el test de paridad de `lirtup-effects`
-  no compilan.
 - **El contenido del panel no es igual al de 1.x** hasta que se resuelva lo de «Cambios de firma
   que pido».
 - **Orden de bytes del OSD y del panel.** En 1.x, la textura de pantalla tenía bytes BGRA, y el
@@ -209,16 +202,18 @@ integración.
   native pass and model». Si la GUI quiere todos los pases nativos o los modelos SRCNN sin modo,
   se agregan en `build_cases`.
 
-## Dependencias que pido
+## Dependencias
+
+**Agregadas por S con OK del orquestador**, en un commit aparte que solo toca estas dos líneas:
 
 | Crate | Sección | Línea | Para qué |
 | --- | --- | --- | --- |
 | `crates/lirtup-pipeline/Cargo.toml` | `[dependencies]` | `serde_json.workspace = true` | Leer y escribir `bench.json` con la forma de 1.x |
 | `crates/lirtup-effects/Cargo.toml` | `[dev-dependencies]` | `image.workspace = true` | Leer los PNG de referencia en `tests/parity.rs` |
 
-Las dos ya están en el workspace. `Cargo.lock` solo suma esos nombres a las listas de esos dos
-crates. `lirtup-magpiefx` no necesita nada: ya tenía `image`, `regex` y `tempfile`, y el
-manifiesto se lee con `regex`.
+Las dos ya estaban en el workspace. **`Cargo.lock` no está en el commit:** al compilar, el revisor
+va a ver que suma esos dos nombres a las listas de esos crates. `lirtup-magpiefx` no necesita
+nada: ya tenía `image`, `regex` y `tempfile`, y el manifiesto se lee con `regex`.
 
 ## Cambios de firma que pido
 
