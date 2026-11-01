@@ -2,10 +2,15 @@
 Stats HUD: an mpv-style panel with frame rates, GPU times and the active
 processing chain, drawn in a corner of the overlay.
 
-The pipeline feeds it events (captures, presents, GPU timings) and asks it
-once per frame whether it needs a redraw. The panel text is rebuilt at most
-every ``UPDATE_INTERVAL`` seconds, rendered with PIL on the pipeline thread
-and blended onto the 8-bit screen texture before the OSD.
+The pipeline feeds it events (captures, presents, GPU timings, latencies)
+and asks it once per frame whether it needs a redraw. The panel text is
+rebuilt at most every ``UPDATE_INTERVAL`` seconds, rendered with PIL on the
+pipeline thread and blended onto the 8-bit screen texture before the OSD.
+
+Latency is the time from the capture of a game frame to the moment the
+upscaler hands a frame made from it (the real one, or one generated before
+it) to the presentation engine. It does not include the display itself, nor
+anything a Vulkan layer (lsfg-vk) adds after the upscaler presents.
 """
 
 import logging
@@ -13,7 +18,7 @@ import struct
 import threading
 import time
 from collections import deque
-from typing import Callable, Deque, Dict, List, Optional, Tuple, Union
+from typing import IO, Callable, Deque, Dict, List, Optional, Tuple, Union
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -88,6 +93,46 @@ def gpu_budget_warning(
     return f"{total:.1f} ms > {budget:.1f} ms/frame, heaviest: {heaviest}"
 
 
+_LATENCY_KINDS = ("real", "generated")
+
+
+class LatencyLog:
+    """
+    CSV of every presented frame's latency (``--latency-log``), one row per
+    present: ``capture_s,present_s,latency_ms,kind,multiplier``. Times are
+    seconds of ``time.perf_counter``; frames generated from the same capture
+    share its ``capture_s``. Thread-safe; rows are flushed about once a second.
+    """
+
+    HEADER = "capture_s,present_s,latency_ms,kind,multiplier\n"
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+        self._file: Optional[IO[str]] = open(path, "w", encoding="utf-8")
+        self._file.write(self.HEADER)
+        self._last_flush = time.perf_counter()
+
+    def write(self, capture: float, present: float, kind: str, multiplier: int) -> None:
+        with self._lock:
+            f = self._file
+            if f is None:
+                return
+            f.write(
+                f"{capture:.6f},{present:.6f},{(present - capture) * 1000:.3f},"
+                f"{kind},{multiplier}\n"
+            )
+            if present - self._last_flush >= 1.0:
+                f.flush()
+                self._last_flush = present
+
+    def close(self) -> None:
+        with self._lock:
+            if self._file is not None:
+                self._file.close()
+                self._file = None
+
+
 class _Rate:
     """Events per second over the last ``_WINDOW`` seconds."""
 
@@ -107,11 +152,16 @@ class StatsHUD:
     """
     Collects pipeline statistics and draws them as an overlay panel.
 
-    Thread safety: :meth:`toggle` may be called from any thread; every other
-    method runs on the pipeline thread.
+    Thread safety: :meth:`toggle` and :meth:`record_latency` may be called
+    from any thread; every other method runs on the pipeline thread.
     """
 
-    def __init__(self, screen_height: int, visible: bool = False) -> None:
+    def __init__(
+        self,
+        screen_height: int,
+        visible: bool = False,
+        latency_log: Optional[str] = None,
+    ) -> None:
         self._visible = visible
         self._toggled = threading.Event()  # visibility changed, redraw once
 
@@ -120,6 +170,18 @@ class StatsHUD:
         self._presents = _Rate()
         self._render_ms: Deque[Tuple[float, float]] = deque()
         self._gpu_ms: Dict[str, float] = {}
+        # (present time, latency ms) per kind, over the last _WINDOW seconds
+        self._latency_lock = threading.Lock()
+        self._latency: Dict[str, Deque[Tuple[float, float]]] = {
+            kind: deque() for kind in _LATENCY_KINDS
+        }
+        self._latency_log: Optional[LatencyLog] = None
+        if latency_log:
+            try:
+                self._latency_log = LatencyLog(latency_log)
+                logger.info("Logging frame latency to %s", latency_log)
+            except OSError as e:
+                logger.error("Cannot write the latency log %s: %s", latency_log, e)
 
         self._font_size = 0
         self._font: Optional[ImageFont.ImageFont] = None
@@ -160,6 +222,43 @@ class StatsHUD:
         self._presents.add(now)
         if render_ms is not None:
             self._render_ms.append((now, render_ms))
+
+    def record_latency(
+        self,
+        capture_time: float,
+        kind: str = "real",
+        multiplier: int = 1,
+        present_time: Optional[float] = None,
+    ) -> None:
+        """
+        A frame made from the capture at *capture_time* (``perf_counter``) was
+        just presented (or at *present_time*). *kind* is "real" or
+        "generated"; *multiplier* the frame generation multiplier in use.
+        Thread-safe (the frame generation presenter calls it).
+        """
+        now = time.perf_counter() if present_time is None else present_time
+        ms = (now - capture_time) * 1000
+        with self._latency_lock:
+            samples = self._latency[kind]
+            samples.append((now, ms))
+            while samples and now - samples[0][0] > _WINDOW:
+                samples.popleft()
+        log = self._latency_log
+        if log is not None:
+            log.write(capture_time, now, kind, multiplier)
+
+    def latency(self) -> Dict[str, Tuple[float, float]]:
+        """{kind: (average ms, max ms)} over the last second, kinds seen only."""
+        now = time.perf_counter()
+        result: Dict[str, Tuple[float, float]] = {}
+        with self._latency_lock:
+            for kind, samples in self._latency.items():
+                while samples and now - samples[0][0] > _WINDOW:
+                    samples.popleft()
+                if samples:
+                    values = [ms for _, ms in samples]
+                    result[kind] = (sum(values) / len(values), max(values))
+        return result
 
     def set_gpu_ms(self, label: str, ms: float) -> None:
         """GPU time of a pass or effect this frame (smoothed)."""
@@ -254,6 +353,9 @@ class StatsHUD:
         self._compute = None
         self._bound = (None, None)
         self._texture = None
+        if self._latency_log is not None:
+            self._latency_log.close()
+            self._latency_log = None
 
     # ------------------------------------------------------------------
     # Rendering

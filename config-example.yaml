@@ -529,6 +529,14 @@ osd_duration: 1.5
 # Default: false
 show_stats: false
 
+# Write the latency of every presented frame to this CSV file: from the capture
+# of a game frame to the moment the upscaler presents a frame made from it
+# (real or generated). With the lsfg-vk layer, what the layer generates after
+# the upscaler presents is not included. The stats panel shows the average.
+# Columns: capture_s, present_s, latency_ms, kind (real/generated), multiplier.
+# Default: null
+latency_log: null
+
 # ------------------------------------------------------------------------------
 # Vulkan Performance Options (Advanced)
 # ------------------------------------------------------------------------------

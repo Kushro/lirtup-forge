@@ -1104,6 +1104,17 @@ Default: %(default)s.""",
 rates, GPU times and the active processing chain. Toggle it
 with the toggle_stats hotkey (default: Alt+Shift+I).""",
     )
+    osd_group.add_argument(
+        "--latency-log",
+        metavar="PATH",
+        default=DEFAULT_CONFIG.latency_log,
+        help="""Write the latency of every presented frame to a CSV file:
+from the capture of a game frame to the moment the upscaler
+presents a frame made from it (real or generated). With the
+lsfg-vk layer, the frames it generates afterwards are not
+included. Columns: capture_s, present_s, latency_ms, kind,
+multiplier.""",
+    )
 
     # ----------------------------------------------------------------------
     # Vulkan Performance Options
