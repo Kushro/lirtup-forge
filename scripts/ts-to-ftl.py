@@ -3,6 +3,7 @@
 
 The 1.x GUI wrote its strings in English in the code (`self.tr(...)`) and
 translated them to Spanish in `src/upscaler/gui/locale/upscale_gui_es.ts`
+(now in the `py_historical_backup` branch)
 (526 messages). The 2.0 GUI has its own keys, one `.ftl` per screen, so
 the strings cannot be copied key by key: they are matched by text.
 

@@ -1,5 +1,5 @@
 //! MagpieFX: Magpie's effect format (`//!` directives over HLSL), loaded at
-//! run time (`src/upscaler/magpiefx/`).
+//! run time (the 1.x `upscaler.magpiefx` module).
 //!
 //! Text in, SPIR-V and GPU passes out:
 //!
@@ -11,7 +11,7 @@
 //! 4. [`runtime::MagpieEffect`] binds it all on the GPU and implements
 //!    `lirtup_effects::Pass`.
 //!
-//! [`catalog`] lists the built-in effects (`src/upscaler/magpiefx/effects`,
+//! [`catalog`] lists the built-in effects (this crate's `effects/`,
 //! 117 today) and the user's (`~/.config/linux-rt-upscaler/effects`), with the
 //! `verified` flag from `magpiefx-report.md`. [`spec`] parses the
 //! `magpie_effects:` items.

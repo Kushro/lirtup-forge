@@ -8,7 +8,7 @@ use crate::{EffectDesc, MagpieError, Result};
 /// Where an effect comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EffectOrigin {
-    /// Shipped (`src/upscaler/magpiefx/effects`, later `/usr/share/lirtup`).
+    /// Shipped (`/usr/share/lirtup/effects`; this crate's `effects/` in development).
     Builtin,
     /// `~/.config/linux-rt-upscaler/effects`.
     User,
@@ -67,15 +67,16 @@ pub const EFFECTS_DIR_ENV: &str = "LIRTUP_EFFECTS_DIR";
 /// Where an installed build keeps them (round 4).
 const SYSTEM_EFFECTS_DIR: &str = "/usr/share/lirtup/effects";
 
-/// Folder of the built-in effects: `$LIRTUP_EFFECTS_DIR`, else the
-/// repository's `src/upscaler/magpiefx/effects` when it exists (development
-/// builds; decision 5 of the contract), else `/usr/share/lirtup/effects`.
+/// Folder of the built-in effects: `$LIRTUP_EFFECTS_DIR`, else, in debug
+/// builds, this crate's `effects/` when it exists (development), else
+/// `/usr/share/lirtup/effects`. A release binary never looks at the folder
+/// it was built in (`makepkg` leaves it on disk).
 pub fn builtin_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os(EFFECTS_DIR_ENV) {
         return PathBuf::from(dir);
     }
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/upscaler/magpiefx/effects");
-    if repo.is_dir() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("effects");
+    if cfg!(debug_assertions) && repo.is_dir() {
         return repo.canonicalize().unwrap_or(repo);
     }
     PathBuf::from(SYSTEM_EFFECTS_DIR)

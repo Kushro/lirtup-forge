@@ -1,16 +1,15 @@
 //! Embedded shaders and model descriptions.
 //!
-//! Paths are relative to the repository root (`src/upscaler/...`): the data
-//! is not copied into `crates/` while the Python app still ships (one copy,
-//! no drift; decision 5 of the round 0 contract). The blue noise table is the
-//! only blob of this crate (`data/blue_noise.bin`, made once from 1.x
-//! `blue_noise.py`).
+//! The shaders (`shaders/`, HLSL or GLSL sources next to their `.spv`) and
+//! the CuNNy models (`models/cunny/`) live in this crate since 2.0, when the
+//! Python app was retired. The blue noise table is `data/blue_noise.bin`,
+//! made once with `shaders/converters/blue_noise.py`.
 
 macro_rules! shader {
     ($path:literal) => {
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../src/upscaler/shaders/",
+            "/shaders/",
             $path
         ))
     };
@@ -20,7 +19,7 @@ macro_rules! cunny {
     ($model:literal, $file:literal) => {
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../src/upscaler/srcnn/cunny/",
+            "/models/cunny/",
             $model,
             "/",
             $file
@@ -28,7 +27,7 @@ macro_rules! cunny {
     };
 }
 
-/// Every native `.spv`, by its path relative to `src/upscaler/shaders/`.
+/// Every native `.spv`, by its path relative to `shaders/`.
 static NATIVE: &[(&str, &[u8])] = &[
     (
         "converters/delinearize/delinearize.spv",
@@ -122,7 +121,7 @@ static VERYFAST_TILE: &[&[u8]] = &[
 ];
 static VERYFAST_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/veryfast/model.json"
+    "/models/cunny/veryfast/model.json"
 ));
 
 static FASTER_PASSES: &[&[u8]] = &[
@@ -139,7 +138,7 @@ static FASTER_TILE: &[&[u8]] = &[
 ];
 static FASTER_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/faster/model.json"
+    "/models/cunny/faster/model.json"
 ));
 
 static FAST_PASSES: &[&[u8]] = &[
@@ -156,7 +155,7 @@ static FAST_TILE: &[&[u8]] = &[
 ];
 static FAST_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/fast/model.json"
+    "/models/cunny/fast/model.json"
 ));
 
 static M3X12_PASSES: &[&[u8]] = &[
@@ -175,7 +174,7 @@ static M3X12_TILE: &[&[u8]] = &[
 ];
 static M3X12_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/3x12/model.json"
+    "/models/cunny/3x12/model.json"
 ));
 
 static M4X12_PASSES: &[&[u8]] = &[
@@ -196,7 +195,7 @@ static M4X12_TILE: &[&[u8]] = &[
 ];
 static M4X12_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/4x12/model.json"
+    "/models/cunny/4x12/model.json"
 ));
 
 static M4X16_PASSES: &[&[u8]] = &[
@@ -217,7 +216,7 @@ static M4X16_TILE: &[&[u8]] = &[
 ];
 static M4X16_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/4x16/model.json"
+    "/models/cunny/4x16/model.json"
 ));
 
 static M4X24_PASSES: &[&[u8]] = &[
@@ -238,7 +237,7 @@ static M4X24_TILE: &[&[u8]] = &[
 ];
 static M4X24_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/4x24/model.json"
+    "/models/cunny/4x24/model.json"
 ));
 
 static M4X32_PASSES: &[&[u8]] = &[
@@ -259,7 +258,7 @@ static M4X32_TILE: &[&[u8]] = &[
 ];
 static M4X32_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/4x32/model.json"
+    "/models/cunny/4x32/model.json"
 ));
 
 static M8X32_PASSES: &[&[u8]] = &[
@@ -288,7 +287,7 @@ static M8X32_TILE: &[&[u8]] = &[
 ];
 static M8X32_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/upscaler/srcnn/cunny/8x32/model.json"
+    "/models/cunny/8x32/model.json"
 ));
 
 /// `model.json` and the pass SPIR-V of a CuNNy model.

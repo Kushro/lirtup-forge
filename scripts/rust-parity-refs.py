@@ -2,7 +2,8 @@
 """
 Reference PNGs for the Rust parity tests of round 2 (front S).
 
-Runs the 1.x (``src/upscaler``) headless on a synthetic RGB test image and
+Runs the 1.x (the ``upscaler`` package: 1.3.0 installed with pipx, or the
+``py_historical_backup`` branch) headless on a synthetic RGB test image and
 writes one PNG per case, next to the case lists the Rust tests read:
 
 * ``crates/lirtup-effects/tests/fixtures/parity/cases.json``: native
@@ -21,9 +22,10 @@ tests compute too. The Rust side runs the same cases with
 The test image is computed, not read: :func:`make_input` and
 ``input_image`` in the Rust tests are the same integer formula.
 
-Usage (from the repository root, with the 1.x environment):
+Usage (from the repository root, with the Python of the 1.x environment):
 
-    PYTHONPATH=src python scripts/rust-parity-refs.py [--only effects|magpiefx] [--case NAME ...]
+    ~/.local/share/pipx/venvs/linux-rt-upscaler/bin/python scripts/rust-parity-refs.py \
+        [--only effects|magpiefx] [--case NAME ...]
 """
 
 from __future__ import annotations

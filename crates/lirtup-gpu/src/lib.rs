@@ -1,5 +1,5 @@
 //! Vulkan for LirtUp Forge, on `ash`: a thin safe layer with the shape of the
-//! 1.x `upscaler.vulkan` module (`src/upscaler/vulkan/lib/*.cpp`).
+//! 1.x `upscaler.vulkan` module (`src/upscaler/vulkan/lib/*.cpp`, in the `py_historical_backup` branch).
 //!
 //! - [`Instance`] loads `libvulkan` at run time (`ash::Entry::load`), lists the
 //!   adapters and creates a [`Device`]. When the lsfg-vk layer is used, its

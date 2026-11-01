@@ -1,13 +1,13 @@
 //! Builds the vendored lsfg-vk core and `lsfg_c.cpp` with `cc`.
 //!
-//! Same sources and flags as `setup.py` (`lsfg_extension`): C++20, `-O2`,
-//! `-mtune=generic`, `-fvisibility=hidden`, `VK_NO_PROTOTYPES`, `-w`, linked
-//! with `dl` and `pthread`. The vendored tree stays in `src/upscaler/lsfg/`
+//! Same sources and flags as the 1.x `setup.py` (`lsfg_extension`): C++20,
+//! `-O2`, `-mtune=generic`, `-fvisibility=hidden`, `VK_NO_PROTOTYPES`, `-w`,
+//! linked with `dl` and `pthread`. The vendored tree is `vendor/`
 //! (`third_party/` and `lib/shader_loader.cpp`, `unicode_posix.cpp`,
-//! `volk_unit.cpp`) until the Python app is retired in round 4;
-//! `lsfg_module.cpp` (the CPython bridge) is replaced by `src/lsfg_c.cpp`.
+//! `volk_unit.cpp`); the CPython bridge of 1.x (`lsfg_module.cpp`) is
+//! replaced by `src/lsfg_c.cpp`.
 //!
-//! `-Wl,-Bsymbolic` of `setup.py` is for a shared library; here the code is a
+//! `-Wl,-Bsymbolic` of the 1.x `setup.py` is for a shared library; here the code is a
 //! static archive inside an executable that exports nothing, and volk's
 //! `vk*` pointers have hidden visibility, so they never meet `ash`'s
 //! `libvulkan`.
@@ -33,7 +33,7 @@ fn sources(dir: &Path, skip: &[&str]) -> Vec<PathBuf> {
 
 fn main() {
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let lsfg = manifest.join("../../src/upscaler/lsfg");
+    let lsfg = manifest.join("vendor");
     let lsfg_vk = lsfg.join("third_party/lsfg-vk");
 
     println!("cargo::rerun-if-changed=build.rs");
@@ -49,7 +49,7 @@ fn main() {
 
     let mut files = vec![manifest.join("src/lsfg_c.cpp")];
     // The CPython bridge of 1.x needs Python.h; lsfg_c.cpp replaces it.
-    files.extend(sources(&lsfg.join("lib"), &["lsfg_module.cpp"]));
+    files.extend(sources(&lsfg.join("lib"), &[]));
     files.extend(sources(&lsfg.join("third_party/pe-parse/src"), &[]));
     for folder in [
         "src/common",

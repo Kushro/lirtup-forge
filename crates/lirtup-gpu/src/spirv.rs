@@ -244,7 +244,7 @@ pub(crate) mod tests {
     fn reads_real_dxc_output() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../src/upscaler/shaders/misc/clear/clear.spv"
+            "/../lirtup-effects/shaders/misc/clear/clear.spv"
         );
         let Ok(bytes) = std::fs::read(path) else { return };
         let w = words(&bytes).unwrap();

@@ -18,7 +18,7 @@ use lirtup_gpu::{
 
 /// The 1.x clear shader: `RWTexture2D<float4>` (rgba16f) at u0 and a
 /// constant buffer `{ float4 clearColor; uint2 size; }` at b0.
-const CLEAR_SPV: &[u8] = include_bytes!("../../../src/upscaler/shaders/misc/clear/clear.spv");
+const CLEAR_SPV: &[u8] = include_bytes!("../../lirtup-effects/shaders/misc/clear/clear.spv");
 
 const WIDTH: u32 = 300;
 const HEIGHT: u32 = 200;

@@ -14,7 +14,7 @@
 pub fn swap_rb_source() -> &'static str {
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../src/upscaler/magpiefx/internal/SwapRB.hlsl"
+        "/internal/SwapRB.hlsl"
     ))
 }
 

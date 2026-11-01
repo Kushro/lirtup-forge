@@ -5,7 +5,7 @@
 # ===================================================================
 
 set root_dir (dirname (dirname (status --current-filename)))
-set project_dir "$root_dir/src/upscaler"
+set project_dir "$root_dir/crates/lirtup-effects/shaders"
 
 if not test (which dxc)
     echo "'dxc' must be installed or in PATH."

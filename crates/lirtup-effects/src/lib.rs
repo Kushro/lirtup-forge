@@ -8,10 +8,8 @@
 //! chain from the config in `lirtup-pipeline::presenter`; this crate only
 //! knows single passes.
 //!
-//! Shaders are the precompiled `.spv` of the 1.x tree, embedded with
-//! `include_bytes!` from their current place (`src/upscaler/shaders/**`,
-//! `src/upscaler/srcnn/cunny/**`) until the Python app is retired in round 4
-//! ([`assets`]).
+//! Shaders are precompiled `.spv`, embedded with `include_bytes!` from this
+//! crate's `shaders/` and `models/cunny/` ([`assets`]).
 
 pub mod assets;
 pub mod convert;

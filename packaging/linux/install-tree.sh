@@ -35,16 +35,8 @@ target=${CARGO_TARGET_DIR:-$root/target}
 cli=${LIRTUP_CLI_BIN:-$target/release/lirtup}
 gui_app=${LIRTUP_GUI_APP:-$target/dx/lirtup-gui/release/linux/app}
 
-# The effects move from src/upscaler/ to the lirtup-magpiefx crate when the
-# Python app is retired (round 4 integration): take whichever exists.
-if [ -z "${LIRTUP_EFFECTS:-}" ]; then
-    for dir in "$root/crates/lirtup-magpiefx/effects" "$root/src/upscaler/magpiefx/effects"; do
-        if [ -d "$dir" ]; then
-            LIRTUP_EFFECTS=$dir
-            break
-        fi
-    done
-fi
+# The built-in MagpieFX effects (LIRTUP_EFFECTS overrides the folder).
+LIRTUP_EFFECTS=${LIRTUP_EFFECTS:-$root/crates/lirtup-magpiefx/effects}
 effects=${LIRTUP_EFFECTS:-}
 
 fail() {
