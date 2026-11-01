@@ -3,12 +3,13 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QWidget
 
 from ..sidebar import SettingsTab
-from ...styles import info_text_style
+from ...dialogs import open_framegen_bench
+from ...styles import info_text_style, path_browse_button_style
 from ...utils import normalize_to_hex
-from .... import framegen
+from .... import bench, framegen
 from ....config import OverlayMode
 
 if TYPE_CHECKING:
@@ -325,6 +326,23 @@ class PresentationTab(SettingsTab):
                 "Description of a setting (tooltip)",
             ),
         )
+        # Cost of the chosen setting on this GPU, from "Measure on my GPU"
+        self._fg_cost = QLabel()
+        self._fg_cost.setWordWrap(True)
+        self._fg_cost.setStyleSheet(info_text_style(self._gui_config))
+        self._fg_cost.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.content_layout.addWidget(self._fg_cost)
+        fg_bench = QPushButton(self.tr("Measure on my GPU", "Benchmark button"))
+        fg_bench.setStyleSheet(path_browse_button_style(self._gui_config))
+        fg_bench.setToolTip(
+            self.tr(
+                "Measure what frame generation costs on this GPU (×2 to ×4, "
+                "flow scale 1.0 and 0.5, both models).",
+                "Description of a setting (tooltip)",
+            )
+        )
+        fg_bench.clicked.connect(self._on_fg_bench)
+        self.content_layout.addWidget(fg_bench)
         self._fg_info = QLabel()
         self._fg_info.setWordWrap(True)
         self._fg_info.setTextFormat(Qt.RichText)
@@ -452,7 +470,43 @@ class PresentationTab(SettingsTab):
         self._fg_flow_note.setEnabled(on)
         self._fg_flow_note.setText(self._fg_flow_text(self._config.frame_gen_flow_scale))
         self._fg_performance.setEnabled(on)
+        self._fg_cost.setText(self._fg_cost_text())
         self._fg_info.setText(self._fg_info_html(on))
+
+    def _on_fg_bench(self) -> None:
+        if open_framegen_bench(self._gui_config, self._config, self):
+            self._update_fg_ui()
+
+    def _fg_cost_text(self) -> str:
+        """Measured GPU cost of the chosen setting, or a hint to measure it."""
+        c = self._config
+        entry = bench.results_for_gpu(c.gpu)
+        if c.frame_gen_multiplier == "auto":
+            multipliers = [2, 3, 4]
+        elif framegen.multiplier_on(c.frame_gen_multiplier):
+            multipliers = [int(c.frame_gen_multiplier)]
+        else:
+            return ""
+        times = [
+            bench.stored_framegen_ms(
+                entry, m, c.frame_gen_flow_scale, bool(c.frame_gen_performance)
+            )
+            for m in multipliers
+        ]
+        if any(t is None for t in times):
+            return self.tr(
+                "Not measured on this GPU with this flow scale and model yet.",
+                "Frame generation cost",
+            )
+        if len(times) == 1:
+            return self.tr(
+                "Measured: {0:.1f} ms per real frame on this GPU.",
+                "Frame generation cost",
+            ).format(times[0])
+        return self.tr(
+            "Measured: {0:.1f} to {1:.1f} ms per real frame on this GPU (×2 to ×4).",
+            "Frame generation cost",
+        ).format(min(times), max(times))
 
     def _fg_status_text(self, on: bool) -> str:
         """One line on what runs now and what the selection needs."""

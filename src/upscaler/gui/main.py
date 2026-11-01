@@ -27,6 +27,7 @@ from .config import (
 )
 from .dialogs import AboutDialog, confirm_pending_changes
 from .grid import FilterBar, WindowGridScene, WindowGridView
+from .. import framegen
 from ..identity import APP_NAME
 from .helpers import DaemonController, ProfileActions, TrayController, WindowGridManager
 from .icons import load_icon
@@ -747,7 +748,7 @@ class MainWindow(QMainWindow):
         if self.manual_session is not None:
             self.restart_manual_session()
 
-    def restart_with_frame_gen(self, multiplier: int) -> None:
+    def restart_with_frame_gen(self, multiplier: framegen.Multiplier) -> None:
         """
         Save *multiplier* as the frame generation setting and relaunch the
         app, which is the only way to apply it (lsfg-vk is set up once per
@@ -769,7 +770,7 @@ class MainWindow(QMainWindow):
             if session is not None
             else not self._is_visible(),
         )
-        logger.info("Restarting with frame generation x%d", multiplier)
+        logger.info("Restarting with frame generation %s", multiplier)
         self._force_quit()
 
     def remember_menu_bar_crop(self, profile: str, crop: Dict[str, int]) -> None:

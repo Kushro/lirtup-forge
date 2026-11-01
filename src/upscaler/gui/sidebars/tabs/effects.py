@@ -520,7 +520,7 @@ class EffectsTab(SettingsTab):
                     "Magpie engine con",
                 ),
                 self.tr(
-                    "Effects with .dds lookup textures are not supported yet",
+                    "A few effects need dxc (glslang cannot compile them)",
                     "Magpie engine con",
                 ),
             ]
