@@ -102,7 +102,7 @@ pub struct Instance {
 /// Collects warnings and errors (`vk_debug_callback` in `vk_instance.cpp`).
 unsafe extern "system" fn debug_callback(
     severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    _types: vk::DebugUtilsMessageTypeFlagsEXT,
+    types: vk::DebugUtilsMessageTypeFlagsEXT,
     data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
     user_data: *mut c_void,
 ) -> vk::Bool32 {
@@ -121,6 +121,16 @@ unsafe extern "system" fn debug_callback(
         };
         (message, &*(user_data as *const DebugSink))
     };
+    // `GENERAL` messages come from the loader and from layers about
+    // themselves (an implicit layer that fails to load, such as a broken
+    // lsfg-vk install): logged, but they are not validation findings.
+    let validation = types.intersects(
+        vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+    );
+    if !validation {
+        tracing::warn!(target: "vulkan", "{message}");
+        return vk::FALSE;
+    }
     if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
         tracing::error!(target: "vulkan", "{message}");
     } else {
