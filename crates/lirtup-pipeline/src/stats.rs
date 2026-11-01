@@ -11,16 +11,35 @@
 //! - [`StatsPanel`] draws the panel (`show_stats`, `ToggleStats`) from the
 //!   same sample, so the GUI and the panel show the same numbers.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, Sender, TrySendError};
 use lirtup_effects::Pass;
+use lirtup_effects::osd::{OverlayBlend, TextRenderer, TextStyle};
 use lirtup_gpu::{Device, Texture, Timestamps};
 use lirtup_proto::{GpuWarning, StageTime, StatsSample};
 
 use crate::Result;
+use crate::latency::LatencyLog;
+use crate::osd::{Canvas, load_font};
+
+/// Seconds of history behind each rate (1.x `_WINDOW`).
+const WINDOW: Duration = Duration::from_secs(1);
+/// Presents that fit in the sink between two polls.
+const SINK_CAPACITY: usize = 4096;
+/// Weight of the newest GPU time in the smoothed value (1.x: 0.2).
+const GPU_SMOOTHING: f64 = 0.2;
+/// Below this game frame rate (a still image) the GPU budget is not checked.
+const MIN_BUDGET_FPS: f32 = 5.0;
+/// The budget is never looser than this rate (see `stats.py`: a slower
+/// measured rate cannot tell slow content from content slowed down by the
+/// effects themselves).
+const TARGET_FPS: f32 = 30.0;
+/// Stages named in a GPU warning.
+const HEAVIEST: usize = 3;
 
 /// What was presented.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -65,7 +84,9 @@ pub struct PresentSink {
 impl PresentSink {
     /// Report one present.
     pub fn record(&self, record: PresentRecord) {
-        let _ = self.tx.try_send(record);
+        if let Err(TrySendError::Full(_)) = self.tx.try_send(record) {
+            tracing::debug!("stats: present queue full, record dropped");
+        }
     }
 }
 
@@ -80,76 +101,290 @@ pub struct StatsOptions {
     pub latency_csv: Option<PathBuf>,
 }
 
+/// Events per second over the last [`WINDOW`] (1.x `_Rate`).
+#[derive(Debug, Default)]
+struct Rate {
+    times: VecDeque<Instant>,
+}
+
+impl Rate {
+    fn add(&mut self, now: Instant) {
+        self.times.push_back(now);
+    }
+
+    fn per_second(&mut self, now: Instant) -> f32 {
+        expire(&mut self.times, now, |t| *t);
+        self.times.len() as f32 / WINDOW.as_secs_f32()
+    }
+}
+
+/// Drop the entries older than [`WINDOW`] at the front of `queue`.
+fn expire<T>(queue: &mut VecDeque<T>, now: Instant, at: impl Fn(&T) -> Instant) {
+    while queue
+        .front()
+        .is_some_and(|e| now.saturating_duration_since(at(e)) > WINDOW)
+    {
+        queue.pop_front();
+    }
+}
+
 /// The stats of one session.
 pub struct Stats {
-    _private: (),
+    options: StatsOptions,
+    tx: Sender<PresentRecord>,
+    rx: Receiver<PresentRecord>,
+    log: Option<LatencyLog>,
+    /// Every capture (polled) and the ones with a new frame.
+    captures: Rate,
+    new_frames: Rate,
+    presents: Rate,
+    generated: Rate,
+    /// `(when, cpu ms)` of full renders.
+    render_ms: VecDeque<(Instant, f32)>,
+    /// `(present, latency ms)` of presents with a capture time.
+    latency: VecDeque<(Instant, f32)>,
+    /// Smoothed GPU ms per pass label, in dispatch order.
+    gpu: Vec<(String, f64)>,
+    gpu_total: Option<f64>,
+    dirty_fraction: f32,
+    tiles: Option<u32>,
+    multiplier: Option<u8>,
+    next_sample: Instant,
+    latest: Option<StatsSample>,
 }
 
 impl Stats {
     /// Start collecting (opens the latency CSV if asked).
+    ///
+    /// A CSV that cannot be created is logged and skipped, as in 1.x: the
+    /// session runs anyway.
     pub fn new(options: StatsOptions) -> Result<Stats> {
-        todo!("front S")
+        let now = Instant::now();
+        let log = options.latency_csv.as_deref().and_then(|path| {
+            match LatencyLog::create(path, now) {
+                Ok(log) => {
+                    tracing::info!("logging frame latency to {}", path.display());
+                    Some(log)
+                }
+                Err(e) => {
+                    tracing::error!("cannot write the latency log {}: {e}", path.display());
+                    None
+                }
+            }
+        });
+        let (tx, rx) = crossbeam_channel::bounded(SINK_CAPACITY);
+        Ok(Stats {
+            next_sample: now + options.sample_interval,
+            options,
+            tx,
+            rx,
+            log,
+            captures: Rate::default(),
+            new_frames: Rate::default(),
+            presents: Rate::default(),
+            generated: Rate::default(),
+            render_ms: VecDeque::new(),
+            latency: VecDeque::new(),
+            gpu: Vec::new(),
+            gpu_total: None,
+            dirty_fraction: 0.0,
+            tiles: None,
+            multiplier: None,
+            latest: None,
+        })
     }
 
     /// A sink for presents, for the presenter and the frame generation
     /// thread.
     pub fn sink(&self) -> PresentSink {
-        todo!("front S")
+        PresentSink { tx: self.tx.clone() }
     }
 
     /// One capture: `new_frame` if the window changed (capture fps counts
     /// only new frames, like 1.x).
     pub fn record_capture(&mut self, now: Instant, new_frame: bool) {
-        todo!("front S")
+        self.captures.add(now);
+        if new_frame {
+            self.new_frames.add(now);
+        }
     }
 
     /// CPU time of the frame (upload, record, submit), in ms.
     pub fn record_render(&mut self, cpu_ms: f32) {
-        todo!("front S")
+        self.render_ms.push_back((Instant::now(), cpu_ms));
     }
 
     /// Fraction of the frame that changed, and the tiles processed (`None`
     /// in full-frame mode).
     pub fn record_dirty(&mut self, fraction: f32, tiles: Option<u32>) {
-        todo!("front S")
+        self.dirty_fraction = fraction.clamp(0.0, 1.0);
+        self.tiles = tiles;
     }
 
     /// GPU timestamps of the last frame (per pass label; «ms por etapa»).
+    ///
+    /// Each label is smoothed as 1.x (`0.8 · old + 0.2 · new`); labels that
+    /// are no longer in the frame (the chain changed) are dropped.
     pub fn set_gpu_times(&mut self, times: &Timestamps) {
-        todo!("front S")
+        let mut next: Vec<(String, f64)> = Vec::with_capacity(times.dispatches.len());
+        for (label, ms) in &times.dispatches {
+            if let Some(entry) = next.iter_mut().find(|(l, _)| l == label) {
+                // Several dispatches of one pass (bloom, MagpieFX passes).
+                entry.1 += ms;
+            } else {
+                next.push((label.clone(), *ms));
+            }
+        }
+        for (label, ms) in &mut next {
+            if let Some((_, old)) = self.gpu.iter().find(|(l, _)| l == label) {
+                *ms = smooth(*old, *ms);
+            }
+        }
+        self.gpu = next;
+        self.gpu_total = Some(match self.gpu_total {
+            Some(old) => smooth(old, times.total_ms),
+            None => times.total_ms,
+        });
     }
 
     /// Frame generation multiplier now (`None` = off).
     pub fn set_multiplier(&mut self, active: Option<u8>) {
-        todo!("front S")
+        self.multiplier = active;
     }
 
     /// The display refresh rate changed (monitor switch).
     pub fn set_refresh_hz(&mut self, hz: f32) {
-        todo!("front S")
+        self.options.refresh_hz = hz;
     }
 
     /// Drain the present sink (latency, present and generated fps, the
     /// CSV). Every `sample_interval`, the new sample.
     pub fn poll(&mut self, now: Instant) -> Option<StatsSample> {
-        todo!("front S")
+        while let Ok(record) = self.rx.try_recv() {
+            self.presents.add(record.presented);
+            if record.kind == FrameKind::Generated {
+                self.generated.add(record.presented);
+            }
+            if let Some(capture) = record.capture {
+                let ms = record.presented.saturating_duration_since(capture).as_secs_f32() * 1000.0;
+                self.latency.push_back((record.presented, ms));
+            }
+            if let Some(log) = &mut self.log
+                && let Err(e) = log.write(&record)
+            {
+                tracing::error!("latency log: {e}; stopping it");
+                self.log = None;
+            }
+        }
+        if now < self.next_sample {
+            return None;
+        }
+        self.next_sample = now + self.options.sample_interval;
+        let sample = self.sample(now);
+        self.latest = Some(sample.clone());
+        Some(sample)
     }
 
     /// The last sample (for the panel between samples).
     pub fn latest(&self) -> Option<&StatsSample> {
-        todo!("front S")
+        self.latest.as_ref()
     }
 
     /// Flush and close the CSV.
-    pub fn close(self) -> Result<()> {
-        todo!("front S")
+    pub fn close(mut self) -> Result<()> {
+        // Presents still queued belong in the CSV.
+        let _ = self.poll(Instant::now());
+        if let Some(log) = &mut self.log {
+            log.flush()?;
+        }
+        Ok(())
     }
+
+    fn sample(&mut self, now: Instant) -> StatsSample {
+        // Rates of 1.x: `captures` (polled) is not in the sample; the panel
+        // shows new frames as the game rate.
+        let _polled = self.captures.per_second(now);
+        let capture_fps = self.new_frames.per_second(now);
+        let present_fps = self.presents.per_second(now);
+        let generated_fps = self.generated.per_second(now);
+        expire(&mut self.render_ms, now, |e| e.0);
+        expire(&mut self.latency, now, |e| e.0);
+        let (latency_ms, latency_p95_ms) = latency_summary(self.latency.iter().map(|e| e.1));
+
+        let stages: Vec<StageTime> = self
+            .gpu
+            .iter()
+            .map(|(name, ms)| StageTime {
+                name: name.clone(),
+                ms: *ms as f32,
+            })
+            .collect();
+        let gpu_ms = self.gpu_total.unwrap_or(0.0) as f32;
+        let budgeted: Vec<StageTime> = stages.iter().filter(|s| !is_overlay(&s.name)).cloned().collect();
+        let gpu_warning = gpu_budget_warning(&budgeted, budgeted.iter().map(|s| s.ms).sum(), capture_fps);
+        StatsSample {
+            capture_fps,
+            present_fps,
+            generated_fps,
+            latency_ms,
+            latency_p95_ms,
+            gpu_ms,
+            stages,
+            dirty_fraction: self.dirty_fraction,
+            tiles: self.tiles,
+            multiplier: self.multiplier,
+            gpu_warning,
+        }
+    }
+}
+
+fn smooth(old: f64, new: f64) -> f64 {
+    old * (1.0 - GPU_SMOOTHING) + new * GPU_SMOOTHING
+}
+
+/// The OSD and the panel draw after the effects and do not count against
+/// the budget.
+fn is_overlay(label: &str) -> bool {
+    label == "osd"
+}
+
+/// Mean and 95th percentile (1.x `summarize`: the value at rank
+/// `round(n · 0.95)`); zeros without samples.
+fn latency_summary(values: impl Iterator<Item = f32>) -> (f32, f32) {
+    let mut values: Vec<f32> = values.collect();
+    if values.is_empty() {
+        return (0.0, 0.0);
+    }
+    values.sort_by(f32::total_cmp);
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    let rank = ((values.len() as f32 * 0.95 + 0.5) as usize).max(1) - 1;
+    (mean, values[rank.min(values.len() - 1)])
 }
 
 /// The «la GPU no llega» warning (`gpu_budget_warning` of 1.x): the GPU
 /// time of a frame against the refresh budget, with the heaviest stages.
+///
+/// As in 1.x, `refresh_hz` is the rate the frames must keep up with —
+/// [`Stats`] passes the game frame rate (new captured frames per second) —
+/// and the budget is never looser than 30 fps; under 5 fps (a still image)
+/// nothing is checked. `heaviest` holds up to three stages, heaviest first
+/// (1.x named only the first).
 pub fn gpu_budget_warning(stages: &[StageTime], gpu_ms: f32, refresh_hz: f32) -> Option<GpuWarning> {
-    todo!("front S")
+    if refresh_hz < MIN_BUDGET_FPS || stages.is_empty() {
+        return None;
+    }
+    let budget_ms = 1000.0 / refresh_hz.max(TARGET_FPS);
+    if gpu_ms <= budget_ms {
+        return None;
+    }
+    let mut heaviest: Vec<(String, f32)> = stages.iter().map(|s| (s.name.clone(), s.ms)).collect();
+    heaviest.sort_by(|a, b| b.1.total_cmp(&a.1));
+    heaviest.truncate(HEAVIEST);
+    Some(GpuWarning {
+        budget_ms,
+        gpu_ms,
+        heaviest,
+    })
 }
 
 /// What the panel shows besides the sample (`_stats_rows` of 1.x).
@@ -173,42 +408,411 @@ pub struct PanelContext {
     pub framegen: String,
 }
 
+/// One panel row: label (empty continues the previous row), value, and
+/// whether it is a warning (drawn in the warning color).
+#[derive(Debug, Clone, PartialEq)]
+struct Row {
+    label: String,
+    value: String,
+    warning: bool,
+}
+
+impl Row {
+    fn new(label: &str, value: impl Into<String>) -> Row {
+        Row {
+            label: label.to_owned(),
+            value: value.into(),
+            warning: false,
+        }
+    }
+
+    fn warning(label: &str, value: impl Into<String>) -> Row {
+        Row {
+            warning: true,
+            ..Row::new(label, value)
+        }
+    }
+}
+
+/// The rows of the panel, in the order of 1.x `_stats_rows` (with what the
+/// sample and the context carry).
+fn panel_rows(sample: &StatsSample, context: &PanelContext) -> Vec<Row> {
+    let mut rows = Vec::new();
+    if !context.title.is_empty() {
+        rows.push(Row::new("Window", context.title.clone()));
+    }
+    rows.push(Row::new("Game", format!("{:5.1} fps new", sample.capture_fps)));
+    rows.push(Row::new("Shown", format!("{:5.1} fps", sample.present_fps)));
+    if !context.framegen.is_empty() {
+        let mut value = context.framegen.clone();
+        if let Some(m) = sample.multiplier {
+            value += &format!("  ~{:.0} fps", sample.capture_fps * f32::from(m));
+        }
+        if sample.generated_fps > 0.0 {
+            value += &format!(" ({:.0} generated/s)", sample.generated_fps);
+        }
+        rows.push(Row::new("Frame gen", value));
+    }
+    if sample.latency_ms > 0.0 {
+        rows.push(Row::new(
+            "Latency",
+            format!("{:.1} ms (p95 {:.0})", sample.latency_ms, sample.latency_p95_ms),
+        ));
+    }
+    if context.src != (0, 0) {
+        rows.push(Row::new("Source", format!("{}x{}", context.src.0, context.src.1)));
+    }
+    let mode = match sample.tiles {
+        Some(tiles) => format!("tiles ({tiles}, {:.0} %)", sample.dirty_fraction * 100.0),
+        None => "full frame".to_owned(),
+    };
+    rows.push(Row::new("Upscale", format!("{}  {mode}", context.model)));
+    for (i, label) in context.chain.iter().enumerate() {
+        let ms = sample
+            .stages
+            .iter()
+            .find(|s| &s.name == label)
+            .map(|s| format!("  {:.2} ms", s.ms))
+            .unwrap_or_default();
+        rows.push(Row::new(if i == 0 { "Effects" } else { "" }, format!("{label}{ms}")));
+    }
+    if let Some(w) = &sample.gpu_warning {
+        let heaviest = w.heaviest.first().map_or("", |(name, _)| name.as_str());
+        rows.push(Row::warning(
+            "GPU",
+            format!("{:.1} ms > {:.1} ms/frame, heaviest: {heaviest}", w.gpu_ms, w.budget_ms),
+        ));
+    }
+    rows.push(Row::new("Output", format!("{}x{}", context.dst.0, context.dst.1)));
+    if sample.gpu_ms > 0.0 {
+        rows.push(Row::new("GPU", format!("{:.2} ms/frame", sample.gpu_ms)));
+    }
+    rows.push(Row::new("Mode", context.mode.clone().unwrap_or_else(|| "none".to_owned())));
+    rows.push(Row::new(
+        "Profile",
+        context.profile.clone().unwrap_or_else(|| "none".to_owned()),
+    ));
+    rows
+}
+
+/// Monospace fonts of the panel, in order (1.x `_FONTS`).
+const PANEL_FONTS: &[&str] = &["DejaVuSansMono.ttf", "LiberationMono-Regular.ttf", "NotoSansMono-Regular.ttf"];
+/// Pixels from the top-left corner of the screen.
+const MARGIN: u32 = 12;
+const LABEL_COLOR: [f32; 4] = [150.0 / 255.0, 200.0 / 255.0, 1.0, 1.0];
+const VALUE_COLOR: [f32; 4] = [1.0; 4];
+const WARNING_COLOR: [f32; 4] = [1.0, 110.0 / 255.0, 90.0 / 255.0, 1.0];
+const BG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 170.0 / 255.0];
+
+/// 1.x: 1.6 % of the screen height, at least 12 px.
+fn panel_font_size(screen_height: u32) -> u32 {
+    ((screen_height as f32 * 0.016) as u32).max(12)
+}
+
 /// The stats panel, blended over the screen texture.
 pub struct StatsPanel {
-    _private: (),
+    renderer: TextRenderer,
+    blend: OverlayBlend,
+    screen: (u32, u32),
+    visible: bool,
+    /// Visibility changed since the last update.
+    toggled: bool,
+    /// What the current image was drawn from.
+    drawn: Option<(StatsSample, PanelContext)>,
 }
 
 impl StatsPanel {
     /// Create it over `screen` (the presenter's final texture), hidden or
     /// visible (`show_stats`).
     pub fn new(device: &Arc<Device>, screen: &Texture, visible: bool) -> Result<StatsPanel> {
-        todo!("front S")
+        let renderer = TextRenderer::new(load_font(PANEL_FONTS)?)?;
+        let screen_size = (screen.width(), screen.height());
+        Ok(StatsPanel {
+            renderer,
+            blend: OverlayBlend::new(device, screen, max_panel(screen_size))?,
+            screen: screen_size,
+            visible,
+            toggled: visible,
+            drawn: None,
+        })
     }
 
     /// Shown?
     pub fn visible(&self) -> bool {
-        todo!("front S")
+        self.visible
     }
 
     /// `ToggleStats`.
     pub fn set_visible(&mut self, visible: bool) {
-        todo!("front S")
+        if visible != self.visible {
+            self.visible = visible;
+            self.toggled = true;
+            tracing::debug!("stats panel {}", if visible { "shown" } else { "hidden" });
+        }
     }
 
     /// Redraw from a new sample if visible. `true` when the image changed
     /// (the frame must be presented even if the window did not change).
+    ///
+    /// The image is redrawn only when the sample or the context changed
+    /// (samples come every 500 ms, the 1.x refresh rate), or right after
+    /// the panel was shown; hiding it also asks for a present.
     pub fn update(&mut self, sample: &StatsSample, context: &PanelContext) -> Result<bool> {
-        todo!("front S")
+        let toggled = std::mem::take(&mut self.toggled);
+        if !self.visible {
+            if toggled {
+                self.blend.set_image(None, (0, 0))?;
+                self.drawn = None;
+            }
+            return Ok(toggled);
+        }
+        let same = self
+            .drawn
+            .as_ref()
+            .is_some_and(|(s, c)| s == sample && c == context);
+        if same && !toggled {
+            return Ok(false);
+        }
+        self.draw(sample, context)?;
+        self.drawn = Some((sample.clone(), context.clone()));
+        Ok(true)
     }
 
     /// The screen texture was recreated (resize): blend onto the new one.
     pub fn rebind(&mut self, device: &Arc<Device>, screen: &Texture) -> Result<()> {
-        todo!("front S")
+        self.screen = (screen.width(), screen.height());
+        self.blend = OverlayBlend::new(device, screen, max_panel(self.screen))?;
+        // Redraw on the next update, at the new font size.
+        self.drawn = None;
+        self.toggled = self.visible;
+        Ok(())
     }
 
     /// The blend pass, if visible. The presenter records it after the
     /// effect chain and the OSD.
     pub fn pass(&self) -> Option<&dyn Pass> {
-        todo!("front S")
+        (self.visible && self.drawn.is_some()).then_some(&self.blend as &dyn Pass)
+    }
+
+    /// Draw the rows as 1.x `_render`: two columns (labels, values) on a
+    /// translucent rounded box, one text image per cell.
+    fn draw(&mut self, sample: &StatsSample, context: &PanelContext) -> Result<()> {
+        let rows = panel_rows(sample, context);
+        let size = panel_font_size(self.screen.1);
+        let pad = (size / 2).max(6);
+        let gap = size;
+        let line_h = (size as f32 * 1.35) as u32;
+        let style = |color: [f32; 4]| TextStyle {
+            size_px: size as f32,
+            color,
+            background: None,
+            padding: 0,
+            radius: 0,
+        };
+        let cells: Vec<_> = rows
+            .iter()
+            .map(|row| {
+                let (label_color, value_color) = if row.warning {
+                    (WARNING_COLOR, WARNING_COLOR)
+                } else {
+                    (LABEL_COLOR, VALUE_COLOR)
+                };
+                let label = (!row.label.is_empty()).then(|| self.renderer.render(&row.label, &style(label_color)));
+                let value = self.renderer.render(&row.value, &style(value_color));
+                (label, value)
+            })
+            .collect();
+        let label_w = cells.iter().filter_map(|(l, _)| l.as_ref()).map(|l| l.width).max().unwrap_or(0);
+        let value_w = cells.iter().map(|(_, v)| v.width).max().unwrap_or(0);
+        let width = pad * 2 + label_w + gap + value_w;
+        let height = pad * 2 + line_h * rows.len() as u32;
+
+        let mut canvas = Canvas::new(width, height);
+        let x_value = pad + label_w + gap;
+        for (i, (label, value)) in cells.iter().enumerate() {
+            let y = pad + i as u32 * line_h;
+            if let Some(label) = label {
+                canvas.draw(label, pad, y);
+            }
+            canvas.draw(value, x_value, y);
+        }
+        canvas.rounded_rect(pad as f32, BG_COLOR);
+        let image = canvas.finish();
+        // OverlayBlend crops what does not fit (1.x clipped to the screen).
+        self.blend.set_image(Some(&image), (MARGIN as i32, MARGIN as i32))?;
+        Ok(())
+    }
+}
+
+/// The largest panel image that fits on the screen past the margin.
+fn max_panel(screen: (u32, u32)) -> (u32, u32) {
+    (
+        screen.0.saturating_sub(MARGIN).max(1),
+        screen.1.saturating_sub(MARGIN).max(1),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stages(list: &[(&str, f32)]) -> Vec<StageTime> {
+        list.iter()
+            .map(|(name, ms)| StageTime {
+                name: (*name).to_owned(),
+                ms: *ms,
+            })
+            .collect()
+    }
+
+    fn warning(list: &[(&str, f32)], fps: f32) -> Option<GpuWarning> {
+        let s = stages(list);
+        let total = s.iter().map(|s| s.ms).sum();
+        gpu_budget_warning(&s, total, fps)
+    }
+
+    fn text(w: &GpuWarning) -> String {
+        format!("{:.1} ms > {:.1} ms", w.gpu_ms, w.budget_ms)
+    }
+
+    // The cases of 1.x `tests/test_stats.py`.
+
+    #[test]
+    fn no_warning_within_budget() {
+        assert_eq!(warning(&[("Anime4K", 10.0), ("CAS", 1.0)], 30.0), None);
+    }
+
+    #[test]
+    fn warning_names_the_heaviest_effect() {
+        let w = warning(&[("CAS", 1.0), ("Anime4K UL", 35.0)], 30.0).unwrap();
+        assert_eq!(text(&w), "36.0 ms > 33.3 ms");
+        assert_eq!(w.heaviest[0].0, "Anime4K UL");
+    }
+
+    #[test]
+    fn no_stages_no_warning() {
+        assert_eq!(warning(&[], 60.0), None);
+    }
+
+    #[test]
+    fn lost_frames_do_not_hide_the_problem() {
+        let w = warning(&[("Anime4K UL", 34.6)], 19.0).unwrap();
+        assert_eq!(text(&w), "34.6 ms > 33.3 ms");
+    }
+
+    #[test]
+    fn still_image_is_not_checked() {
+        assert_eq!(warning(&[("Anime4K", 500.0)], 0.5), None);
+    }
+
+    #[test]
+    fn slow_content_keeps_the_30_fps_floor() {
+        let w = warning(&[("Anime4K UL", 35.0)], 24.0).unwrap();
+        assert_eq!(text(&w), "35.0 ms > 33.3 ms");
+        assert_eq!(warning(&[("Anime4K UL", 30.0)], 24.0), None);
+    }
+
+    #[test]
+    fn fast_content_uses_its_interval() {
+        let w = warning(&[("Anime4K UL", 20.0)], 60.0).unwrap();
+        assert_eq!(text(&w), "20.0 ms > 16.7 ms");
+    }
+
+    fn options() -> StatsOptions {
+        StatsOptions {
+            sample_interval: Duration::from_millis(500),
+            refresh_hz: 60.0,
+            latency_csv: None,
+        }
+    }
+
+    fn present(sink: &PresentSink, capture: Instant, presented: Instant, kind: FrameKind) {
+        sink.record(PresentRecord {
+            capture: Some(capture),
+            presented,
+            kind,
+            multiplier: 2,
+        });
+    }
+
+    #[test]
+    fn latency_and_rates_come_from_the_sink() {
+        let mut stats = Stats::new(options()).unwrap();
+        let t0 = Instant::now();
+        let sink = stats.sink();
+        let ms = Duration::from_millis;
+        present(&sink, t0, t0 + ms(40), FrameKind::Real);
+        present(&sink, t0 + ms(20), t0 + ms(40), FrameKind::Generated);
+        present(&sink, t0 + ms(30), t0 + ms(40), FrameKind::Generated);
+        stats.record_capture(t0, true);
+        stats.record_capture(t0 + ms(10), false);
+        let sample = stats.poll(t0 + ms(600)).unwrap();
+        assert_eq!(sample.present_fps, 3.0);
+        assert_eq!(sample.generated_fps, 2.0);
+        assert_eq!(sample.capture_fps, 1.0);
+        assert!((sample.latency_ms - 70.0 / 3.0).abs() < 0.01);
+        assert!((sample.latency_p95_ms - 40.0).abs() < 0.01);
+        assert_eq!(stats.latest(), Some(&sample));
+        // Not due again yet.
+        assert_eq!(stats.poll(t0 + ms(700)), None);
+    }
+
+    #[test]
+    fn old_latency_samples_expire() {
+        let mut stats = Stats::new(options()).unwrap();
+        let t0 = Instant::now();
+        present(&stats.sink(), t0, t0 + Duration::from_millis(10), FrameKind::Real);
+        let sample = stats.poll(t0 + Duration::from_secs(3)).unwrap();
+        assert_eq!(sample.latency_ms, 0.0);
+        assert_eq!(sample.present_fps, 0.0);
+    }
+
+    #[test]
+    fn gpu_times_are_smoothed_and_summed_per_label() {
+        let mut stats = Stats::new(options()).unwrap();
+        let times = |a: f64| Timestamps {
+            dispatches: vec![("bloom".into(), a), ("bloom".into(), a), ("cas".into(), 1.0)],
+            total_ms: 2.0 * a + 1.0,
+        };
+        stats.set_gpu_times(&times(1.0));
+        stats.set_gpu_times(&times(6.0));
+        assert_eq!(stats.gpu, vec![("bloom".into(), 2.0 * 0.8 + 12.0 * 0.2), ("cas".into(), 1.0)]);
+        stats.set_gpu_times(&Timestamps {
+            dispatches: vec![("cas".into(), 1.0)],
+            total_ms: 1.0,
+        });
+        assert_eq!(stats.gpu.len(), 1);
+    }
+
+    #[test]
+    fn rows_follow_the_1x_order() {
+        let sample = StatsSample {
+            capture_fps: 30.0,
+            present_fps: 60.0,
+            latency_ms: 12.34,
+            latency_p95_ms: 20.0,
+            stages: stages(&[("cas", 0.5)]),
+            multiplier: Some(2),
+            ..StatsSample::default()
+        };
+        let context = PanelContext {
+            model: "2x16".into(),
+            src: (1280, 720),
+            dst: (2560, 1440),
+            chain: vec!["cas".into(), "lut".into()],
+            framegen: "x2 built-in".into(),
+            ..PanelContext::default()
+        };
+        let rows = panel_rows(&sample, &context);
+        let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Game", "Shown", "Frame gen", "Latency", "Source", "Upscale", "Effects", "", "Output", "Mode", "Profile"]
+        );
+        assert_eq!(rows[0].value, " 30.0 fps new");
+        assert_eq!(rows[2].value, "x2 built-in  ~60 fps");
+        assert_eq!(rows[3].value, "12.3 ms (p95 20)");
+        assert_eq!(rows[6].value, "cas  0.50 ms");
+        assert_eq!(rows[7].value, "lut");
     }
 }
