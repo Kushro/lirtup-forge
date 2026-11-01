@@ -17,7 +17,8 @@ from .helpers import InstanceManager
 from .icons import load_icon
 from .main import MainWindow
 from .styles import message_box_style
-from ..config import parse_args, setup_logging, validate_overrides
+from ..config import load_yaml_config, parse_args, setup_logging, validate_overrides
+from ..framegen import prepare_from_options
 from ..utils import ConfigError
 
 LOCALE_DIR = Path(__file__).parent / "locale"
@@ -53,6 +54,8 @@ def main() -> None:
     # Parse CLI arguments (the GUI accepts the same options as the non-GUI version)
     try:
         overrides, profile_name, config_path = parse_args()
+        # Frame generation must be set up before the first Vulkan call
+        prepare_from_options({**load_yaml_config(config_path)[0], **overrides})
         validate_overrides(overrides)
     except ConfigError as e:
         print(f"Error: {e}", file=sys.stderr)

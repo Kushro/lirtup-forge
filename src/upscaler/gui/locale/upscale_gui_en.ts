@@ -1495,6 +1495,103 @@ Supports transparency.</source>
       <comment>Description of a setting (tooltip)</comment>
       <translation type="unfinished" />
     </message>
+    <message>
+        <source>Frame generation</source>
+        <comment>Settings section</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Off</source>
+        <comment>Frame generation multiplier</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Multiplier</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Flow scale</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Performance mode</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk is set up by environment variables (LSFGVK_*); this setting is ignored.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk is not installed.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk.dll was not found. In Steam, switch Lossless Scaling to the 'lsfg-vk' branch (Properties, Betas).</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save and restart LirtUp Forge to apply.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Generate frames between the captured ones with lsfg-vk (Lossless Scaling Frame Generation).
+×4 turns 30 captured fps into 120 shown fps.
+Read at startup: restart to apply.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Resolution of the motion estimation. Lower is faster and less accurate; useful at 1440p and 4K.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Use the lighter lsfg-vk model.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Running at ×{0}.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Not running.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Smoother motion: shows up to N times the captured frame rate</source>
+        <comment>Frame generation pro</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Adds about one captured frame of latency (33 ms at 30 fps, 17 ms at 60 fps)</source>
+        <comment>Frame generation con</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Generated frames can smear HUD edges and fast motion</source>
+        <comment>Frame generation con</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Global setting: profiles cannot change it</source>
+        <comment>Frame generation con</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Running at ×{0}. Flow scale and performance mode apply after a restart.</source>
+        <comment>Frame generation status</comment>
+        <translation type="unfinished" />
+    </message>
   </context>
   <context>
     <name>ProfileActions</name>

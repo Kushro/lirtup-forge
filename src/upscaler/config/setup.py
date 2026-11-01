@@ -153,6 +153,11 @@ def setup_config() -> Tuple[
 
     # Parse the command line
     overrides, profile_name, config_path = parse_args()
+
+    # Frame generation must be set up before the first Vulkan call
+    from ..framegen import prepare_from_options
+
+    prepare_from_options({**load_yaml_config(config_path)[0], **overrides})
     validate_overrides(overrides)
 
     # Build the full configuration (YAML, profile, overrides)

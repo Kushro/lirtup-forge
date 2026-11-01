@@ -1,6 +1,6 @@
 # Generación de cuadros (FG): análisis de posibilidad
 
-Estado: **análisis; fase 0 funciona a ojo** (ver [resultados](#fase-0-resultados-2026-10-31)). Fecha: 2026-10-31. Rama: `analysis/frame-generation`.
+Estado: **fase 0 integrada** (ajustes `frame_gen_*`, `--frame-gen` y sección en la GUI; ver [integración](#integración-de-la-fase-0-2026-10-31)) (ver [resultados](#fase-0-resultados-2026-10-31)). Fecha: 2026-10-31. Rama: `analysis/frame-generation`.
 
 Convención: **verificado** = leído en el código o comprobado en esta máquina; **medido en otro
 proyecto** = cifra de Enigmata Temple, en otro pipeline; **estimado** = cuenta hecha aquí, sin
@@ -271,6 +271,36 @@ Hallazgos (verificado):
      del refresco del monitor.
    - Sin probar: estelas del OSD, latencia, un juego real y escenas difíciles (bordes de
      interfaz, cortes de escena).
+
+## Integración de la fase 0 (2026-10-31)
+
+- `src/upscaler/framegen.py` prepara lsfg-vk **antes de la primera llamada a Vulkan**: la capa elige
+  su perfil una sola vez, al cargarse. Comprobado: un perfil escrito después de crear la instancia
+  no se activa; una vez activa, la capa recarga el archivo cuando cambia, pero no reconstruye su
+  pipeline durante la sesión. Por eso activar o cambiar la generación pide reiniciar.
+- Escribe un perfil propio en `~/.config/linux-rt-upscaler/lsfg-vk.toml` (`active_in` = nombre
+  de `/proc/self/exe`) y pone `LSFGVK_CONFIG`. El `conf.toml` de la persona no se toca. Un archivo
+  sin perfiles es inválido para lsfg-vk 2.0 («Invalid profiles section»), así que en apagado no se
+  escribe nada y se pone `DISABLE_LSFGVK=1`.
+- Si la persona ya puso `LSFGVK_CONFIG`, `LSFGVK_ENV` o `DISABLE_LSFGVK`, no se toca nada.
+  Estado `EXTERNAL`.
+- `lsfg-vk.dll` se busca en las bibliotecas de Steam, siguiendo `libraryfolders.vdf`, o en la
+  carpeta de `frame_gen_dll`.
+- Con la generación activa, el pipeline presenta sólo cuadros nuevos aunque
+  `present_on_change_only` esté apagado.
+- Se configura con `frame_gen_multiplier` (1 a 5), `frame_gen_flow_scale`, `frame_gen_performance`
+  y `frame_gen_dll`. Son globales: los perfiles no los cambian, porque se leen antes de elegir
+  ventana. En la CLI: `--frame-gen N`, `--frame-gen-flow-scale`, `--frame-gen-performance` y
+  `--frame-gen-dll`. En la GUI: pestaña Presentación, sección «Generación de cuadros», con su
+  estado (activo, falta reiniciar, falta lsfg-vk o la DLL), pros y contras, y traducción al
+  español.
+- Probado:
+  - CLI con ×2: la capa toma el perfil «LirtUp Forge» y presenta 33,3 fps en mailbox con el video
+    de 30 fps. Sin la opción eran 892.
+  - CLI con ×1: la capa no se carga.
+  - Con `LSFGVK_ENV` puesto por la persona: se respeta su ×3.
+  - Pestaña de la GUI renderizada sin ventana en inglés y español, en tres estados.
+- Sin probar: la GUI real de punta a punta (guardar, reiniciar, iniciar una sesión).
 
 ## Próximos pasos propuestos
 

@@ -33,6 +33,7 @@ from ..utils import (
     get_base_geometry,
     parse_output_geometry,
 )
+from .. import framegen
 from ..vulkan import SwapchainError, select_device
 from ..window import WindowInfo, WindowTracker
 
@@ -410,7 +411,7 @@ class Pipeline(QObject):
             if self._swapchain_manager.needs_recreation():
                 logger.debug("Swapchain needs recreation, skipping idle present")
                 return
-            if self.config.present_on_change_only:
+            if self.config.present_on_change_only or framegen.is_active():
                 # Nothing was presented, so no fence paces the loop
                 self._wake_event.wait(timeout=_CHANGE_POLL_INTERVAL)
                 self._wake_event.clear()
