@@ -7,6 +7,10 @@
 //!   `lirtup serve` and print the events (a test client, front K).
 //! - `lirtup list <windows|models|effects|gpus|monitors>`: what 1.x
 //!   `config/listing.py` prints.
+//! - `lirtup bench --json <REQUEST>`: «Medir en mi GPU» in a child process
+//!   of `lirtup serve` (see `lirtup_pipeline::bench`): prints one
+//!   `Envelope<Event>` line per progress step and a final `BenchResult`,
+//!   saves `bench.json`, and stops cleanly on SIGTERM.
 //!
 //! Front K writes the bodies in round 2.
 
@@ -65,6 +69,20 @@ enum CliCommand {
         #[arg(long)]
         follow: bool,
     },
+    /// Measure effects and frame generation on this GPU (run by `lirtup
+    /// serve` for the GUI's «Medir en mi GPU»).
+    Bench {
+        /// The request: JSON of a `lirtup_proto::BenchRequest`.
+        request: String,
+
+        /// Print protocol events (one JSON line each) instead of a table.
+        #[arg(long)]
+        json: bool,
+
+        /// GPU index or name (default: the configured one).
+        #[arg(long)]
+        gpu: Option<String>,
+    },
     /// List windows, models, effects, GPUs or monitors.
     List {
         /// What to list.
@@ -78,6 +96,7 @@ fn main() -> anyhow::Result<()> {
         CliCommand::Run { config, program } => run(config, program),
         CliCommand::Serve { socket, daemon } => serve(socket, daemon),
         CliCommand::Ctl { command, follow } => ctl(&command, follow),
+        CliCommand::Bench { request, json, gpu } => bench(&request, json, gpu.as_deref()),
         CliCommand::List { what } => list(&what),
     }
 }
@@ -92,6 +111,10 @@ fn serve(socket: Option<PathBuf>, daemon: bool) -> anyhow::Result<()> {
 
 fn ctl(command: &str, follow: bool) -> anyhow::Result<()> {
     todo!("front K")
+}
+
+fn bench(request: &str, json: bool, gpu: Option<&str>) -> anyhow::Result<()> {
+    todo!("front K (calls lirtup_pipeline::bench::run)")
 }
 
 fn list(what: &str) -> anyhow::Result<()> {
