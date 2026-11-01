@@ -37,25 +37,50 @@ _WARNING_COLOR = (255, 110, 90, 255)
 _BG_COLOR = (0, 0, 0, 170)
 # Below this game frame rate (a still image) the GPU budget is not checked
 _MIN_BUDGET_FPS = 5.0
-# The budget is never looser than this rate: when the effects cannot keep up,
-# frames are lost and the measured rate drops with them, hiding the problem
+# When frames are lost the budget is never looser than this rate: effects
+# that cannot keep up lower the measured rate with them, hiding the problem
 _TARGET_FPS = 30.0
+# Frames are lost when the loop polls the window fewer times than this per new
+# frame without finding one: it never waits for the game, so the game draws
+# frames faster than they are processed and some are never captured
+_MIN_IDLE_POLLS = 0.25
+
+
+def frames_lost(game_fps: float, polled_fps: Optional[float]) -> bool:
+    """
+    True when the pipeline cannot keep up with the game: (almost) every
+    poll of the window finds a new frame, so it never waits for one. When it
+    keeps up, it polls a few times between frames without finding one.
+    Unknown (*polled_fps* None) counts as lost.
+    """
+    if polled_fps is None or game_fps <= 0:
+        return True
+    return (polled_fps - game_fps) / game_fps < _MIN_IDLE_POLLS
 
 
 def gpu_budget_warning(
-    effects: List[Tuple[str, Optional[float]]], game_fps: float
+    effects: List[Tuple[str, Optional[float]]],
+    game_fps: float,
+    polled_fps: Optional[float] = None,
 ) -> Optional[str]:
     """
     A warning when the effects take longer on the GPU than a game frame
-    lasts (they cannot keep up), naming the heaviest one. The frame lasts
-    1 / *game_fps*, or 1 / _TARGET_FPS when the measured rate is lower:
-    effects that cannot keep up lose frames and lower that rate themselves.
-    *effects* holds (name, GPU ms or None) pairs.
+    lasts (they cannot keep up), naming the heaviest one. *effects* holds
+    (name, GPU ms or None) pairs.
+
+    The frame lasts 1 / *game_fps* while no frames are lost (see
+    :func:`frames_lost`, from the window polls per second *polled_fps*):
+    slow content, such as a 24 fps video, then gets its real budget. When
+    frames are lost the measured rate is the pipeline's, not the game's, so
+    the frame lasts at most 1 / _TARGET_FPS.
     """
     timed = [(name, ms) for name, ms in effects if ms is not None]
     if game_fps < _MIN_BUDGET_FPS or not timed:
         return None
-    budget = 1000.0 / max(game_fps, _TARGET_FPS)
+    if frames_lost(game_fps, polled_fps):
+        budget = 1000.0 / max(game_fps, _TARGET_FPS)
+    else:
+        budget = 1000.0 / game_fps
     total = sum(ms for _, ms in timed)
     if total <= budget:
         return None
