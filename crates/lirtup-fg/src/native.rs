@@ -15,7 +15,11 @@ use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+
+use lirtup_config::Config;
 
 use crate::{FgError, Result};
 
@@ -103,6 +107,31 @@ pub struct EngineOptions {
     pub hdr: bool,
     /// Use FP16 shaders if available.
     pub fp16: bool,
+}
+
+impl EngineOptions {
+    /// The options for `generated` frames from the frame generation fields
+    /// of `config` (flow scale, performance mode) and the GPU lirtup runs on.
+    /// `fp16` is whether that GPU supports FP16 shaders.
+    pub fn from_config(
+        config: &Config,
+        dll: PathBuf,
+        vendor_id: u32,
+        device_id: u32,
+        generated: u32,
+        fp16: bool,
+    ) -> EngineOptions {
+        EngineOptions {
+            dll,
+            vendor_id,
+            device_id,
+            generated,
+            flow_scale: config.frame_gen_flow_scale.clamp(0.25, 1.0),
+            performance: config.frame_gen_performance,
+            hdr: false,
+            fp16,
+        }
+    }
 }
 
 /// The initialized lsfg engine.
@@ -234,6 +263,102 @@ impl LsfgEngine {
     }
 }
 
+/// lsfg starting (or restarting with other options) on a thread of its own,
+/// `lsfg-restart` (`_begin_restart` and `_restart_lsfg` of 1.x).
+///
+/// Initializing takes a while (lsfg creates its device and loads the
+/// shaders from the DLL), and lsfg fixes the number of generated frames
+/// then, so a new multiplier means finalizing and initializing again. Until
+/// it is done, the pipeline presents its real frames alone.
+pub struct EngineStart {
+    options: EngineOptions,
+    thread: Option<JoinHandle<()>>,
+    result: Receiver<Result<Arc<LsfgEngine>>>,
+}
+
+impl std::fmt::Debug for EngineStart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EngineStart")
+            .field("options", &self.options)
+            .finish()
+    }
+}
+
+impl EngineStart {
+    /// Finalize `previous` (when given) and initialize lsfg with `options`
+    /// on a new thread.
+    ///
+    /// `previous` must be the last reference to its engine (every
+    /// [`LsfgContext`] of it dropped): lsfg admits one engine per process.
+    pub fn spawn(previous: Option<Arc<LsfgEngine>>, options: EngineOptions) -> Result<EngineStart> {
+        if let Some(engine) = &previous
+            && Arc::strong_count(engine) != 1
+        {
+            return Err(FgError::Invalid(
+                "restarting lsfg while one of its contexts is alive".into(),
+            ));
+        }
+        let (tx, result) = mpsc::sync_channel(1);
+        let thread_options = options.clone();
+        let thread = std::thread::Builder::new()
+            .name("lsfg-restart".into())
+            .spawn(move || {
+                // Finalized here: it can take as long as initializing.
+                drop(previous);
+                let _ = tx.send(LsfgEngine::initialize(&thread_options));
+            })?;
+        Ok(EngineStart {
+            options,
+            thread: Some(thread),
+            result,
+        })
+    }
+
+    /// The options it initializes with.
+    pub fn options(&self) -> &EngineOptions {
+        &self.options
+    }
+
+    /// The engine (or the error) once the thread is done; `None` while it
+    /// still works. Call it until it returns `Some`.
+    pub fn poll(&mut self) -> Option<Result<Arc<LsfgEngine>>> {
+        match self.result.try_recv() {
+            Ok(result) => {
+                self.join();
+                Some(result)
+            }
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => {
+                self.join();
+                Some(Err(FgError::Invalid("the lsfg-restart thread panicked".into())))
+            }
+        }
+    }
+
+    /// Block until the thread is done (lsfg cannot be finalized while it
+    /// initializes).
+    pub fn wait(mut self) -> Result<Arc<LsfgEngine>> {
+        self.join();
+        self.result
+            .try_recv()
+            .unwrap_or_else(|_| Err(FgError::Invalid("the lsfg-restart thread panicked".into())))
+    }
+
+    fn join(&mut self) {
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for EngineStart {
+    fn drop(&mut self) {
+        // Wait for the thread: the engine it makes is finalized when its
+        // result (still in the channel) is dropped, after this.
+        self.join();
+    }
+}
+
 /// Give up ownership without closing: lsfg (or the driver) owns them now.
 fn release_fds(fds: impl IntoIterator<Item = OwnedFd>) {
     for fd in fds {
@@ -323,6 +448,36 @@ mod tests {
         check::<Arc<LsfgEngine>>();
         fn send<T: Send>() {}
         send::<LsfgContext>();
+    }
+
+    #[test]
+    fn options_from_config_clamp_the_flow_scale() {
+        let config = Config {
+            frame_gen_flow_scale: 0.1,
+            frame_gen_performance: true,
+            ..Config::default()
+        };
+        let options = EngineOptions::from_config(&config, "/x/Lossless.dll".into(), 0x1002, 0x7550, 3, true);
+        assert_eq!(options.flow_scale, 0.25);
+        assert!(options.performance);
+        assert_eq!(options.generated, 3);
+        assert!(!options.hdr);
+    }
+
+    #[test]
+    fn a_failed_start_reports_its_error() {
+        let options = EngineOptions {
+            dll: "/nonexistent/Lossless.dll".into(),
+            vendor_id: 0,
+            device_id: 0,
+            generated: 0,
+            flow_scale: 1.0,
+            performance: false,
+            hdr: false,
+            fp16: false,
+        };
+        let start = EngineStart::spawn(None, options).unwrap();
+        assert!(matches!(start.wait(), Err(FgError::Invalid(_))));
     }
 
     #[test]
