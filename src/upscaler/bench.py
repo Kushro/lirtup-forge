@@ -631,6 +631,13 @@ def stored_ms(entry: Optional[Dict[str, Any]], kind: str, name: str) -> Optional
     return float(ms) if isinstance(ms, (int, float)) else None
 
 
+def stored_framegen_ms(
+    entry: Optional[Dict[str, Any]], multiplier: int, flow_scale: float, performance: bool
+) -> Optional[float]:
+    """Median ms per real frame of one frame generation setting, or None."""
+    return stored_ms(entry, FRAMEGEN, framegen_key(multiplier, flow_scale, performance))
+
+
 # ----------------------------------------------------------------------
 # Command line (what the GUI runs)
 # ----------------------------------------------------------------------
@@ -702,8 +709,9 @@ def main(argv: Optional[List[str]] = None, backend_factory=None) -> int:
     def on_term(signum, frame):
         bench.cancel()
 
-    signal.signal(signal.SIGTERM, on_term)
-    signal.signal(signal.SIGINT, on_term)
+    old_handlers = {
+        sig: signal.signal(sig, on_term) for sig in (signal.SIGTERM, signal.SIGINT)
+    }
 
     try:
         cases = build_cases(sections, args.effect)
@@ -739,6 +747,8 @@ def main(argv: Optional[List[str]] = None, backend_factory=None) -> int:
         results = bench.run(cases, on_result=on_result, on_start=on_start)
     finally:
         backend.close()
+        for sig, handler in old_handlers.items():
+            signal.signal(sig, handler)
 
     if args.save and results:
         try:
