@@ -69,6 +69,7 @@ where = ["src"]
 "upscaler.magpiefx" = [
     "effects/**/*.hlsl",
     "effects/**/*.hlsli",
+    "effects/**/*.dds",
     "effects/*.md",
     "effects/LICENSE-Magpie",
     "internal/*.hlsl",
