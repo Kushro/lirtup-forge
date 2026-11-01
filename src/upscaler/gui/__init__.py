@@ -9,11 +9,12 @@ import signal
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
+from PySide6.QtCore import QLibraryInfo, QLocale, QTimer, QTranslator
 from PySide6.QtWidgets import QApplication
 
 from .config import ConfigManager, GUIConfig, GUIPalette, PRESETS, load_gui_style
 from .helpers import InstanceManager
+from .helpers.restart import relaunch, take_resume
 from .icons import load_icon
 from .main import MainWindow
 from .styles import message_box_style
@@ -85,7 +86,12 @@ def main() -> None:
     # Main window
     window = MainWindow(config_manager, profile_name=profile_name)
     manager.show_requested.connect(window.activate_from_second_instance)
-    if not (
+    resume = take_resume()  # left by a relaunch from the tray
+    if resume is not None:
+        QTimer.singleShot(
+            0, lambda: window.resume_session(resume.window, resume.hide_after)
+        )
+    elif not (
         window.settings.value("tray/enabled", False, type=bool)
         and window.settings.value("tray/start_hidden", False, type=bool)
     ):
@@ -95,10 +101,15 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     try:
-        sys.exit(app.exec())
+        code = app.exec()
     except Exception:
         logging.getLogger(__name__).exception("GUI event loop failed")
         sys.exit(1)
+    if window.restart_request is not None:
+        # Free the single-instance socket before the new process claims it
+        manager.close()
+        relaunch(window.restart_request)
+    sys.exit(code)
 
 
 if __name__ == "__main__":

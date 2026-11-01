@@ -53,6 +53,13 @@ class InstanceManager(QObject):
     def is_primary(self) -> bool:
         return self._is_primary
 
+    def close(self) -> None:
+        """Stop listening, so that a new process can become the primary one."""
+        if self._server is not None:
+            self._server.close()
+            self._server = None
+        self._is_primary = False
+
     def _on_new_connection(self) -> None:
         socket = self._server.nextPendingConnection()
         if socket.waitForReadyRead(1000):
