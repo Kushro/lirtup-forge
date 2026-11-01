@@ -228,7 +228,10 @@ los fps de presentación de lirtup durante 8 s. Una corrida por caso, RX 9070 XT
 | --- | --- | --- |
 | lirtup sin cambios | 892 | Presenta el mismo cuadro en cada vuelta: la capa interpolaría entre cuadros iguales |
 | `--present-on-change-only` (nuevo) | 33,3 | Presenta sólo los cuadros nuevos del juego (≈30), lo que necesita la capa |
-| `--present-on-change-only` + lsfg-vk ×2 | — | **Bloqueado**: la capa no arranca (ver abajo) y lirtup se cae |
+| `--present-on-change-only` + lsfg-vk ×2 (DLL vieja) | — | La capa no arranca y lirtup se cae (ver abajo) |
+| `--present-on-change-only` + lsfg-vk ×2 (rama `lsfg-vk`) | 33,3 | La capa arranca y arma su pipeline (2560×1440, flujo 1,0); sin errores en 14 s |
+| `--present-on-change-only` + lsfg-vk ×4 (rama `lsfg-vk`) | 33,3 | Igual, sin errores |
+| lirtup sin cambios + lsfg-vk ×2 (rama `lsfg-vk`) | 13,9 | Con cuadros repetidos, lo que presenta lirtup cae de 892 a 13,9 de media |
 
 Hallazgos (verificado):
 
@@ -254,8 +257,16 @@ Hallazgos (verificado):
    use Vulkan. Por eso es mejor activar la capa con `LSFGVK_ENV=1` y `LSFGVK_MULTIPLIER` sólo en el
    proceso de lirtup.
 
-Para seguir: cambiar Lossless Scaling a la rama `lsfg-vk` en Steam (Propiedades → Betas) y
-repetir el caso 3 con `LSFGVK_DLL_PATH` apuntando a la carpeta de esa instalación.
+5. **Con la rama `lsfg-vk` de Lossless Scaling en Steam** aparece
+   `steamapps/common/Lossless Scaling/lsfg-vk.dll` (2,1 MB). Con ese archivo la capa carga los
+   shaders y genera sobre el swapchain de lirtup sin errores, activada sólo para lirtup con
+   `LSFGVK_ENV=1 LSFGVK_MULTIPLIER=N LSFGVK_DLL_PATH=<…/lsfg-vk.dll>`.
+   - La `Lossless.dll` clásica sigue sirviendo para el motor de Temple: `temple-lsfg --probe` dio
+     `ok` con ella. La fase 1 no depende de esa rama.
+   - **Sin medir:** los fps que llegan a la pantalla. MangoHud queda por encima de la capa y sólo
+     ve lo que presenta lirtup (33,3 en todos los casos con `--present-on-change-only`). Hace
+     falta mirarlo a ojo o con un contador que quede por debajo de lsfg-vk.
+   - Sin probar: calidad visual, estelas del OSD, latencia y un juego real.
 
 ## Próximos pasos propuestos
 
