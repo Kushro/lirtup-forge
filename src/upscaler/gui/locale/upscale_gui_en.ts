@@ -2831,7 +2831,37 @@ Use Stop from the tray menu to return.</source>
         <comment>Tray menu header; {0} is a window title</comment>
         <translation type="unfinished" />
     </message>
-  </context>
+      <message>
+        <source>Frame generation</source>
+        <comment>Tray submenu (lsfg-vk)</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Set by LSFGVK_* variables</source>
+        <comment>Tray menu: frame generation note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk is not installed</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>lsfg-vk.dll not found</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Off</source>
+        <comment>Tray menu: frame generation off</comment>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Choosing one restarts LirtUp Forge</source>
+        <comment>Tray menu note</comment>
+        <translation type="unfinished" />
+    </message>
+</context>
   <context>
     <name>WindowGridManager</name>
     <message>

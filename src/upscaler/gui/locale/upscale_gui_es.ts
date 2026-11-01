@@ -2929,6 +2929,36 @@ Utilice «Detener» en el menú de la bandeja para volver.</translation>
             <comment>Tray menu header; {0} is a window title</comment>
             <translation>Escalando: {0}</translation>
         </message>
+    <message>
+        <source>Frame generation</source>
+        <comment>Tray submenu (lsfg-vk)</comment>
+        <translation>Generación de cuadros</translation>
+    </message>
+    <message>
+        <source>Set by LSFGVK_* variables</source>
+        <comment>Tray menu: frame generation note</comment>
+        <translation>Definida por variables LSFGVK_*</translation>
+    </message>
+    <message>
+        <source>lsfg-vk is not installed</source>
+        <comment>Tray menu note</comment>
+        <translation>lsfg-vk no está instalado</translation>
+    </message>
+    <message>
+        <source>lsfg-vk.dll not found</source>
+        <comment>Tray menu note</comment>
+        <translation>No se encontró lsfg-vk.dll</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <comment>Tray menu: frame generation off</comment>
+        <translation>Apagada</translation>
+    </message>
+    <message>
+        <source>Choosing one restarts LirtUp Forge</source>
+        <comment>Tray menu note</comment>
+        <translation>Elegir una reinicia LirtUp Forge</translation>
+    </message>
 </context>
 <context>
     <name>WindowGridManager</name>
