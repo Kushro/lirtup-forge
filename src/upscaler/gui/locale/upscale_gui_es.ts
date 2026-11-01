@@ -1677,9 +1677,9 @@ Se lee al iniciar: reinicia para aplicarlo.</translation>
             <translation>Ajuste global: los perfiles no lo cambian</translation>
         </message>
         <message>
-            <source>Running at ×{0}. Flow scale and performance mode apply after a restart.</source>
+            <source>Running at ×{0}. Flow scale and model apply after a restart.</source>
             <comment>Frame generation status</comment>
-            <translation>Activo en ×{0}. La escala de flujo y el modo rendimiento se aplican tras reiniciar.</translation>
+            <translation>Activo en ×{0}. La escala de flujo y el modelo se aplican tras reiniciar.</translation>
         </message>
         <message>
             <source>Detect menu bar</source>
@@ -1724,6 +1724,59 @@ Se lee al iniciar: reinicia para aplicarlo.</translation>
         <source>Lossless.dll was not found. Install Lossless Scaling from Steam, or set the path of Lossless.dll.</source>
         <comment>Frame generation status</comment>
         <translation>No se encontró Lossless.dll. Instala Lossless Scaling desde Steam o indica la ruta de Lossless.dll.</translation>
+    </message>
+    <message>
+        <source>Resolution at which lsfg estimates the motion between two frames, as a share of the output resolution.
+1.00 (default): full resolution, the most accurate motion and the heaviest for the GPU.
+Lower values are lighter and less precise on small or fast details; 0.50 to 0.75 is usually enough at 1440p and 4K.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation>Resolución a la que lsfg estima el movimiento entre dos cuadros, como parte de la resolución de salida.
+1,00 (predeterminado): resolución completa, el movimiento más preciso y lo más pesado para la GPU.
+Los valores menores son más livianos y menos precisos en detalles chicos o rápidos; de 0,50 a 0,75 suele alcanzar en 1440p y 4K.</translation>
+    </message>
+    <message>
+        <source>Quality (LSFG 3.1)</source>
+        <comment>Frame generation model</comment>
+        <translation>Calidad (LSFG 3.1)</translation>
+    </message>
+    <message>
+        <source>Performance (LSFG 3.1P)</source>
+        <comment>Frame generation model</comment>
+        <translation>Rendimiento (LSFG 3.1P)</translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <comment>Label of setting (must be short)</comment>
+        <translation>Modelo</translation>
+    </message>
+    <message>
+        <source>The two models lsfg has.
+Quality (default): the full model, smoother results.
+Performance: a lighter model, faster on the GPU, with more artifacts around edges and fast motion.</source>
+        <comment>Description of a setting (tooltip)</comment>
+        <translation>Los dos modelos que tiene lsfg.
+Calidad (predeterminado): el modelo completo, resultados más suaves.
+Rendimiento: un modelo más liviano, más rápido en la GPU, con más defectos en los bordes y el movimiento rápido.</translation>
+    </message>
+    <message>
+        <source>Maximum: motion estimated at {0}% of the output resolution. The most accurate and the heaviest for lsfg (default).</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation>Máximo: movimiento estimado al {0}% de la resolución de salida. Lo más preciso y lo más pesado para lsfg (predeterminado).</translation>
+    </message>
+    <message>
+        <source>High: motion estimated at {0}% of the output resolution. Close to the maximum, somewhat lighter.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation>Alto: movimiento estimado al {0}% de la resolución de salida. Cerca del máximo, algo más liviano.</translation>
+    </message>
+    <message>
+        <source>Balanced: motion estimated at {0}% of the output resolution. Much lighter; small details move a bit less precisely. Good at 1440p and 4K.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation>Equilibrado: movimiento estimado al {0}% de la resolución de salida. Mucho más liviano; los detalles chicos se mueven con algo menos de precisión. Bueno en 1440p y 4K.</translation>
+    </message>
+    <message>
+        <source>Low: motion estimated at {0}% of the output resolution. The lightest, with visible artifacts on fine or fast detail.</source>
+        <comment>Frame generation flow scale note; {0} is a percentage</comment>
+        <translation>Bajo: movimiento estimado al {0}% de la resolución de salida. Lo más liviano, con defectos visibles en detalles finos o rápidos.</translation>
     </message>
 </context>
 <context>

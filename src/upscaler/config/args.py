@@ -1160,8 +1160,10 @@ one captured frame of latency. Read only at startup.
         "--frame-gen-flow-scale",
         type=float,
         default=DEFAULT_CONFIG.frame_gen_flow_scale,
-        help="""Optical flow resolution, from 0.25 to 1.0. Lower is
-faster and less accurate. Default: %(default)s.
+        help="""Share of the output resolution at which lsfg estimates
+the motion, from 0.25 to 1.0. 1.0 is the most accurate and
+the heaviest; 0.5 to 0.75 is usually enough at 1440p and
+4K. Default: %(default)s.
 
 """,
     )
@@ -1169,7 +1171,10 @@ faster and less accurate. Default: %(default)s.
         "--frame-gen-performance",
         action="store_true",
         default=DEFAULT_CONFIG.frame_gen_performance,
-        help="Use the lighter lsfg-vk model.",
+        help="""Use lsfg's Performance model (LSFG 3.1P) instead of the
+default Quality model (LSFG 3.1): faster, more artifacts.
+
+""",
     )
     framegen_group.add_argument(
         "--frame-gen-dll",

@@ -234,6 +234,16 @@ Trade-offs: smoother motion, at the cost of about one captured frame of
 latency (33 ms at 30 fps, 17 ms at 60 fps), and generated frames can smear HUD
 edges and fast motion.
 
+Two settings trade quality for GPU time, both next to the multiplier:
+
+- *Flow scale* (`frame_gen_flow_scale`, default 1.0): the share of the output
+  resolution at which lsfg estimates the motion. 1.0 is the most accurate and
+  the heaviest; 0.5 to 0.75 is usually enough at 1440p and 4K. The GUI
+  explains each range under the slider.
+- *Model* (`frame_gen_performance`): *Quality* (LSFG 3.1, default) or
+  *Performance* (LSFG 3.1P), lighter with more artifacts. These are the only
+  two models lsfg has.
+
 The multiplier can also be changed from the tray menu (*Frame generation*):
 the app saves it and restarts itself, upscaling the same window again.
 

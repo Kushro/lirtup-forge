@@ -282,19 +282,39 @@ class PresentationTab(SettingsTab):
             baseline=self.baseline_config.frame_gen_flow_scale,
             field="frame_gen_flow_scale",
             help=self.tr(
-                "Resolution of the motion estimation. Lower is faster and "
-                "less accurate; useful at 1440p and 4K.",
+                "Resolution at which lsfg estimates the motion between two "
+                "frames, as a share of the output resolution.\n"
+                "1.00 (default): full resolution, the most accurate motion "
+                "and the heaviest for the GPU.\n"
+                "Lower values are lighter and less precise on small or fast "
+                "details; 0.50 to 0.75 is usually enough at 1440p and 4K.",
                 "Description of a setting (tooltip)",
             ),
         )
-        self._fg_performance = self._add_cb(
-            self.tr("Performance mode", "Label of setting (must be short)"),
-            self._config.frame_gen_performance,
-            self._on_fg_performance,
-            baseline=self.baseline_config.frame_gen_performance,
+        # What the chosen value means, updated as the slider moves
+        self._fg_flow_note = QLabel()
+        self._fg_flow_note.setWordWrap(True)
+        self._fg_flow_note.setStyleSheet(info_text_style(self._gui_config))
+        self._fg_flow_note.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.content_layout.addWidget(self._fg_flow_note)
+        self._fg_model_labels = {
+            False: self.tr("Quality (LSFG 3.1)", "Frame generation model"),
+            True: self.tr("Performance (LSFG 3.1P)", "Frame generation model"),
+        }
+        self._fg_performance = self._add_combo(
+            self.tr("Model", "Label of setting (must be short)"),
+            list(self._fg_model_labels.values()),
+            self._fg_model_labels[bool(self._config.frame_gen_performance)],
+            self._on_fg_model,
+            baseline=self._fg_model_labels[
+                bool(self.baseline_config.frame_gen_performance)
+            ],
             field="frame_gen_performance",
             help=self.tr(
-                "Use the lighter lsfg-vk model.",
+                "The two models lsfg has.\n"
+                "Quality (default): the full model, smoother results.\n"
+                "Performance: a lighter model, faster on the GPU, with more "
+                "artifacts around edges and fast motion.",
                 "Description of a setting (tooltip)",
             ),
         )
@@ -382,15 +402,48 @@ class PresentationTab(SettingsTab):
         self._update_fg_ui()
         self.config_changed.emit()
 
-    def _on_fg_performance(self, state: int) -> None:
-        self._config.frame_gen_performance = bool(state)
+    def _on_fg_model(self, text: str) -> None:
+        for performance, label in self._fg_model_labels.items():
+            if label == text:
+                self._config.frame_gen_performance = performance
         self._update_fg_ui()
         self.config_changed.emit()
+
+    def _fg_flow_text(self, scale: float) -> str:
+        """What a flow scale value means, in one line."""
+        if scale >= 0.99:
+            text = self.tr(
+                "Maximum: motion estimated at {0}% of the output resolution. "
+                "The most accurate and the heaviest for lsfg (default).",
+                "Frame generation flow scale note; {0} is a percentage",
+            )
+        elif scale >= 0.75:
+            text = self.tr(
+                "High: motion estimated at {0}% of the output resolution. "
+                "Close to the maximum, somewhat lighter.",
+                "Frame generation flow scale note; {0} is a percentage",
+            )
+        elif scale >= 0.5:
+            text = self.tr(
+                "Balanced: motion estimated at {0}% of the output resolution. "
+                "Much lighter; small details move a bit less precisely. "
+                "Good at 1440p and 4K.",
+                "Frame generation flow scale note; {0} is a percentage",
+            )
+        else:
+            text = self.tr(
+                "Low: motion estimated at {0}% of the output resolution. "
+                "The lightest, with visible artifacts on fine or fast detail.",
+                "Frame generation flow scale note; {0} is a percentage",
+            )
+        return text.format(int(round(scale * 100)))
 
     def _update_fg_ui(self) -> None:
         on = self._config.frame_gen_multiplier > 1
         self._fg_engine.setEnabled(on)
         self._fg_flow.setEnabled(on)
+        self._fg_flow_note.setEnabled(on)
+        self._fg_flow_note.setText(self._fg_flow_text(self._config.frame_gen_flow_scale))
         self._fg_performance.setEnabled(on)
         self._fg_info.setText(self._fg_info_html(on))
 
@@ -449,8 +502,8 @@ class PresentationTab(SettingsTab):
             return f"{now} {restart}"
         if running > 1:
             return self.tr(
-                "Running at ×{0}. Flow scale and performance mode apply "
-                "after a restart.",
+                "Running at ×{0}. Flow scale and model apply after a "
+                "restart.",
                 "Frame generation status",
             ).format(running)
         return ""
