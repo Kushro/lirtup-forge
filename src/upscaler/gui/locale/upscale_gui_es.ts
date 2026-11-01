@@ -1681,6 +1681,16 @@ Se lee al iniciar: reinicia para aplicarlo.</translation>
             <comment>Frame generation status</comment>
             <translation>Activo en ×{0}. La escala de flujo y el modo rendimiento se aplican tras reiniciar.</translation>
         </message>
+        <message>
+            <source>Detect menu bar</source>
+            <comment>Label of setting (must be short)</comment>
+            <translation>Detectar barra de menú</translation>
+        </message>
+        <message>
+            <source>Experimental. Look for the menu bar that Windows programs draw below the title bar (under Wine) during the first seconds, and crop it on top of the Top value.</source>
+            <comment>Description of a setting (tooltip)</comment>
+            <translation>Experimental. Busca durante los primeros segundos la barra de menú que los programas de Windows dibujan debajo de la barra de título (con Wine) y la recorta, además del valor de Superior.</translation>
+        </message>
 </context>
 <context>
     <name>ProfileActions</name>

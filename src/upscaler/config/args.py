@@ -550,6 +550,14 @@ Note: Custom modes (e.g., x1440p, 50%%) can be combined with
         help="Pixels to crop from right border of the target window.",
     )
     presentation_group.add_argument(
+        "--auto-crop-menu-bar",
+        action="store_true",
+        default=DEFAULT_CONFIG.auto_crop_menu_bar,
+        help="""Detect the menu bar that Win32 programs draw below the
+title bar (under Wine) and crop it, on top of --crop-top.
+Experimental.""",
+    )
+    presentation_group.add_argument(
         "--background-color",
         default=DEFAULT_CONFIG.background_color,
         help="""Color for letterbox bars (supports transparency).

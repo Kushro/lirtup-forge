@@ -164,6 +164,19 @@ class PresentationTab(SettingsTab):
                 "Description of a setting (tooltip)",
             ),
         )
+        self._add_cb(
+            self.tr("Detect menu bar", "Label of setting (must be short)"),
+            self._config.auto_crop_menu_bar,
+            self._on_auto_crop_menu_bar,
+            baseline=self.baseline_config.auto_crop_menu_bar,
+            field="auto_crop_menu_bar",
+            help=self.tr(
+                "Experimental. Look for the menu bar that Windows programs "
+                "draw below the title bar (under Wine) during the first "
+                "seconds, and crop it on top of the Top value.",
+                "Description of a setting (tooltip)",
+            ),
+        )
 
         # ---- Offsets ----
         self._add_section(self.tr("Offset", "Settings section"))
@@ -295,6 +308,10 @@ class PresentationTab(SettingsTab):
 
     def _on_crop_top(self, value: int):
         self._config.crop_top = value
+        self.config_changed.emit()
+
+    def _on_auto_crop_menu_bar(self, state: int):
+        self._config.auto_crop_menu_bar = bool(state)
         self.config_changed.emit()
 
     def _on_crop_bottom(self, value: int):
