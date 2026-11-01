@@ -626,8 +626,11 @@ Orden de integración de la ronda 1 (cada uno sobre el anterior, en la rama
 | --- | --- | --- |
 | **P. Pipeline** | `crates/lirtup-pipeline/src/{pipeline,tiles,upscale,presenter}.rs` | Hilo del pipeline, tiles, escalado, cadena de efectos y presentación |
 | **F. FG en el pipeline** | `crates/lirtup-pipeline/src/{framegen,pacing}.rs`, `crates/lirtup-fg/**` | Hilo de presentación de FG, ciclos, ritmo, reinicio en segundo plano |
-| **S. Stats y OSD** | `crates/lirtup-pipeline/src/{stats,osd,latency,menubar,bench}.rs` | Panel de stats, OSD, CSV de latencia, barra de menú, medición |
-| **K. Core, socket y CLI** | `crates/lirtup-core/**`, `crates/lirtup-cli/**`, `crates/lirtup-x11/src/overlay*` | Fachada `Engine`; protocolo de 6.5, servidor y cliente del socket Unix; binario `lirtup` con `run` y `serve`; conexión de la superposición con el swapchain; un cliente de prueba (`lirtup ctl`) |
+| **S. Stats y OSD** | `crates/lirtup-pipeline/src/{stats,osd,latency,menubar,bench}.rs`; tests de paridad nuevos en `lirtup-effects/tests` y `lirtup-magpiefx/tests` | Panel de stats, OSD, CSV de latencia, barra de menú, medición (en un proceso hijo), paridad de E con Python |
+| **K. Core, socket y CLI** | `crates/lirtup-core/**`, `crates/lirtup-cli/**`, `crates/lirtup-pipeline/src/surface.rs`, `crates/lirtup-x11/src/{overlay,input}.rs`, `crates/lirtup-proto/tests/**` | Fachada `Engine`; protocolo de 6.5, servidor y cliente del socket Unix; binario `lirtup` con `run`, `serve` y `bench`; hilo de la superposición y swapchain sobre ella; un cliente de prueba (`lirtup ctl`); test de ida y vuelta del protocolo |
+
+El reparto exacto, las firmas entre frentes y las decisiones están en
+[rust-r2-skeleton.md](rust-r2-skeleton.md) (ajustado tras la ronda 1).
 
 Orden: **S** → **P** → **F** → **K**. El `mod.rs` de `lirtup-pipeline` lo escribe el revisor en
 la ronda 0 de esta ronda, con los módulos ya declarados, para que P, F y S no compartan archivo.
