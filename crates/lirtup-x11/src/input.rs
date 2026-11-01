@@ -3,9 +3,9 @@
 
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    ButtonPressEvent, ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent, MotionNotifyEvent,
-    Motion, NotifyDetail, NotifyMode, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ENTER_NOTIFY_EVENT, KEY_PRESS_EVENT,
-    KEY_RELEASE_EVENT, LEAVE_NOTIFY_EVENT, MOTION_NOTIFY_EVENT,
+    BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ButtonPressEvent, ConnectionExt as _, ENTER_NOTIFY_EVENT,
+    EnterNotifyEvent, EventMask, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, KeyButMask, KeyPressEvent,
+    LEAVE_NOTIFY_EVENT, MOTION_NOTIFY_EVENT, Motion, MotionNotifyEvent, NotifyDetail, NotifyMode,
 };
 use x11rb::rust_connection::RustConnection;
 
@@ -44,7 +44,10 @@ impl CoordinateMapper {
         }
         let sx = (dx * i64::from(sw) / i64::from(c.width)).min(i64::from(sw) - 1);
         let sy = (dy * i64::from(sh) / i64::from(c.height)).min(i64::from(sh) - 1);
-        Some((sx as i32 + self.crop_offset.0 as i32, sy as i32 + self.crop_offset.1 as i32))
+        Some((
+            sx as i32 + self.crop_offset.0 as i32,
+            sy as i32 + self.crop_offset.1 as i32,
+        ))
     }
 }
 
@@ -93,7 +96,13 @@ impl InputForwarder {
     /// Forward one event; events that do not map are dropped.
     pub fn forward(&mut self, event: &OverlayEvent) -> Result<()> {
         match *event {
-            OverlayEvent::Pointer { kind, x, y, state, time } => {
+            OverlayEvent::Pointer {
+                kind,
+                x,
+                y,
+                state,
+                time,
+            } => {
                 let Some((tx, ty)) = self.mapper.to_target(x, y) else {
                     // Over the letterbox: the target loses the pointer.
                     return self.leave(state, time);
@@ -129,7 +138,11 @@ impl InputForwarder {
                     PointerKind::Press(button) | PointerKind::Release(button) => {
                         let press = matches!(kind, PointerKind::Press(_));
                         let e = ButtonPressEvent {
-                            response_type: if press { BUTTON_PRESS_EVENT } else { BUTTON_RELEASE_EVENT },
+                            response_type: if press {
+                                BUTTON_PRESS_EVENT
+                            } else {
+                                BUTTON_RELEASE_EVENT
+                            },
                             detail: button,
                             sequence: 0,
                             time,
@@ -143,16 +156,29 @@ impl InputForwarder {
                             state,
                             same_screen: true,
                         };
-                        let mask = if press { EventMask::BUTTON_PRESS } else { EventMask::BUTTON_RELEASE };
+                        let mask = if press {
+                            EventMask::BUTTON_PRESS
+                        } else {
+                            EventMask::BUTTON_RELEASE
+                        };
                         self.send(mask, e)?;
                     }
                 }
             }
-            OverlayEvent::Key { pressed, keycode, state, time } => {
+            OverlayEvent::Key {
+                pressed,
+                keycode,
+                state,
+                time,
+            } => {
                 let (ox, oy) = self.origin()?;
                 let (tx, ty) = self.last;
                 let e = KeyPressEvent {
-                    response_type: if pressed { KEY_PRESS_EVENT } else { KEY_RELEASE_EVENT },
+                    response_type: if pressed {
+                        KEY_PRESS_EVENT
+                    } else {
+                        KEY_RELEASE_EVENT
+                    },
                     detail: keycode,
                     sequence: 0,
                     time,
@@ -166,14 +192,16 @@ impl InputForwarder {
                     state: KeyButMask::from(state),
                     same_screen: true,
                 };
-                let mask = if pressed { EventMask::KEY_PRESS } else { EventMask::KEY_RELEASE };
+                let mask = if pressed {
+                    EventMask::KEY_PRESS
+                } else {
+                    EventMask::KEY_RELEASE
+                };
                 self.send(mask, e)?;
             }
             OverlayEvent::Leave => self.leave(0, x11rb::CURRENT_TIME)?,
-            OverlayEvent::Enter
-            | OverlayEvent::Configure(_)
-            | OverlayEvent::Expose
-            | OverlayEvent::Close => {}
+            OverlayEvent::Enter | OverlayEvent::Configure(_) | OverlayEvent::Expose | OverlayEvent::Close => {
+            }
         }
         Ok(())
     }
@@ -220,8 +248,13 @@ impl InputForwarder {
         if let Some(o) = self.origin {
             return Ok(o);
         }
-        let reply = self.conn.translate_coordinates(self.target, self.root, 0, 0)?.reply();
-        let Some(t) = gone_to_none(reply)? else { return Err(X11Error::NoWindow(self.target)) };
+        let reply = self
+            .conn
+            .translate_coordinates(self.target, self.root, 0, 0)?
+            .reply();
+        let Some(t) = gone_to_none(reply)? else {
+            return Err(X11Error::NoWindow(self.target));
+        };
         let o = (i32::from(t.dst_x), i32::from(t.dst_y));
         self.origin = Some(o);
         Ok(o)
@@ -245,7 +278,12 @@ mod tests {
     fn mapper() -> CoordinateMapper {
         // 640x360 source shown at 2x inside a 1920x1080 overlay, letterboxed.
         CoordinateMapper {
-            content: Rect { x: 320, y: 180, width: 1280, height: 720 },
+            content: Rect {
+                x: 320,
+                y: 180,
+                width: 1280,
+                height: 720,
+            },
             source_size: (640, 360),
             crop_offset: (0, 30),
         }
@@ -272,7 +310,12 @@ mod tests {
     #[test]
     fn downscaled_content_maps_back() {
         let m = CoordinateMapper {
-            content: Rect { x: 0, y: 0, width: 100, height: 100 },
+            content: Rect {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 100,
+            },
             source_size: (1000, 1000),
             crop_offset: (5, 5),
         };

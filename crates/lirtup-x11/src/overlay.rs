@@ -10,13 +10,13 @@ use std::time::{Duration, Instant};
 
 use lirtup_config::OverlayMode;
 use x11rb::connection::{Connection, RequestConnection as _};
+use x11rb::protocol::Event;
 use x11rb::protocol::shape::SK;
 use x11rb::protocol::xfixes::ConnectionExt as _;
 use x11rb::protocol::xproto::{
-    AtomEnum, ChangeWindowAttributesAux, ColormapAlloc, ConfigureWindowAux, ConnectionExt as _, CreateWindowAux,
-    EventMask, PropMode, Rectangle, VisualClass, Window, WindowClass,
+    AtomEnum, ChangeWindowAttributesAux, ColormapAlloc, ConfigureWindowAux, ConnectionExt as _,
+    CreateWindowAux, EventMask, PropMode, Rectangle, VisualClass, Window, WindowClass,
 };
-use x11rb::protocol::Event;
 use x11rb::wrapper::ConnectionExt as _;
 use x11rb::xcb_ffi::XCBConnection;
 
@@ -149,9 +149,16 @@ impl OverlayWindow {
 
         // A 32-bit TrueColor visual for the transparency; the root visual if
         // there is none (no compositor-friendly alpha, still works).
-        let argb = screen.allowed_depths.iter().filter(|d| d.depth == 32).find_map(|d| {
-            d.visuals.iter().find(|v| v.class == VisualClass::TRUE_COLOR).map(|v| (d.depth, v.visual_id))
-        });
+        let argb = screen
+            .allowed_depths
+            .iter()
+            .filter(|d| d.depth == 32)
+            .find_map(|d| {
+                d.visuals
+                    .iter()
+                    .find(|v| v.class == VisualClass::TRUE_COLOR)
+                    .map(|v| (d.depth, v.visual_id))
+            });
         let (depth, visual) = argb.unwrap_or_else(|| {
             tracing::warn!("no 32-bit ARGB visual; the overlay will not be translucent");
             (screen.root_depth, screen.root_visual)
@@ -185,12 +192,48 @@ impl OverlayWindow {
 
         // Fixed properties.
         let title = options.title.as_bytes();
-        conn.change_property8(PropMode::REPLACE, window, AtomEnum::WM_NAME, AtomEnum::STRING, title)?;
-        conn.change_property8(PropMode::REPLACE, window, atoms._NET_WM_NAME, atoms.UTF8_STRING, title)?;
-        conn.change_property8(PropMode::REPLACE, window, AtomEnum::WM_CLASS, AtomEnum::STRING, b"lirtup\0LirtUp\0")?;
-        conn.change_property32(PropMode::REPLACE, window, atoms._NET_WM_PID, AtomEnum::CARDINAL, &[std::process::id()])?;
-        conn.change_property32(PropMode::REPLACE, window, atoms.WM_PROTOCOLS, AtomEnum::ATOM, &[atoms.WM_DELETE_WINDOW])?;
-        conn.change_property32(PropMode::REPLACE, window, atoms._LIRTUP_OVERLAY, AtomEnum::CARDINAL, &[1])?;
+        conn.change_property8(
+            PropMode::REPLACE,
+            window,
+            AtomEnum::WM_NAME,
+            AtomEnum::STRING,
+            title,
+        )?;
+        conn.change_property8(
+            PropMode::REPLACE,
+            window,
+            atoms._NET_WM_NAME,
+            atoms.UTF8_STRING,
+            title,
+        )?;
+        conn.change_property8(
+            PropMode::REPLACE,
+            window,
+            AtomEnum::WM_CLASS,
+            AtomEnum::STRING,
+            b"lirtup\0LirtUp\0",
+        )?;
+        conn.change_property32(
+            PropMode::REPLACE,
+            window,
+            atoms._NET_WM_PID,
+            AtomEnum::CARDINAL,
+            &[std::process::id()],
+        )?;
+        conn.change_property32(
+            PropMode::REPLACE,
+            window,
+            atoms.WM_PROTOCOLS,
+            AtomEnum::ATOM,
+            &[atoms.WM_DELETE_WINDOW],
+        )?;
+        conn.change_property32(
+            PropMode::REPLACE,
+            window,
+            atoms._LIRTUP_OVERLAY,
+            AtomEnum::CARDINAL,
+            &[1],
+        )?;
         conn.change_property32(
             PropMode::REPLACE,
             window,
@@ -227,7 +270,10 @@ impl OverlayWindow {
         }
         overlay.conn.map_window(window)?;
         // Override-redirect windows are not stacked by the window manager.
-        overlay.conn.configure_window(window, &ConfigureWindowAux::new().stack_mode(x11rb::protocol::xproto::StackMode::ABOVE))?;
+        overlay.conn.configure_window(
+            window,
+            &ConfigureWindowAux::new().stack_mode(x11rb::protocol::xproto::StackMode::ABOVE),
+        )?;
         overlay.conn.flush()?;
         Ok(overlay)
     }
@@ -287,7 +333,8 @@ impl OverlayWindow {
     pub fn set_opacity(&mut self, opacity: f32) -> Result<()> {
         let opacity = opacity.clamp(0.0, 1.0);
         if opacity >= 1.0 {
-            self.conn.delete_property(self.window, self.atoms._NET_WM_WINDOW_OPACITY)?;
+            self.conn
+                .delete_property(self.window, self.atoms._NET_WM_WINDOW_OPACITY)?;
         } else {
             let value = (f64::from(opacity) * f64::from(u32::MAX)).round() as u32;
             self.conn.change_property32(
@@ -306,13 +353,18 @@ impl OverlayWindow {
     /// clicks pass through, otherwise only those rectangles take input (the
     /// in-game toolbar of round 4).
     pub fn set_input_region(&mut self, region: Option<&[Rect]>) -> Result<()> {
-        if self.conn.extension_information(x11rb::protocol::xfixes::X11_EXTENSION_NAME)?.is_none() {
+        if self
+            .conn
+            .extension_information(x11rb::protocol::xfixes::X11_EXTENSION_NAME)?
+            .is_none()
+        {
             return Err(X11Error::MissingExtension("XFIXES"));
         }
         self.conn.xfixes_query_version(5, 0)?.reply()?;
         match region {
             None => {
-                self.conn.xfixes_set_window_shape_region(self.window, SK::INPUT, 0, 0, x11rb::NONE)?;
+                self.conn
+                    .xfixes_set_window_shape_region(self.window, SK::INPUT, 0, 0, x11rb::NONE)?;
             }
             Some(rects) => {
                 let rects: Vec<Rectangle> = rects
@@ -326,7 +378,8 @@ impl OverlayWindow {
                     .collect();
                 let id = self.conn.generate_id()?;
                 self.conn.xfixes_create_region(id, &rects)?;
-                self.conn.xfixes_set_window_shape_region(self.window, SK::INPUT, 0, 0, id)?;
+                self.conn
+                    .xfixes_set_window_shape_region(self.window, SK::INPUT, 0, 0, id)?;
                 self.conn.xfixes_destroy_region(id)?;
             }
         }
@@ -348,7 +401,8 @@ impl OverlayWindow {
                 }
             }
         };
-        self.conn.change_window_attributes(self.window, &ChangeWindowAttributesAux::new().cursor(cursor))?;
+        self.conn
+            .change_window_attributes(self.window, &ChangeWindowAttributesAux::new().cursor(cursor))?;
         self.conn.flush()?;
         Ok(())
     }
@@ -376,7 +430,9 @@ impl OverlayWindow {
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<()> {
         self.conn.configure_window(
             self.window,
-            &ConfigureWindowAux::new().x(i32::from(clamp_i16(x))).y(i32::from(clamp_i16(y))),
+            &ConfigureWindowAux::new()
+                .x(i32::from(clamp_i16(x)))
+                .y(i32::from(clamp_i16(y))),
         )?;
         self.rect.x = x;
         self.rect.y = y;
@@ -436,18 +492,32 @@ impl OverlayWindow {
         let mut state = Vec::new();
         match self.mode {
             OverlayMode::Fullscreen => state.extend([a._NET_WM_STATE_FULLSCREEN, a._NET_WM_STATE_ABOVE]),
-            OverlayMode::AlwaysOnTop | OverlayMode::TopTransparent => {
-                state.extend([a._NET_WM_STATE_ABOVE, a._NET_WM_STATE_SKIP_TASKBAR, a._NET_WM_STATE_SKIP_PAGER])
-            }
+            OverlayMode::AlwaysOnTop | OverlayMode::TopTransparent => state.extend([
+                a._NET_WM_STATE_ABOVE,
+                a._NET_WM_STATE_SKIP_TASKBAR,
+                a._NET_WM_STATE_SKIP_PAGER,
+            ]),
             OverlayMode::Windowed => {}
         }
         c.change_property32(PropMode::REPLACE, w, a._NET_WM_STATE, AtomEnum::ATOM, &state)?;
         if windowed || self.target == x11rb::NONE {
             c.delete_property(w, AtomEnum::WM_TRANSIENT_FOR.into())?;
         } else {
-            c.change_property32(PropMode::REPLACE, w, AtomEnum::WM_TRANSIENT_FOR, AtomEnum::WINDOW, &[self.target])?;
+            c.change_property32(
+                PropMode::REPLACE,
+                w,
+                AtomEnum::WM_TRANSIENT_FOR,
+                AtomEnum::WINDOW,
+                &[self.target],
+            )?;
         }
-        c.change_property32(PropMode::REPLACE, w, AtomEnum::WM_NORMAL_HINTS, AtomEnum::WM_SIZE_HINTS, &size_hints(self.rect, windowed))?;
+        c.change_property32(
+            PropMode::REPLACE,
+            w,
+            AtomEnum::WM_NORMAL_HINTS,
+            AtomEnum::WM_SIZE_HINTS,
+            &size_hints(self.rect, windowed),
+        )?;
         Ok(())
     }
 
@@ -456,17 +526,35 @@ impl OverlayWindow {
         use PointerKind::{Motion, Press, Release};
         let w = self.window;
         Ok(match event {
-            Event::ButtonPress(e) if e.event == w => Some(pointer(Press(e.detail), e.event_x, e.event_y, e.state.into(), e.time)),
-            Event::ButtonRelease(e) if e.event == w => {
-                Some(pointer(Release(e.detail), e.event_x, e.event_y, e.state.into(), e.time))
+            Event::ButtonPress(e) if e.event == w => Some(pointer(
+                Press(e.detail),
+                e.event_x,
+                e.event_y,
+                e.state.into(),
+                e.time,
+            )),
+            Event::ButtonRelease(e) if e.event == w => Some(pointer(
+                Release(e.detail),
+                e.event_x,
+                e.event_y,
+                e.state.into(),
+                e.time,
+            )),
+            Event::MotionNotify(e) if e.event == w => {
+                Some(pointer(Motion, e.event_x, e.event_y, e.state.into(), e.time))
             }
-            Event::MotionNotify(e) if e.event == w => Some(pointer(Motion, e.event_x, e.event_y, e.state.into(), e.time)),
-            Event::KeyPress(e) if e.event == w => {
-                Some(OverlayEvent::Key { pressed: true, keycode: e.detail, state: e.state.into(), time: e.time })
-            }
-            Event::KeyRelease(e) if e.event == w => {
-                Some(OverlayEvent::Key { pressed: false, keycode: e.detail, state: e.state.into(), time: e.time })
-            }
+            Event::KeyPress(e) if e.event == w => Some(OverlayEvent::Key {
+                pressed: true,
+                keycode: e.detail,
+                state: e.state.into(),
+                time: e.time,
+            }),
+            Event::KeyRelease(e) if e.event == w => Some(OverlayEvent::Key {
+                pressed: false,
+                keycode: e.detail,
+                state: e.state.into(),
+                time: e.time,
+            }),
             Event::EnterNotify(e) if e.event == w => Some(OverlayEvent::Enter),
             Event::LeaveNotify(e) if e.event == w => Some(OverlayEvent::Leave),
             Event::Expose(e) if e.window == w && e.count == 0 => Some(OverlayEvent::Expose),
@@ -481,7 +569,12 @@ impl OverlayWindow {
                     let t = self.conn.translate_coordinates(w, self.root, 0, 0)?.reply()?;
                     (i32::from(t.dst_x), i32::from(t.dst_y))
                 };
-                let rect = Rect { x, y, width: e.width.into(), height: e.height.into() };
+                let rect = Rect {
+                    x,
+                    y,
+                    width: e.width.into(),
+                    height: e.height.into(),
+                };
                 if rect == self.rect {
                     None
                 } else {
@@ -516,7 +609,13 @@ impl Drop for OverlayWindow {
 }
 
 fn pointer(kind: PointerKind, x: i16, y: i16, state: u16, time: u32) -> OverlayEvent {
-    OverlayEvent::Pointer { kind, x: x.into(), y: y.into(), state, time }
+    OverlayEvent::Pointer {
+        kind,
+        x: x.into(),
+        y: y.into(),
+        state,
+        time,
+    }
 }
 
 /// `WM_SIZE_HINTS`: user position and size, and min = max when `fixed`.
@@ -550,7 +649,11 @@ fn clamp_side(v: u32) -> u16 {
 
 /// `poll(2)` the connection for input, up to `timeout`.
 fn wait_readable(fd: std::os::fd::RawFd, timeout: Duration) -> Result<()> {
-    let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    let mut pfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
     let ms = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
     // SAFETY: one valid `pollfd`, count 1.
     let r = unsafe { libc::poll(&mut pfd, 1, ms) };
@@ -569,7 +672,12 @@ mod tests {
 
     #[test]
     fn hints_fix_size_only_when_asked() {
-        let r = Rect { x: 10, y: 20, width: 640, height: 480 };
+        let r = Rect {
+            x: 10,
+            y: 20,
+            width: 640,
+            height: 480,
+        };
         let h = size_hints(r, true);
         assert_eq!(h[0], 1 | 2 | 16 | 32);
         assert_eq!(&h[5..9], &[640, 480, 640, 480]);

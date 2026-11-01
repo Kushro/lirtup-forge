@@ -42,17 +42,34 @@ impl X11 {
             for m in monitors.monitors {
                 let name = c.get_atom_name(m.name)?.reply()?;
                 let refresh_hz = m.outputs.iter().find_map(|&output| {
-                    let info = c.randr_get_output_info(output, resources.config_timestamp).ok()?.reply().ok()?;
+                    let info = c
+                        .randr_get_output_info(output, resources.config_timestamp)
+                        .ok()?
+                        .reply()
+                        .ok()?;
                     if info.crtc == 0 {
                         return None;
                     }
-                    let crtc = c.randr_get_crtc_info(info.crtc, resources.config_timestamp).ok()?.reply().ok()?;
-                    resources.modes.iter().find(|mode| mode.id == crtc.mode).and_then(refresh_rate)
+                    let crtc = c
+                        .randr_get_crtc_info(info.crtc, resources.config_timestamp)
+                        .ok()?
+                        .reply()
+                        .ok()?;
+                    resources
+                        .modes
+                        .iter()
+                        .find(|mode| mode.id == crtc.mode)
+                        .and_then(refresh_rate)
                 });
                 out.push(MonitorInfo {
                     index: 0,
                     name: String::from_utf8_lossy(&name.name).into_owned(),
-                    rect: Rect { x: m.x.into(), y: m.y.into(), width: m.width.into(), height: m.height.into() },
+                    rect: Rect {
+                        x: m.x.into(),
+                        y: m.y.into(),
+                        width: m.width.into(),
+                        height: m.height.into(),
+                    },
                     primary: m.primary,
                     refresh_hz,
                 });
@@ -120,15 +137,36 @@ fn select_area(monitors: &[MonitorInfo], selector: &lirtup_config::MonitorSelect
         MonitorSelector::Name(name) if name.eq_ignore_ascii_case("all") => {
             let x0 = monitors.iter().map(|m| m.rect.x).min().unwrap_or(0);
             let y0 = monitors.iter().map(|m| m.rect.y).min().unwrap_or(0);
-            let x1 = monitors.iter().map(|m| m.rect.x + m.rect.width as i32).max().unwrap_or(0);
-            let y1 = monitors.iter().map(|m| m.rect.y + m.rect.height as i32).max().unwrap_or(0);
+            let x1 = monitors
+                .iter()
+                .map(|m| m.rect.x + m.rect.width as i32)
+                .max()
+                .unwrap_or(0);
+            let y1 = monitors
+                .iter()
+                .map(|m| m.rect.y + m.rect.height as i32)
+                .max()
+                .unwrap_or(0);
             let hz = monitors.iter().filter_map(|m| m.refresh_hz).reduce(f32::min);
-            return (Rect { x: x0, y: y0, width: (x1 - x0) as u32, height: (y1 - y0) as u32 }, hz);
+            return (
+                Rect {
+                    x: x0,
+                    y: y0,
+                    width: (x1 - x0) as u32,
+                    height: (y1 - y0) as u32,
+                },
+                hz,
+            );
         }
         MonitorSelector::Name(name) => monitors
             .iter()
             .find(|m| m.name.eq_ignore_ascii_case(name))
-            .or_else(|| name.trim().parse::<u32>().ok().and_then(|i| monitors.iter().find(|m| m.index == i))),
+            .or_else(|| {
+                name.trim()
+                    .parse::<u32>()
+                    .ok()
+                    .and_then(|i| monitors.iter().find(|m| m.index == i))
+            }),
     };
     let chosen = found.or_else(|| {
         tracing::warn!("monitor {selector:?} not found; using the primary one");
@@ -146,7 +184,12 @@ mod tests {
         MonitorInfo {
             index: 0,
             name: name.into(),
-            rect: Rect { x, y: 0, width: 1920, height: 1080 },
+            rect: Rect {
+                x,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
             primary,
             refresh_hz: Some(hz),
         }
@@ -169,7 +212,15 @@ mod tests {
     #[test]
     fn selectors() {
         let list = sample();
-        let dp = (Rect { x: 1920, y: 0, width: 1920, height: 1080 }, Some(144.0));
+        let dp = (
+            Rect {
+                x: 1920,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            Some(144.0),
+        );
         assert_eq!(select_area(&list, &MonitorSelector::Name("primary".into())), dp);
         assert_eq!(select_area(&list, &MonitorSelector::Name("dp-1".into())), dp);
         assert_eq!(select_area(&list, &MonitorSelector::Index(0)), dp);
@@ -177,7 +228,15 @@ mod tests {
         assert_eq!(select_area(&list, &MonitorSelector::Name("nope".into())), dp);
         assert_eq!(
             select_area(&list, &MonitorSelector::Name("all".into())),
-            (Rect { x: 0, y: 0, width: 3840, height: 1080 }, Some(60.0))
+            (
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: 3840,
+                    height: 1080
+                },
+                Some(60.0)
+            )
         );
     }
 

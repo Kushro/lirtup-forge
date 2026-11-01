@@ -30,7 +30,14 @@ impl TileCache {
         let tile_size = tile_size.max(1);
         let cols = width.div_ceil(tile_size);
         let rows = height.div_ceil(tile_size);
-        TileCache { width, height, tile_size, cols, rows, hashes: vec![None; (cols * rows) as usize] }
+        TileCache {
+            width,
+            height,
+            tile_size,
+            cols,
+            rows,
+            hashes: vec![None; (cols * rows) as usize],
+        }
     }
 
     /// Tile edge in pixels.
@@ -85,13 +92,22 @@ impl TileCache {
         out.clear();
         let mut changed = vec![false; self.hashes.len()];
         for r in damage {
-            let Some((cols, rows)) = self.span(r) else { continue };
+            let Some((cols, rows)) = self.span(r) else {
+                continue;
+            };
             let single = cols.len() == 1 && rows.len() == 1;
             for row in rows {
                 for col in cols.clone() {
                     let idx = (row * self.cols + col) as usize;
                     let tile = Tile { col, row };
-                    if single && r.hash != 0 && *r == (DamageRect { hash: r.hash, ..self.tile_rect(tile) }) {
+                    if single
+                        && r.hash != 0
+                        && *r
+                            == (DamageRect {
+                                hash: r.hash,
+                                ..self.tile_rect(tile)
+                            })
+                    {
                         if self.hashes[idx] != Some(r.hash) {
                             self.hashes[idx] = Some(r.hash);
                             changed[idx] = true;
@@ -106,7 +122,10 @@ impl TileCache {
         for (idx, &c) in changed.iter().enumerate() {
             if c {
                 let idx = idx as u32;
-                out.push(Tile { col: idx % self.cols, row: idx / self.cols });
+                out.push(Tile {
+                    col: idx % self.cols,
+                    row: idx / self.cols,
+                });
             }
         }
     }
@@ -193,7 +212,12 @@ pub fn dirty_fraction(rects: &[DamageRect], width: u32, height: u32) -> f32 {
     for pair in xs.windows(2) {
         let (sx0, sx1) = (pair[0], pair[1]);
         spans.clear();
-        spans.extend(boxes.iter().filter(|b| b[0] <= sx0 && b[2] >= sx1).map(|b| (b[1], b[3])));
+        spans.extend(
+            boxes
+                .iter()
+                .filter(|b| b[0] <= sx0 && b[2] >= sx1)
+                .map(|b| (b[1], b[3])),
+        );
         spans.sort_unstable();
         let mut covered = 0i64;
         let mut cur: Option<(i64, i64)> = None;
@@ -220,7 +244,13 @@ mod tests {
     use super::*;
 
     fn r(x: i32, y: i32, width: i32, height: i32) -> DamageRect {
-        DamageRect { x, y, width, height, hash: 0 }
+        DamageRect {
+            x,
+            y,
+            width,
+            height,
+            hash: 0,
+        }
     }
 
     #[test]
@@ -231,14 +261,38 @@ mod tests {
 
         let t = Tile { col: 1, row: 0 };
         let mut out = Vec::new();
-        cache.changed_tiles(&[DamageRect { hash: 7, ..cache.tile_rect(t) }], &mut out);
+        cache.changed_tiles(
+            &[DamageRect {
+                hash: 7,
+                ..cache.tile_rect(t)
+            }],
+            &mut out,
+        );
         assert_eq!(out, vec![t]);
-        cache.changed_tiles(&[DamageRect { hash: 7, ..cache.tile_rect(t) }], &mut out);
+        cache.changed_tiles(
+            &[DamageRect {
+                hash: 7,
+                ..cache.tile_rect(t)
+            }],
+            &mut out,
+        );
         assert!(out.is_empty());
-        cache.changed_tiles(&[DamageRect { hash: 8, ..cache.tile_rect(t) }], &mut out);
+        cache.changed_tiles(
+            &[DamageRect {
+                hash: 8,
+                ..cache.tile_rect(t)
+            }],
+            &mut out,
+        );
         assert_eq!(out, vec![t]);
         cache.reset();
-        cache.changed_tiles(&[DamageRect { hash: 8, ..cache.tile_rect(t) }], &mut out);
+        cache.changed_tiles(
+            &[DamageRect {
+                hash: 8,
+                ..cache.tile_rect(t)
+            }],
+            &mut out,
+        );
         assert_eq!(out, vec![t]);
     }
 

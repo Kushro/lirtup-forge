@@ -64,8 +64,26 @@ impl Hotkeys {
         let (conn, screen) = RustConnection::connect(None)?;
         let root = conn.setup().roots[screen].root;
         let wake = conn.generate_id()?;
-        conn.create_window(0, wake, root, 0, 0, 1, 1, 0, WindowClass::INPUT_ONLY, 0, &CreateWindowAux::new())?;
-        let shared = Arc::new(Shared { conn, root, wake, grabs: Mutex::new(Vec::new()), stop: AtomicBool::new(false) });
+        conn.create_window(
+            0,
+            wake,
+            root,
+            0,
+            0,
+            1,
+            1,
+            0,
+            WindowClass::INPUT_ONLY,
+            0,
+            &CreateWindowAux::new(),
+        )?;
+        let shared = Arc::new(Shared {
+            conn,
+            root,
+            wake,
+            grabs: Mutex::new(Vec::new()),
+            stop: AtomicBool::new(false),
+        });
         let errors = shared.grab_all(bindings)?;
 
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -74,7 +92,14 @@ impl Hotkeys {
             .name("lirtup-hotkeys".into())
             .spawn(move || listen(&thread_shared, &tx))
             .map_err(|e| X11Error::Connection(format!("cannot start the hotkey thread: {e}")))?;
-        Ok((Hotkeys { shared, thread: Some(thread) }, rx, errors))
+        Ok((
+            Hotkeys {
+                shared,
+                thread: Some(thread),
+            },
+            rx,
+            errors,
+        ))
     }
 
     /// Replace the bindings (after `ReloadConfig`).
@@ -92,8 +117,16 @@ impl Hotkeys {
         let Some(thread) = self.thread.take() else { return };
         self.shared.stop.store(true, Ordering::SeqCst);
         // An event sent with an empty mask goes to the window's creator: us.
-        let wake = ClientMessageEvent::new(32, self.shared.wake, x11rb::protocol::xproto::AtomEnum::NONE, [0u32; 5]);
-        let _ = self.shared.conn.send_event(false, self.shared.wake, EventMask::NO_EVENT, wake);
+        let wake = ClientMessageEvent::new(
+            32,
+            self.shared.wake,
+            x11rb::protocol::xproto::AtomEnum::NONE,
+            [0u32; 5],
+        );
+        let _ = self
+            .shared
+            .conn
+            .send_event(false, self.shared.wake, EventMask::NO_EVENT, wake);
         let _ = self.shared.conn.flush();
         let _ = thread.join();
         let _ = self.shared.ungrab_all();
@@ -115,16 +148,25 @@ impl Shared {
         for (action, hotkey) in bindings {
             let label = hotkey_label(hotkey);
             let Some(keysym) = keysym_for(&hotkey.key) else {
-                errors.push(X11Error::Hotkey(label, format!("unknown key name {:?}", hotkey.key)));
+                errors.push(X11Error::Hotkey(
+                    label,
+                    format!("unknown key name {:?}", hotkey.key),
+                ));
                 continue;
             };
             let keycodes = keycodes_for(&self.conn, keysym)?;
             if keycodes.is_empty() {
-                errors.push(X11Error::Hotkey(label, "no key on this keyboard layout produces it".into()));
+                errors.push(X11Error::Hotkey(
+                    label,
+                    "no key on this keyboard layout produces it".into(),
+                ));
                 continue;
             }
             let modifiers = hotkey.modifiers.0 & MODIFIER_BITS;
-            if grabs.iter().any(|g: &Grab| g.modifiers == modifiers && keycodes.contains(&g.keycode)) {
+            if grabs
+                .iter()
+                .any(|g: &Grab| g.modifiers == modifiers && keycodes.contains(&g.keycode))
+            {
                 errors.push(X11Error::Hotkey(label, "bound to two actions".into()));
                 continue;
             }
@@ -155,14 +197,22 @@ impl Shared {
                 // Leave nothing half-grabbed.
                 for &keycode in keycodes.iter() {
                     for lock in lock_combinations() {
-                        self.conn.ungrab_key(keycode, self.root, ModMask::from(modifiers | lock))?;
+                        self.conn
+                            .ungrab_key(keycode, self.root, ModMask::from(modifiers | lock))?;
                     }
                 }
-                errors.push(X11Error::Hotkey(label, "already grabbed by another program".into()));
+                errors.push(X11Error::Hotkey(
+                    label,
+                    "already grabbed by another program".into(),
+                ));
                 continue;
             }
             tracing::debug!("grabbed {} for {}: keycodes {done:?}", label, action.as_str());
-            grabs.extend(done.into_iter().map(|keycode| Grab { modifiers, keycode, action: *action }));
+            grabs.extend(done.into_iter().map(|keycode| Grab {
+                modifiers,
+                keycode,
+                action: *action,
+            }));
         }
         self.conn.flush()?;
         *self.grabs.lock().unwrap_or_else(PoisonError::into_inner) = grabs;
@@ -173,7 +223,8 @@ impl Shared {
         let mut grabs = self.grabs.lock().unwrap_or_else(PoisonError::into_inner);
         for g in grabs.drain(..) {
             for lock in lock_combinations() {
-                self.conn.ungrab_key(g.keycode, self.root, ModMask::from(g.modifiers | lock))?;
+                self.conn
+                    .ungrab_key(g.keycode, self.root, ModMask::from(g.modifiers | lock))?;
             }
         }
         self.conn.flush()?;
@@ -212,13 +263,20 @@ fn listen(shared: &Shared, tx: &Sender<HotkeyAction>) {
 fn match_grab(grabs: &[Grab], keycode: Keycode, state: u16) -> Option<HotkeyAction> {
     let locks = LOCK_MASKS.iter().fold(0, |a, m| a | m);
     let state = state & MODIFIER_BITS & !locks;
-    grabs.iter().find(|g| g.keycode == keycode && g.modifiers & !locks == state).map(|g| g.action)
+    grabs
+        .iter()
+        .find(|g| g.keycode == keycode && g.modifiers & !locks == state)
+        .map(|g| g.action)
 }
 
 /// Every OR of the lock masks (8 combinations, 0 included).
 fn lock_combinations() -> impl Iterator<Item = u16> {
     (0u16..1 << LOCK_MASKS.len()).map(|bits| {
-        LOCK_MASKS.iter().enumerate().filter(|(i, _)| bits & (1 << i) != 0).fold(0, |a, (_, m)| a | m)
+        LOCK_MASKS
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| bits & (1 << i) != 0)
+            .fold(0, |a, (_, m)| a | m)
     })
 }
 
@@ -244,9 +302,12 @@ pub(crate) fn keycodes_for<C: Connection>(conn: &C, keysym: u32) -> Result<Vec<K
 /// `Display` of `Hotkey`.
 fn hotkey_label(hotkey: &Hotkey) -> String {
     let mut parts: Vec<&str> = Vec::new();
-    for (bit, name) in
-        [(Modifiers::CONTROL, "Ctrl"), (Modifiers::ALT, "Alt"), (Modifiers::SHIFT, "Shift"), (Modifiers::SUPER, "Super")]
-    {
+    for (bit, name) in [
+        (Modifiers::CONTROL, "Ctrl"),
+        (Modifiers::ALT, "Alt"),
+        (Modifiers::SHIFT, "Shift"),
+        (Modifiers::SUPER, "Super"),
+    ] {
         if hotkey.modifiers.contains(bit) {
             parts.push(name);
         }
@@ -342,8 +403,15 @@ mod tests {
     #[test]
     fn match_ignores_locks_but_not_extra_modifiers() {
         let alt_shift = Modifiers::ALT.0 | Modifiers::SHIFT.0;
-        let grabs = [Grab { modifiers: alt_shift, keycode: 39, action: HotkeyAction::ToggleScaling }];
-        assert_eq!(match_grab(&grabs, 39, alt_shift), Some(HotkeyAction::ToggleScaling));
+        let grabs = [Grab {
+            modifiers: alt_shift,
+            keycode: 39,
+            action: HotkeyAction::ToggleScaling,
+        }];
+        assert_eq!(
+            match_grab(&grabs, 39, alt_shift),
+            Some(HotkeyAction::ToggleScaling)
+        );
         // NumLock + CapsLock on, and a mouse button held (bit 8).
         let noisy = alt_shift | MOD2 | LOCK | 0x100;
         assert_eq!(match_grab(&grabs, 39, noisy), Some(HotkeyAction::ToggleScaling));
@@ -353,7 +421,10 @@ mod tests {
 
     #[test]
     fn label_in_1x_order() {
-        let hk = Hotkey { modifiers: Modifiers::SHIFT | Modifiers::ALT | Modifiers::CONTROL, key: "Plus".into() };
+        let hk = Hotkey {
+            modifiers: Modifiers::SHIFT | Modifiers::ALT | Modifiers::CONTROL,
+            key: "Plus".into(),
+        };
         assert_eq!(hotkey_label(&hk), "Ctrl+Alt+Shift+Plus");
     }
 }

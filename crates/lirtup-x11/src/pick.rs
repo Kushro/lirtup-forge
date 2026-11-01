@@ -1,9 +1,9 @@
 //! «Señalar ventana»: crosshair cursor, click, window under it (`PickWindow`).
 
-use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, EventMask, GrabMode, GrabStatus, Window};
-use x11rb::protocol::Event;
 use x11rb::CURRENT_TIME;
+use x11rb::connection::Connection;
+use x11rb::protocol::Event;
+use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, EventMask, GrabMode, GrabStatus, Window};
 
 use crate::error::gone_to_none;
 use crate::{Result, WindowInfo, X11, X11Error};
@@ -30,10 +30,15 @@ impl X11 {
         if grab.status != GrabStatus::SUCCESS {
             c.free_cursor(cursor)?;
             c.flush()?;
-            return Err(X11Error::Request(format!("cannot grab the pointer ({:?})", grab.status)));
+            return Err(X11Error::Request(format!(
+                "cannot grab the pointer ({:?})",
+                grab.status
+            )));
         }
         // The keyboard grab only serves Escape; failing it is fine.
-        let _ = c.grab_keyboard(false, self.root, CURRENT_TIME, GrabMode::ASYNC, GrabMode::ASYNC)?.reply();
+        let _ = c
+            .grab_keyboard(false, self.root, CURRENT_TIME, GrabMode::ASYNC, GrabMode::ASYNC)?
+            .reply();
         let escape = crate::hotkeys::keycodes_for(c, crate::hotkeys::XK_ESCAPE).unwrap_or_default();
 
         let picked = loop {
@@ -63,7 +68,10 @@ impl X11 {
     pub(crate) fn client_window(&self, frame: Window) -> Result<Window> {
         let mut queue = std::collections::VecDeque::from([frame]);
         while let Some(win) = queue.pop_front() {
-            let state = self.conn.get_property(false, win, self.atoms.WM_STATE, AtomEnum::ANY, 0, 0)?.reply();
+            let state = self
+                .conn
+                .get_property(false, win, self.atoms.WM_STATE, AtomEnum::ANY, 0, 0)?
+                .reply();
             if gone_to_none(state)?.is_some_and(|r| r.type_ != u32::from(AtomEnum::NONE)) {
                 return Ok(win);
             }

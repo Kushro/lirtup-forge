@@ -21,11 +21,17 @@ impl X11 {
         if self.thumbnails.get() {
             return Ok(());
         }
-        if self.conn.extension_information(x11rb::protocol::composite::X11_EXTENSION_NAME)?.is_none() {
+        if self
+            .conn
+            .extension_information(x11rb::protocol::composite::X11_EXTENSION_NAME)?
+            .is_none()
+        {
             return Err(X11Error::MissingExtension("Composite"));
         }
         self.conn.composite_query_version(0, 4)?.reply()?;
-        self.conn.composite_redirect_subwindows(self.root, Redirect::AUTOMATIC)?.check()?;
+        self.conn
+            .composite_redirect_subwindows(self.root, Redirect::AUTOMATIC)?
+            .check()?;
         self.thumbnails.set(true);
         Ok(())
     }
@@ -34,11 +40,15 @@ impl X11 {
     /// `None` if the window is unmapped or gone.
     pub fn thumbnail(&self, xid: u32, max_width: u32) -> Result<Option<RgbaImage>> {
         let c = &self.conn;
-        let Some(attrs) = gone_to_none(c.get_window_attributes(xid)?.reply())? else { return Ok(None) };
+        let Some(attrs) = gone_to_none(c.get_window_attributes(xid)?.reply())? else {
+            return Ok(None);
+        };
         if attrs.map_state != MapState::VIEWABLE {
             return Ok(None);
         }
-        let Some(geometry) = gone_to_none(c.get_geometry(xid)?.reply())? else { return Ok(None) };
+        let Some(geometry) = gone_to_none(c.get_geometry(xid)?.reply())? else {
+            return Ok(None);
+        };
         let (w, h) = (geometry.width, geometry.height);
         if w == 0 || h == 0 {
             return Ok(None);
@@ -72,8 +82,12 @@ impl X11 {
     /// (the window manager's frame). `None` when that fails.
     fn read_through_pixmap(&self, xid: Window, w: u16, h: u16) -> Result<Option<Vec<u8>>> {
         let c = &self.conn;
-        let Some(top) = self.top_level(xid)? else { return Ok(None) };
-        let Some(top_geometry) = gone_to_none(c.get_geometry(top)?.reply())? else { return Ok(None) };
+        let Some(top) = self.top_level(xid)? else {
+            return Ok(None);
+        };
+        let Some(top_geometry) = gone_to_none(c.get_geometry(top)?.reply())? else {
+            return Ok(None);
+        };
         let Some(offset) = gone_to_none(c.translate_coordinates(xid, top, 0, 0)?.reply())? else {
             return Ok(None);
         };
@@ -84,8 +98,17 @@ impl X11 {
         // The pixmap includes the frame's border; window coordinates start
         // inside it.
         let border = top_geometry.border_width as i16;
-        let image =
-            c.get_image(ImageFormat::Z_PIXMAP, pixmap, offset.dst_x + border, offset.dst_y + border, w, h, !0)?.reply();
+        let image = c
+            .get_image(
+                ImageFormat::Z_PIXMAP,
+                pixmap,
+                offset.dst_x + border,
+                offset.dst_y + border,
+                w,
+                h,
+                !0,
+            )?
+            .reply();
         c.free_pixmap(pixmap)?;
         Ok(image.ok().map(|r| r.data))
     }
@@ -93,7 +116,9 @@ impl X11 {
     /// The child of the root that contains `xid`.
     fn top_level(&self, mut xid: Window) -> Result<Option<Window>> {
         loop {
-            let Some(tree) = gone_to_none(self.conn.query_tree(xid)?.reply())? else { return Ok(None) };
+            let Some(tree) = gone_to_none(self.conn.query_tree(xid)?.reply())? else {
+                return Ok(None);
+            };
             if tree.parent == self.root || tree.parent == x11rb::NONE {
                 return Ok(Some(xid));
             }
@@ -117,7 +142,11 @@ pub(crate) fn bgrx_to_rgba(data: &[u8], w: u32, h: u32) -> Option<RgbaImage> {
     for px in data.chunks_exact(4) {
         out.extend_from_slice(&[px[2], px[1], px[0], 255]);
     }
-    Some(RgbaImage { width: w, height: h, data: out })
+    Some(RgbaImage {
+        width: w,
+        height: h,
+        data: out,
+    })
 }
 
 #[cfg(test)]

@@ -64,7 +64,14 @@ impl X11 {
         let root = conn.setup().roots[screen].root;
         let atoms = Atoms::new(&conn)?.reply()?;
         let xwayland = detect_xwayland(&conn);
-        Ok(X11 { conn, screen, root, atoms, xwayland, thumbnails: Cell::new(false) })
+        Ok(X11 {
+            conn,
+            screen,
+            root,
+            atoms,
+            xwayland,
+            thumbnails: Cell::new(false),
+        })
     }
 
     /// Root window of the default screen.

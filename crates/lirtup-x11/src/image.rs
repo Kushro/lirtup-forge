@@ -17,7 +17,11 @@ pub(crate) fn resize(src: &RgbaImage, width: u32, height: u32) -> RgbaImage {
     let (sw, sh) = (src.width as usize, src.height as usize);
     let (dw, dh) = (width.max(1) as usize, height.max(1) as usize);
     if sw == 0 || sh == 0 {
-        return RgbaImage { width: dw as u32, height: dh as u32, data: vec![0; dw * dh * 4] };
+        return RgbaImage {
+            width: dw as u32,
+            height: dh as u32,
+            data: vec![0; dw * dh * 4],
+        };
     }
     if (sw, sh) == (dw, dh) {
         return src.clone();
@@ -69,7 +73,11 @@ pub(crate) fn resize(src: &RgbaImage, width: u32, height: u32) -> RgbaImage {
             }
         }
     }
-    RgbaImage { width: dw as u32, height: dh as u32, data }
+    RgbaImage {
+        width: dw as u32,
+        height: dh as u32,
+        data,
+    }
 }
 
 #[cfg(test)]
@@ -77,7 +85,11 @@ mod tests {
     use super::*;
 
     fn solid(w: u32, h: u32, px: [u8; 4]) -> RgbaImage {
-        RgbaImage { width: w, height: h, data: px.repeat((w * h) as usize) }
+        RgbaImage {
+            width: w,
+            height: h,
+            data: px.repeat((w * h) as usize),
+        }
     }
 
     #[test]

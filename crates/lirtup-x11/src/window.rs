@@ -2,12 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
+use x11rb::CURRENT_TIME;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
     AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask, InputFocus, MapState,
     StackMode, Window,
 };
-use x11rb::CURRENT_TIME;
 
 use crate::error::gone_to_none;
 use crate::{Result, RgbaImage, X11};
@@ -95,13 +95,24 @@ impl X11 {
         let c = &self.conn;
         let geometry = c.get_geometry(xid)?;
         let origin = c.translate_coordinates(xid, self.root, 0, 0)?;
-        let net_name = c.get_property(false, xid, self.atoms._NET_WM_NAME, self.atoms.UTF8_STRING, 0, 1024)?;
+        let net_name = c.get_property(
+            false,
+            xid,
+            self.atoms._NET_WM_NAME,
+            self.atoms.UTF8_STRING,
+            0,
+            1024,
+        )?;
         let wm_name = c.get_property(false, xid, AtomEnum::WM_NAME, AtomEnum::ANY, 0, 1024)?;
         let class = c.get_property(false, xid, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 256)?;
         let pid = c.get_property(false, xid, self.atoms._NET_WM_PID, AtomEnum::CARDINAL, 0, 1)?;
 
-        let Some(geometry) = gone_to_none(geometry.reply())? else { return Ok(None) };
-        let Some(origin) = gone_to_none(origin.reply())? else { return Ok(None) };
+        let Some(geometry) = gone_to_none(geometry.reply())? else {
+            return Ok(None);
+        };
+        let Some(origin) = gone_to_none(origin.reply())? else {
+            return Ok(None);
+        };
         let net_name = gone_to_none(net_name.reply())?;
         let wm_name = gone_to_none(wm_name.reply())?;
         let class = gone_to_none(class.reply())?;
@@ -121,7 +132,9 @@ impl X11 {
             })
             .unwrap_or_default();
         let class = class.and_then(|r| parse_wm_class(&r.value));
-        let pid = pid.and_then(|r| r.value32().and_then(|mut v| v.next())).filter(|&p| p != 0);
+        let pid = pid
+            .and_then(|r| r.value32().and_then(|mut v| v.next()))
+            .filter(|&p| p != 0);
 
         Ok(Some(WindowInfo {
             xid,
@@ -141,7 +154,14 @@ impl X11 {
     pub fn active_window(&self) -> Result<Option<WindowInfo>> {
         let reply = self
             .conn
-            .get_property(false, self.root, self.atoms._NET_ACTIVE_WINDOW, AtomEnum::WINDOW, 0, 1)?
+            .get_property(
+                false,
+                self.root,
+                self.atoms._NET_ACTIVE_WINDOW,
+                AtomEnum::WINDOW,
+                0,
+                1,
+            )?
             .reply()?;
         match reply.value32().and_then(|mut v| v.next()) {
             Some(win) if win != 0 && win != self.root => self.window_info(win),
@@ -153,13 +173,27 @@ impl X11 {
     pub fn window_icon(&self, xid: u32, size: u32) -> Result<Option<RgbaImage>> {
         let reply = self
             .conn
-            .get_property(false, xid, self.atoms._NET_WM_ICON, AtomEnum::CARDINAL, 0, 1024 * 1024)?
+            .get_property(
+                false,
+                xid,
+                self.atoms._NET_WM_ICON,
+                AtomEnum::CARDINAL,
+                0,
+                1024 * 1024,
+            )?
             .reply();
-        let Some(reply) = gone_to_none(reply)? else { return Ok(None) };
-        let Some(values) = reply.value32() else { return Ok(None) };
+        let Some(reply) = gone_to_none(reply)? else {
+            return Ok(None);
+        };
+        let Some(values) = reply.value32() else {
+            return Ok(None);
+        };
         let values: Vec<u32> = values.collect();
-        let Some(icon) = pick_icon(&values, size) else { return Ok(None) };
-        if size == 0 || (icon.width <= size && icon.height <= size && (icon.width == size || icon.height == size))
+        let Some(icon) = pick_icon(&values, size) else {
+            return Ok(None);
+        };
+        if size == 0
+            || (icon.width <= size && icon.height <= size && (icon.width == size || icon.height == size))
         {
             return Ok(Some(icon));
         }
@@ -172,7 +206,8 @@ impl X11 {
         if self.wm_supports(self.atoms._NET_ACTIVE_WINDOW)? {
             // Source indication 2 = pager: window managers honor it without
             // focus-stealing prevention.
-            let event = ClientMessageEvent::new(32, xid, self.atoms._NET_ACTIVE_WINDOW, [2, CURRENT_TIME, 0, 0, 0]);
+            let event =
+                ClientMessageEvent::new(32, xid, self.atoms._NET_ACTIVE_WINDOW, [2, CURRENT_TIME, 0, 0, 0]);
             self.conn.send_event(
                 false,
                 self.root,
@@ -180,7 +215,8 @@ impl X11 {
                 event,
             )?;
         } else {
-            self.conn.configure_window(xid, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE))?;
+            self.conn
+                .configure_window(xid, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE))?;
             self.conn.set_input_focus(InputFocus::PARENT, xid, CURRENT_TIME)?;
         }
         self.conn.flush()?;
@@ -201,7 +237,10 @@ impl X11 {
 impl X11 {
     /// A `WINDOW[]` property of the root (`_NET_CLIENT_LIST`, ...).
     fn window_list_property(&self, atom: u32) -> Result<Option<Vec<Window>>> {
-        let reply = self.conn.get_property(false, self.root, atom, AtomEnum::WINDOW, 0, 16 * 1024)?.reply()?;
+        let reply = self
+            .conn
+            .get_property(false, self.root, atom, AtomEnum::WINDOW, 0, 16 * 1024)?
+            .reply()?;
         Ok(reply.value32().map(|v| v.collect()))
     }
 
@@ -220,20 +259,35 @@ impl X11 {
 
     /// `_NET_WM_PID` of a window.
     pub(crate) fn window_pid(&self, xid: u32) -> Result<Option<u32>> {
-        let reply = self.conn.get_property(false, xid, self.atoms._NET_WM_PID, AtomEnum::CARDINAL, 0, 1)?.reply();
+        let reply = self
+            .conn
+            .get_property(false, xid, self.atoms._NET_WM_PID, AtomEnum::CARDINAL, 0, 1)?
+            .reply();
         Ok(gone_to_none(reply)?.and_then(|r| r.value32().and_then(|mut v| v.next())))
     }
 
     /// `WM_CLASS` of a window.
     pub(crate) fn window_class(&self, xid: u32) -> Result<Option<WindowClass>> {
-        let reply = self.conn.get_property(false, xid, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 256)?.reply();
+        let reply = self
+            .conn
+            .get_property(false, xid, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 256)?
+            .reply();
         Ok(gone_to_none(reply)?.and_then(|r| parse_wm_class(&r.value)))
     }
 
     /// Whether the window manager lists `atom` in `_NET_SUPPORTED`.
     pub(crate) fn wm_supports(&self, atom: u32) -> Result<bool> {
-        let reply =
-            self.conn.get_property(false, self.root, self.atoms._NET_SUPPORTED, AtomEnum::ATOM, 0, 4096)?.reply()?;
+        let reply = self
+            .conn
+            .get_property(
+                false,
+                self.root,
+                self.atoms._NET_SUPPORTED,
+                AtomEnum::ATOM,
+                0,
+                4096,
+            )?
+            .reply()?;
         Ok(reply.value32().is_some_and(|mut v| v.any(|a| a == atom)))
     }
 
@@ -246,8 +300,12 @@ impl X11 {
         let types = c.get_property(false, win, self.atoms._NET_WM_WINDOW_TYPE, AtomEnum::ATOM, 0, 16)?;
         let marker = c.get_property(false, win, self.atoms._LIRTUP_OVERLAY, AtomEnum::ANY, 0, 1)?;
 
-        let Some(attrs) = gone_to_none(attrs.reply())? else { return Ok(false) };
-        let Some(geometry) = gone_to_none(geometry.reply())? else { return Ok(false) };
+        let Some(attrs) = gone_to_none(attrs.reply())? else {
+            return Ok(false);
+        };
+        let Some(geometry) = gone_to_none(geometry.reply())? else {
+            return Ok(false);
+        };
         let types = gone_to_none(types.reply())?;
         let marker = gone_to_none(marker.reply())?;
 
@@ -273,19 +331,23 @@ impl X11 {
             a._NET_WM_WINDOW_TYPE_DIALOG,
             a._NET_WM_WINDOW_TYPE_POPUP_MENU,
         ];
-        let types: Vec<u32> = types.and_then(|t| t.value32().map(|v| v.collect())).unwrap_or_default();
+        let types: Vec<u32> = types
+            .and_then(|t| t.value32().map(|v| v.collect()))
+            .unwrap_or_default();
         if !types.is_empty() {
             if types.iter().any(|t| excluded.contains(t)) || !types.contains(&a._NET_WM_WINDOW_TYPE_NORMAL) {
                 return Ok(false);
             }
         } else if let Some(class) = self.window_class(win)?
-            && (class.instance.to_lowercase().contains("xwayland") || class.class.to_lowercase().contains("xwayland"))
+            && (class.instance.to_lowercase().contains("xwayland")
+                || class.class.to_lowercase().contains("xwayland"))
         {
             return Ok(false);
         }
 
         // Small XWayland helper windows ("xwaylandvideobridge", ...).
-        if w < 300 && h < 300
+        if w < 300
+            && h < 300
             && let Some(info) = self.window_info(win)?
         {
             let title = info.title.to_lowercase();
@@ -302,7 +364,10 @@ fn parse_wm_class(raw: &[u8]) -> Option<WindowClass> {
     let mut parts = raw.split(|&b| b == 0);
     let instance = parts.next()?;
     let class = parts.next()?;
-    Some(WindowClass { instance: latin1(instance), class: latin1(class) })
+    Some(WindowClass {
+        instance: latin1(instance),
+        class: latin1(class),
+    })
 }
 
 fn latin1(raw: &[u8]) -> String {
@@ -319,7 +384,9 @@ pub(crate) fn pick_icon(values: &[u32], size: u32) -> Option<RgbaImage> {
     while i + 2 <= values.len() {
         let (w, h) = (values[i], values[i + 1]);
         let start = i + 2;
-        let Some(len) = (w as usize).checked_mul(h as usize) else { break };
+        let Some(len) = (w as usize).checked_mul(h as usize) else {
+            break;
+        };
         if start + len > values.len() {
             break;
         }
@@ -345,7 +412,11 @@ pub(crate) fn pick_icon(values: &[u32], size: u32) -> Option<RgbaImage> {
         let [b, g, r, a] = argb.to_le_bytes();
         data.extend_from_slice(&[r, g, b, a]);
     }
-    Some(RgbaImage { width: w, height: h, data })
+    Some(RgbaImage {
+        width: w,
+        height: h,
+        data,
+    })
 }
 
 /// Largest `(w, h)` with the aspect of `src_w × src_h` that fits in
@@ -354,7 +425,10 @@ pub(crate) fn fit_inside(src_w: u32, src_h: u32, max_w: u32, max_h: u32) -> (u32
     if src_w == 0 || src_h == 0 {
         return (max_w.max(1), max_h.max(1));
     }
-    let scale = f64::min(f64::from(max_w) / f64::from(src_w), f64::from(max_h) / f64::from(src_h));
+    let scale = f64::min(
+        f64::from(max_w) / f64::from(src_w),
+        f64::from(max_h) / f64::from(src_h),
+    );
     let w = (f64::from(src_w) * scale).round().max(1.0) as u32;
     let h = (f64::from(src_h) * scale).round().max(1.0) as u32;
     (w.min(max_w.max(1)), h.min(max_h.max(1)))

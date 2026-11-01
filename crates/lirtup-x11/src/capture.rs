@@ -19,11 +19,11 @@ use std::os::fd::{FromRawFd, OwnedFd};
 
 use memmap2::MmapMut;
 use x11rb::connection::{Connection, RequestConnection};
+use x11rb::protocol::ErrorKind;
 use x11rb::protocol::damage::{self, ConnectionExt as _};
 use x11rb::protocol::shm::{self, ConnectionExt as _};
 use x11rb::protocol::xfixes::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat};
-use x11rb::protocol::ErrorKind;
 use x11rb::rust_connection::RustConnection;
 
 use crate::tiles::{Tile, TileCache};
@@ -129,11 +129,15 @@ impl ShmSegment {
         // returns a new fd or -1.
         let fd = unsafe { libc::memfd_create(c"lirtup-capture".as_ptr(), libc::MFD_CLOEXEC) };
         if fd < 0 {
-            return Err(X11Error::Shm(format!("memfd_create: {}", std::io::Error::last_os_error())));
+            return Err(X11Error::Shm(format!(
+                "memfd_create: {}",
+                std::io::Error::last_os_error()
+            )));
         }
         // SAFETY: `fd` is a fresh descriptor nobody else owns.
         let file = unsafe { File::from_raw_fd(fd) };
-        file.set_len(len as u64).map_err(|e| X11Error::Shm(format!("ftruncate: {e}")))?;
+        file.set_len(len as u64)
+            .map_err(|e| X11Error::Shm(format!("ftruncate: {e}")))?;
         // SAFETY: the memfd is private to this process and the X server; the
         // server only writes into it during `ShmGetImage`, whose reply we wait
         // for before reading the map.
@@ -250,13 +254,20 @@ impl Capture {
             sequence: self.sequence,
         };
 
-        let geometry = self.conn.get_geometry(self.window)?.reply().map_err(|e| match &e {
-            e if crate::error::is_gone(e) => X11Error::NoWindow(self.window),
-            _ => e.into(),
-        })?;
+        let geometry = self
+            .conn
+            .get_geometry(self.window)?
+            .reply()
+            .map_err(|e| match &e {
+                e if crate::error::is_gone(e) => X11Error::NoWindow(self.window),
+                _ => e.into(),
+            })?;
         let size = (u32::from(geometry.width), u32::from(geometry.height));
         if size != self.window_size {
-            return Err(X11Error::Resized { width: size.0, height: size.1 });
+            return Err(X11Error::Resized {
+                width: size.0,
+                height: size.1,
+            });
         }
 
         // Damage notifications only wake nobody; drop them.
@@ -291,7 +302,13 @@ impl Capture {
         // Read the region.
         let src_stride = rw as usize * 4;
         let dst_stride = self.stride() as usize;
-        let read = read_region(&self.conn, self.window, &self.crop, self.shm.as_ref(), (rx, ry, rw, rh));
+        let read = read_region(
+            &self.conn,
+            self.window,
+            &self.crop,
+            self.shm.as_ref(),
+            (rx, ry, rw, rh),
+        );
         let pixels: std::borrow::Cow<'_, [u8]> = match read {
             Ok(p) => p,
             Err(ReadError::NotViewable) => {
@@ -311,7 +328,13 @@ impl Capture {
             out[dst_off..dst_off + src_stride].copy_from_slice(src);
         }
 
-        let whole = DamageRect { x: 0, y: 0, width: self.width as i32, height: self.height as i32, hash: 0 };
+        let whole = DamageRect {
+            x: 0,
+            y: 0,
+            width: self.width as i32,
+            height: self.height as i32,
+            hash: 0,
+        };
         if !tracking {
             frame.dirty = true;
             frame.full = true;
@@ -325,7 +348,14 @@ impl Capture {
         for row in ry / ts..(ry + rh).div_ceil(ts) {
             for col in rx / ts..(rx + rw).div_ceil(ts) {
                 let mut t = self.cache.tile_rect(Tile { col, row });
-                t.hash = tile_hash(&pixels, src_stride, t.x as u32 - rx, t.y as u32 - ry, t.width as u32, t.height as u32);
+                t.hash = tile_hash(
+                    &pixels,
+                    src_stride,
+                    t.x as u32 - rx,
+                    t.y as u32 - ry,
+                    t.width as u32,
+                    t.height as u32,
+                );
                 self.candidates.push(t);
             }
         }
@@ -367,7 +397,17 @@ fn read_region<'a>(
     let sy = (crop.top + y) as i16;
     if let Some(seg) = shm {
         let reply = conn
-            .shm_get_image(window, sx, sy, w as u16, h as u16, !0, ImageFormat::Z_PIXMAP.into(), seg.seg, 0)
+            .shm_get_image(
+                window,
+                sx,
+                sy,
+                w as u16,
+                h as u16,
+                !0,
+                ImageFormat::Z_PIXMAP.into(),
+                seg.seg,
+                0,
+            )
             .map_err(|e| ReadError::Other(e.into()))?
             .reply()
             .map_err(ReadError::from)?;
@@ -410,7 +450,9 @@ enum ReadError {
 impl From<x11rb::errors::ReplyError> for ReadError {
     fn from(e: x11rb::errors::ReplyError) -> Self {
         match &e {
-            x11rb::errors::ReplyError::X11Error(x) if x.error_kind == ErrorKind::Match => ReadError::NotViewable,
+            x11rb::errors::ReplyError::X11Error(x) if x.error_kind == ErrorKind::Match => {
+                ReadError::NotViewable
+            }
             e if crate::error::is_gone(e) => ReadError::Gone,
             _ => ReadError::Other(e.into()),
         }
@@ -418,7 +460,9 @@ impl From<x11rb::errors::ReplyError> for ReadError {
 }
 
 fn unsupported_depth(depth: u8) -> X11Error {
-    X11Error::Request(format!("window depth {depth} is not 32 bits per pixel; only 24/32-bit windows are supported"))
+    X11Error::Request(format!(
+        "window depth {depth} is not 32 bits per pixel; only 24/32-bit windows are supported"
+    ))
 }
 
 fn shm_available(conn: &RustConnection) -> bool {
@@ -445,7 +489,8 @@ fn create_damage(conn: &RustConnection, window: u32) -> Result<Damage> {
     conn.xfixes_create_region(region, &[])?;
     let id = conn.generate_id()?;
     // NonEmpty: one event when damage appears; we poll, events are not needed.
-    conn.damage_create(id, window, damage::ReportLevel::NON_EMPTY)?.check()?;
+    conn.damage_create(id, window, damage::ReportLevel::NON_EMPTY)?
+        .check()?;
     Ok(Damage { damage: id, region })
 }
 
@@ -459,7 +504,12 @@ pub(crate) fn cropped_size(window: (u32, u32), crop: &lirtup_config::Crop) -> (u
 
 /// Grow a rectangle (cropped coordinates, may stick out) to whole tiles,
 /// clamped to the frame. `None` when it misses the frame.
-pub(crate) fn align_to_tiles(r: &DamageRect, tile: u32, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+pub(crate) fn align_to_tiles(
+    r: &DamageRect,
+    tile: u32,
+    width: u32,
+    height: u32,
+) -> Option<(u32, u32, u32, u32)> {
     let x0 = i64::from(r.x).clamp(0, i64::from(width)) as u32;
     let y0 = i64::from(r.y).clamp(0, i64::from(height)) as u32;
     let x1 = (i64::from(r.x) + i64::from(r.width)).clamp(0, i64::from(width)) as u32;
@@ -491,18 +541,41 @@ mod tests {
 
     #[test]
     fn crop_saturates() {
-        let crop = lirtup_config::Crop { top: 30, bottom: 10, left: 5, right: 5 };
+        let crop = lirtup_config::Crop {
+            top: 30,
+            bottom: 10,
+            left: 5,
+            right: 5,
+        };
         assert_eq!(cropped_size((800, 600), &crop), (790, 560));
         assert_eq!(cropped_size((8, 6), &crop), (0, 0));
     }
 
     #[test]
     fn align_grows_to_tile_grid() {
-        let r = DamageRect { x: 70, y: 10, width: 5, height: 60, hash: 0 };
+        let r = DamageRect {
+            x: 70,
+            y: 10,
+            width: 5,
+            height: 60,
+            hash: 0,
+        };
         assert_eq!(align_to_tiles(&r, 64, 100, 100), Some((64, 0, 36, 100)));
-        let r = DamageRect { x: -20, y: -20, width: 10, height: 10, hash: 0 };
+        let r = DamageRect {
+            x: -20,
+            y: -20,
+            width: 10,
+            height: 10,
+            hash: 0,
+        };
         assert_eq!(align_to_tiles(&r, 64, 100, 100), None);
-        let r = DamageRect { x: -20, y: 90, width: 30, height: 100, hash: 0 };
+        let r = DamageRect {
+            x: -20,
+            y: 90,
+            width: 30,
+            height: 100,
+            hash: 0,
+        };
         assert_eq!(align_to_tiles(&r, 64, 100, 100), Some((0, 64, 64, 36)));
     }
 
@@ -517,6 +590,9 @@ mod tests {
         assert_ne!(tile_hash(&a, 16, 2, 0, 2, 2), tile_hash(&b, 16, 2, 0, 2, 2));
         // Matches a one-shot xxh64 of the packed rows.
         let packed: Vec<u8> = [&a[0..8], &a[16..24]].concat();
-        assert_eq!(tile_hash(&a, 16, 0, 0, 2, 2), xxhash_rust::xxh64::xxh64(&packed, 0).max(1));
+        assert_eq!(
+            tile_hash(&a, 16, 0, 0, 2, 2),
+            xxhash_rust::xxh64::xxh64(&packed, 0).max(1)
+        );
     }
 }

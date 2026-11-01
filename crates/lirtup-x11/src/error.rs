@@ -55,7 +55,10 @@ impl From<x11rb::errors::ConnectionError> for X11Error {
 
 impl From<x11rb::x11_utils::X11Error> for X11Error {
     fn from(e: x11rb::x11_utils::X11Error) -> Self {
-        X11Error::Request(format!("{:?} (opcode {}.{})", e.error_kind, e.major_opcode, e.minor_opcode))
+        X11Error::Request(format!(
+            "{:?} (opcode {}.{})",
+            e.error_kind, e.major_opcode, e.minor_opcode
+        ))
     }
 }
 

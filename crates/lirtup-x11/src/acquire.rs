@@ -43,7 +43,9 @@ impl X11 {
         }
         if let Some(needle) = needle {
             let needle = needle.to_lowercase();
-            return Ok(windows.into_iter().find(|w| w.title.to_lowercase().contains(&needle)));
+            return Ok(windows
+                .into_iter()
+                .find(|w| w.title.to_lowercase().contains(&needle)));
         }
         Ok(None)
     }
@@ -58,11 +60,24 @@ impl X11 {
     pub fn wait_for_pid(&self, search: &PidSearch) -> Result<WindowInfo> {
         let start = Instant::now();
         let total = (search.total_timeout > 0.0).then(|| Duration::from_secs_f64(search.total_timeout));
-        let hint = search.class_hint.as_deref().map(str::to_lowercase).filter(|h| !h.is_empty());
-        let mut phase = if search.starting_phase == 2 && hint.is_some() { 2 } else { 1 };
+        let hint = search
+            .class_hint
+            .as_deref()
+            .map(str::to_lowercase)
+            .filter(|h| !h.is_empty());
+        let mut phase = if search.starting_phase == 2 && hint.is_some() {
+            2
+        } else {
+            1
+        };
         loop {
             let phase_len = Duration::from_secs_f64(
-                if phase == 1 { search.pid_timeout } else { search.class_timeout }.max(POLL.as_secs_f64()),
+                if phase == 1 {
+                    search.pid_timeout
+                } else {
+                    search.class_timeout
+                }
+                .max(POLL.as_secs_f64()),
             );
             let phase_start = Instant::now();
             tracing::debug!("waiting for a window of pid {}: phase {phase}", search.pid);
@@ -72,7 +87,11 @@ impl X11 {
                 }
                 let pids = (phase == 1).then(|| descendant_pids(search.pid));
                 if let Some(found) = self.find_window(pids.as_ref(), hint.as_deref())? {
-                    tracing::debug!("found window 0x{:x} ({}) in phase {phase}", found.xid, found.title);
+                    tracing::debug!(
+                        "found window 0x{:x} ({}) in phase {phase}",
+                        found.xid,
+                        found.title
+                    );
                     return Ok(found);
                 }
                 std::thread::sleep(POLL);
@@ -90,7 +109,11 @@ impl X11 {
     }
 
     /// One pass of the PID / class search over the whole window tree.
-    fn find_window(&self, pids: Option<&HashSet<u32>>, class_hint: Option<&str>) -> Result<Option<WindowInfo>> {
+    fn find_window(
+        &self,
+        pids: Option<&HashSet<u32>>,
+        class_hint: Option<&str>,
+    ) -> Result<Option<WindowInfo>> {
         if pids.is_none() && class_hint.is_none() {
             return Ok(None);
         }
@@ -105,7 +128,9 @@ impl X11 {
                 }
             }
             if let Some(hint) = class_hint {
-                let Some(class) = self.window_class(win)? else { continue };
+                let Some(class) = self.window_class(win)? else {
+                    continue;
+                };
                 if !class_matches(&class, hint) {
                     continue;
                 }
@@ -132,7 +157,9 @@ fn descendant_pids(pid: u32) -> HashSet<u32> {
         if !out.insert(p) {
             continue;
         }
-        let Ok(tasks) = std::fs::read_dir(format!("/proc/{p}/task")) else { continue };
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{p}/task")) else {
+            continue;
+        };
         for task in tasks.flatten() {
             if let Ok(children) = std::fs::read_to_string(task.path().join("children")) {
                 stack.extend(children.split_whitespace().filter_map(|c| c.parse::<u32>().ok()));
@@ -148,7 +175,10 @@ mod tests {
 
     #[test]
     fn class_hint_matches_either_name() {
-        let c = crate::WindowClass { instance: "steam_app_42".into(), class: "Steam".into() };
+        let c = crate::WindowClass {
+            instance: "steam_app_42".into(),
+            class: "Steam".into(),
+        };
         assert!(class_matches(&c, "steam"));
         assert!(class_matches(&c, "app_42"));
         assert!(!class_matches(&c, "wine"));
