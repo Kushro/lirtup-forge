@@ -502,6 +502,9 @@ pub enum Action {
 }
 
 /// What [`update`] asks the outside world to do (run by `app.rs`).
+// Effects live for one dispatch and are never stored: their size does not
+// matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     /// Send a command to `lirtup serve`.
