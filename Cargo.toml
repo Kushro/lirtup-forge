@@ -103,8 +103,9 @@ cc = { version = "1.10.0", features = ["parallel"] }
 tempfile = "3.27.0"
 
 [workspace.lints.rust]
-# lirtup-gpu, lirtup-x11 and lsfg-sys allow it in their lib.rs; every unsafe
-# block there carries a `// SAFETY:` comment (clippy checks it).
+# lirtup-gpu, lirtup-x11 and lsfg-sys allow it in their lib.rs, and lirtup-fg
+# in its FFI wrapper (`native`) and the two env setters of `layer`; every
+# unsafe block carries a `// SAFETY:` comment (clippy checks it).
 unsafe_code = "deny"
 missing_docs = "warn"
 unsafe_op_in_unsafe_fn = "deny"
