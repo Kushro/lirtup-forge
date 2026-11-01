@@ -27,6 +27,7 @@
 pub mod acquire;
 pub mod capture;
 pub mod conn;
+mod cursor;
 pub mod error;
 pub mod hotkeys;
 pub mod image;
