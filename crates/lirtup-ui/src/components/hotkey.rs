@@ -77,7 +77,10 @@ fn modifiers_of(e: &KeyboardEvent) -> Modifiers {
         (m.ctrl(), Modifiers::CONTROL),
         (m.alt(), Modifiers::ALT),
         (m.shift(), Modifiers::SHIFT),
-        (m.meta() || m.contains(dioxus::prelude::Modifiers::SUPER), Modifiers::SUPER),
+        (
+            m.meta() || m.contains(dioxus::prelude::Modifiers::SUPER),
+            Modifiers::SUPER,
+        ),
     ] {
         if on {
             out = out | bit;
@@ -240,11 +243,28 @@ mod tests {
         assert_eq!(hotkey_keys(&h), ["Alt", "Shift", "A"]);
         // Every name produced is one lirtup-x11 maps to a keysym.
         for code in [
-            "KeyQ", "Digit0", "F1", "BracketLeft", "Quote", "Backquote", "Enter", "PrintScreen", "ArrowLeft", "NumpadAdd",
-            "Minus", "Equal", "Space", "Tab", "Delete", "PageDown",
+            "KeyQ",
+            "Digit0",
+            "F1",
+            "BracketLeft",
+            "Quote",
+            "Backquote",
+            "Enter",
+            "PrintScreen",
+            "ArrowLeft",
+            "NumpadAdd",
+            "Minus",
+            "Equal",
+            "Space",
+            "Tab",
+            "Delete",
+            "PageDown",
         ] {
             let name = key_name(code).unwrap();
-            assert!(lirtup_x11::hotkeys::keysym_for(&name).is_some(), "{code} -> {name}");
+            assert!(
+                lirtup_x11::hotkeys::keysym_for(&name).is_some(),
+                "{code} -> {name}"
+            );
         }
     }
 }

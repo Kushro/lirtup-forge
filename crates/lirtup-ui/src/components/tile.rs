@@ -71,7 +71,11 @@ pub fn WindowTile(
     };
     let running = state == TileState::Running;
     let ratio = aspect_ratio(&aspect, &window);
-    let title = if window.title.is_empty() { t!("cmp-tile-untitled") } else { window.title.clone() };
+    let title = if window.title.is_empty() {
+        t!("cmp-tile-untitled")
+    } else {
+        window.title.clone()
+    };
     let profile_text = profile.clone().unwrap_or_else(|| t!("cmp-tile-no-profile"));
     let running_text = match fps {
         Some(fps) => t!("cmp-tile-running-fps", fps = fps.round() as i64),

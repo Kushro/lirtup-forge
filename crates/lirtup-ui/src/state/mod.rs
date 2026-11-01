@@ -509,12 +509,15 @@ pub enum Effect {
     /// Write `config.yaml` (`ConfigFile::save`, with its backups); then
     /// [`Action::Written`].
     WriteConfig(ConfigFile),
-    /// Write one mode file; then [`Action::Written`].
+    /// Write one mode file (`ModeStore::save_raw`); then [`Action::Written`].
     WriteMode {
         /// Id (file stem).
         id: ModeId,
-        /// Content.
+        /// Content, parsed (what the store shows).
         mode: lirtup_config::Mode,
+        /// What is written: the file as read plus the edits. Keys the mode
+        /// does not set stay out, so *Predeterminado* shows through.
+        raw: lirtup_config::Mapping,
     },
     /// Remove one mode file; then [`Action::Written`].
     DeleteModeFile(ModeId),

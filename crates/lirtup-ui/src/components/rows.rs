@@ -6,6 +6,20 @@ use dioxus::prelude::*;
 use super::{Badge, Icon, IconButton};
 use crate::state::Origin;
 
+/// What the layer below a row is, for its origin note. `app.rs` provides it
+/// as a context (`Memo<RowLayer>`, from the route); without one (the
+/// gallery) rows read as a profile's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RowLayer {
+    /// A named profile, over *Predeterminado*.
+    #[default]
+    Profile,
+    /// *Predeterminado* (and the hotkeys of Ajustes), over the system values.
+    Default,
+    /// A scaling mode, over the system values.
+    Mode,
+}
+
 /// One setting: icon, title, subtitle and the control (`children`).
 ///
 /// - `Inherited`: grey subtitle «Hereda de Predeterminado» (or `subtitle`).
@@ -34,11 +48,27 @@ pub fn SettingRow(
     /// effect's parameters).
     detail: Option<Element>,
 ) -> Element {
+    let layer = try_use_context::<Memo<RowLayer>>()
+        .map(|m| m())
+        .unwrap_or_default();
     // A global setting has no layer to inherit from: only «unsaved» shows.
-    let origin = if global && origin == Origin::Overridden { Origin::Inherited } else { origin };
+    let origin = if global && origin == Origin::Overridden {
+        Origin::Inherited
+    } else {
+        origin
+    };
+    let inherited = || match layer {
+        RowLayer::Profile => t!("cmp-row-inherited"),
+        RowLayer::Default | RowLayer::Mode => t!("cmp-row-inherited-system"),
+    };
+    let overridden = match layer {
+        RowLayer::Profile => t!("cmp-row-overridden"),
+        RowLayer::Default => t!("cmp-row-overridden-default"),
+        RowLayer::Mode => t!("cmp-row-overridden-mode"),
+    };
     let (class, note) = match &origin {
-        Origin::Inherited => ("", subtitle.clone().or_else(|| (!global).then(|| t!("cmp-row-inherited")))),
-        Origin::Overridden => ("ovr", Some(t!("cmp-row-overridden"))),
+        Origin::Inherited => ("", subtitle.clone().or_else(|| (!global).then(inherited))),
+        Origin::Overridden => ("ovr", Some(overridden)),
         Origin::Dirty { before } => ("dirty", Some(t!("cmp-row-dirty", before = before.clone()))),
     };
     // With a change, the help text still shows, over the origin note.

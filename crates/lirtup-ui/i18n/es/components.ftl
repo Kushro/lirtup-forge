@@ -8,6 +8,9 @@ cmp-nav-label = Navegación
 ## Filas de ajustes
 cmp-row-inherited = Hereda de Predeterminado
 cmp-row-overridden = Cambiado en este perfil
+cmp-row-inherited-system = Valor del sistema
+cmp-row-overridden-default = Cambiado en Predeterminado
+cmp-row-overridden-mode = Cambiado en este modo
 cmp-row-dirty = Sin guardar · antes: { $before }
 cmp-row-global = Global
 cmp-row-inherit = Volver a heredar

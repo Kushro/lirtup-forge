@@ -86,14 +86,25 @@ fn sample_thumb(bg: &str, a: &str, b: &str) -> String {
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 300'><rect width='400' height='300' fill='{bg}'/>\
          <circle cx='90' cy='80' r='90' fill='{a}' opacity='.55'/><circle cx='320' cy='230' r='120' fill='{b}' opacity='.5'/></svg>"
     );
-    format!("data:image/svg+xml,{}", svg.replace('#', "%23").replace('<', "%3C").replace('>', "%3E").replace(' ', "%20"))
+    format!(
+        "data:image/svg+xml,{}",
+        svg.replace('#', "%23")
+            .replace('<', "%3C")
+            .replace('>', "%3E")
+            .replace(' ', "%20")
+    )
 }
 
 fn sample_window(xid: u32, title: &str) -> WindowInfo {
     WindowInfo {
         xid,
         title: title.into(),
-        rect: Rect { x: 0, y: 0, width: 1280, height: 720 },
+        rect: Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 720,
+        },
         pid: None,
         class: None,
     }
@@ -164,23 +175,67 @@ fn GalleryBody(scheme: Scheme, seed: String) -> Element {
     let reset_menu = vec![
         MenuItem::new("tab", "Deshacer los cambios de esta pestaña").icon("undo"),
         MenuItem::new("overrides", "Quitar los ajustes del perfil en esta pestaña").icon("layers_clear"),
-        MenuItem { divider_before: true, ..MenuItem::new("all", "Volver todo a los valores del sistema").icon("restart_alt") },
+        MenuItem {
+            divider_before: true,
+            ..MenuItem::new("all", "Volver todo a los valores del sistema").icon("restart_alt")
+        },
     ];
     let tile_menu = vec![
         MenuItem::new("window", "Escalar en ventana").icon("select_window"),
         MenuItem::new("new", "Crear perfil desde esta ventana").icon("person_add"),
         MenuItem::new("copy", "Copiar título").icon("content_copy"),
-        MenuItem { disabled: true, ..MenuItem::new("pin", "Fijar (pronto)").icon("push_pin") },
-        MenuItem { divider_before: true, danger: true, ..MenuItem::new("delete", "Eliminar perfil").icon("delete") },
+        MenuItem {
+            disabled: true,
+            ..MenuItem::new("pin", "Fijar (pronto)").icon("push_pin")
+        },
+        MenuItem {
+            divider_before: true,
+            danger: true,
+            ..MenuItem::new("delete", "Eliminar perfil").icon("delete")
+        },
     ];
-    let families = vec!["Inter".to_string(), "Noto Sans".to_string(), "Cantarell".to_string(), "DejaVu Sans".to_string()];
-    let pico = |initials: &str, color: &str| NavIcon::Profile { initials: initials.into(), color: color.into(), image: None };
+    let families = vec![
+        "Inter".to_string(),
+        "Noto Sans".to_string(),
+        "Cantarell".to_string(),
+        "DejaVu Sans".to_string(),
+    ];
+    let pico = |initials: &str, color: &str| NavIcon::Profile {
+        initials: initials.into(),
+        color: color.into(),
+        image: None,
+    };
     let tabs = vec![
-        TabItem { value: "scaling", label: "Escalado".into(), icon: "tune", dot: false },
-        TabItem { value: "presentation", label: "Presentación".into(), icon: "web_asset", dot: true },
-        TabItem { value: "display", label: "Pantalla".into(), icon: "monitor", dot: false },
-        TabItem { value: "extras", label: "Extras".into(), icon: "more_horiz", dot: false },
-        TabItem { value: "advanced", label: "Avanzado".into(), icon: "settings_applications", dot: false },
+        TabItem {
+            value: "scaling",
+            label: "Escalado".into(),
+            icon: "tune",
+            dot: false,
+        },
+        TabItem {
+            value: "presentation",
+            label: "Presentación".into(),
+            icon: "web_asset",
+            dot: true,
+        },
+        TabItem {
+            value: "display",
+            label: "Pantalla".into(),
+            icon: "monitor",
+            dot: false,
+        },
+        TabItem {
+            value: "extras",
+            label: "Extras".into(),
+            icon: "more_horiz",
+            dot: false,
+        },
+        TabItem {
+            value: "advanced",
+            label: "Avanzado".into(),
+            icon: "settings_applications",
+            dot: false,
+        },
     ];
     let pick = move |id: &'static str| last.set(id.to_string());
 

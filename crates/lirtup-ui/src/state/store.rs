@@ -332,7 +332,7 @@ pub fn apply_edits(file: &ConfigFile, edits: &IndexMap<(ProfileRef, Key), Option
 pub fn apply_mode_edits(
     modes: &ModeStore,
     edits: &IndexMap<(String, Key), Option<Value>>,
-) -> Vec<(String, lirtup_config::Mode)> {
+) -> Vec<(String, lirtup_config::Mode, Mapping)> {
     let mut changed: IndexMap<String, Mapping> = IndexMap::new();
     for ((id, key), value) in edits {
         let Some(raw) = modes.raw.get(id) else {
@@ -352,17 +352,15 @@ pub fn apply_mode_edits(
             {
                 mode.name = old.name.clone();
             }
-            (id, mode)
+            (id, mode, raw)
         })
         .collect()
 }
 
-/// A mode as `ModeStore::save` keeps it in `raw`.
-fn mode_mapping(mode: &Mode) -> Mapping {
-    match serde_yaml_ng::to_value(mode) {
-        Ok(Value::Mapping(map)) => map,
-        _ => Mapping::new(),
-    }
+/// `raw` with its `name` set to `name` (a new or copied mode file).
+fn named_raw(mut raw: Mapping, name: &str) -> Mapping {
+    raw.insert("name".into(), Value::String(name.to_owned()));
+    raw
 }
 
 impl Store {
@@ -790,10 +788,10 @@ fn save(store: &mut Store, restart: bool) -> Option<Effect> {
         store.config.edits.clear();
         effects.push(Effect::WriteConfig(store.config.file.clone()));
     }
-    for (id, mode) in apply_mode_edits(&store.modes.store, &store.modes.edits) {
-        store.modes.store.raw.insert(id.clone(), mode_mapping(&mode));
+    for (id, mode, raw) in apply_mode_edits(&store.modes.store, &store.modes.edits) {
+        store.modes.store.raw.insert(id.clone(), raw.clone());
         store.modes.store.modes.insert(id.clone(), mode.clone());
-        effects.push(Effect::WriteMode { id, mode });
+        effects.push(Effect::WriteMode { id, mode, raw });
     }
     store.modes.edits.clear();
     if effects.is_empty() {
@@ -1097,34 +1095,30 @@ fn create_mode(store: &mut Store, name: String, copy_from: Option<ModeId>) -> Op
         return None;
     }
     let id = store.modes.store.new_id(&name);
-    let mode = match copy_from.as_ref().and_then(|from| store.modes.store.get(from)) {
-        Some(from) => Mode {
-            name: name.clone(),
-            description: from.description.clone(),
-            settings: from.settings.clone(),
-            extra: from.extra.clone(),
-        },
-        None => Mode::from_mapping(&id, &Mapping::new()).0,
-    };
-    let mode = Mode {
-        name: name.clone(),
-        ..mode
-    };
+    // A copy keeps exactly the keys its source sets; a new mode sets none.
+    let source = copy_from
+        .as_ref()
+        .and_then(|from| store.modes.store.raw.get(from))
+        .cloned()
+        .unwrap_or_default();
+    let raw = named_raw(source, &name);
     write_mode(
         store,
         id.clone(),
-        mode,
+        raw,
         toast("profile-toast-mode-created", vec![("name", name)]),
     );
     store.route = Route::Modes { id: Some(id.clone()) };
-    let saved = store.modes.store.get(&id).cloned()?;
-    Some(Effect::WriteMode { id, mode: saved })
+    let mode = store.modes.store.get(&id).cloned()?;
+    let raw = store.modes.store.raw.get(&id).cloned()?;
+    Some(Effect::WriteMode { id, mode, raw })
 }
 
 /// Put a mode in the store as it will be on disk and count the write.
-fn write_mode(store: &mut Store, id: ModeId, mode: Mode, done: Toast) {
+fn write_mode(store: &mut Store, id: ModeId, raw: Mapping, done: Toast) {
     let before = snapshot(store);
-    store.modes.store.raw.insert(id.clone(), mode_mapping(&mode));
+    let (mode, _) = Mode::from_mapping(&id, &raw);
+    store.modes.store.raw.insert(id.clone(), raw);
     store.modes.store.modes.insert(id, mode);
     store.modes.store.modes.sort_keys();
     store.modes.store.raw.sort_keys();
@@ -1140,14 +1134,11 @@ fn duplicate_mode(store: &mut Store, id: ModeId, for_profile: Option<ProfileRef>
         &original.name,
     );
     let copy_id = store.modes.store.new_id(&name);
-    let mode = Mode {
-        name: name.clone(),
-        ..original
-    };
+    let raw = named_raw(store.modes.store.raw.get(&id).cloned().unwrap_or_default(), &name);
     write_mode(
         store,
         copy_id.clone(),
-        mode,
+        raw,
         toast("profile-toast-mode-created", vec![("name", name)]),
     );
     store.modes.edits = std::mem::take(&mut store.modes.edits)
@@ -1170,10 +1161,12 @@ fn duplicate_mode(store: &mut Store, id: ModeId, for_profile: Option<ProfileRef>
     store.route = Route::Modes {
         id: Some(copy_id.clone()),
     };
-    let saved = store.modes.store.get(&copy_id).cloned()?;
+    let mode = store.modes.store.get(&copy_id).cloned()?;
+    let raw = store.modes.store.raw.get(&copy_id).cloned()?;
     Some(Effect::WriteMode {
         id: copy_id,
-        mode: saved,
+        mode,
+        raw,
     })
 }
 
@@ -2040,13 +2033,24 @@ profiles:
             },
         );
         let list = effects(update(&mut store, Action::Save));
-        let [Effect::WriteMode { id, mode }] = list.as_slice() else {
+        let [Effect::WriteMode { id, mode, raw }] = list.as_slice() else {
             panic!("{list:?}");
         };
         assert_eq!(id, "anime");
         assert_eq!(mode.name, "Anime");
         assert!(mode.settings.cas_enabled);
         assert_eq!(mode.settings.model, lirtup_config::Model::M4x24);
+        // Only the keys the file had plus the edited one: the rest still
+        // comes from the layers below.
+        let mut keys: Vec<&str> = raw.keys().filter_map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        let mut expected: Vec<&str> = store.modes.store.raw["anime"]
+            .keys()
+            .filter_map(|k| k.as_str())
+            .collect();
+        expected.sort_unstable();
+        assert_eq!(keys, expected);
+        assert!(keys.contains(&"cas_enabled") && !keys.contains(&"crt_enabled"));
         let effect = update(&mut store, Action::Written(Ok(Written::Mode("anime".into()))));
         assert!(sends(&effect, &Command::ReloadConfig));
         assert_eq!(store.toast.as_ref().unwrap().key, "profile-toast-saved");
@@ -2131,7 +2135,42 @@ profiles:
         let saved = apply_edits(&store.config.file, &store.config.edits)
             .to_yaml()
             .unwrap();
-        assert_eq!(saved, text);
+        // Comments and formatting are not kept (1.x drops them too, with
+        // `yaml.safe_dump`), nor the hotkeys equal to the defaults (1.x
+        // `diff_hotkeys`); every other key and value is. A file 1.x wrote
+        // has neither, and comes back as the same text.
+        fn normalize(layer: &mut lirtup_config::Mapping) {
+            use lirtup_config::Value;
+            let Some(Value::Mapping(keys)) = layer.get("hotkeys") else {
+                return;
+            };
+            let keys: std::collections::BTreeMap<String, String> = keys
+                .iter()
+                .filter_map(|(k, v)| Some((k.as_str()?.to_owned(), v.as_str()?.to_owned())))
+                .collect();
+            let diff = lirtup_config::hotkeys::diff_hotkeys(&keys);
+            if diff.is_empty() {
+                layer.remove("hotkeys");
+            } else {
+                layer.insert("hotkeys".into(), serde_yaml_ng::to_value(diff).unwrap());
+            }
+        }
+        let value = |t: &str| {
+            let mut top: lirtup_config::Mapping = serde_yaml_ng::from_str(t).unwrap();
+            normalize(&mut top);
+            if let Some(lirtup_config::Value::Mapping(profiles)) = top.get_mut("profiles") {
+                for (_, p) in profiles.iter_mut() {
+                    if let Some(lirtup_config::Value::Mapping(o)) = p.get_mut("options") {
+                        normalize(o);
+                    }
+                }
+            }
+            top
+        };
+        assert_eq!(value(&saved), value(&text));
+        if !text.lines().any(|l| l.trim_start().starts_with('#')) {
+            assert_eq!(saved, text);
+        }
     }
 
     // ---- Restablecer -------------------------------------------------------------
@@ -2650,7 +2689,7 @@ profiles:
                 copy_from: None,
             },
         );
-        let Some(Effect::WriteMode { id, mode }) = effect else {
+        let Some(Effect::WriteMode { id, mode, .. }) = effect else {
             panic!("{effect:?}")
         };
         assert_eq!(
@@ -2675,7 +2714,7 @@ profiles:
                 for_profile: Some(ProfileRef::Named("A".into())),
             },
         );
-        let Some(Effect::WriteMode { id: copy, mode }) = effect else {
+        let Some(Effect::WriteMode { id: copy, mode, .. }) = effect else {
             panic!("{effect:?}")
         };
         assert_eq!(mode.name, "Anime nítido (2)");

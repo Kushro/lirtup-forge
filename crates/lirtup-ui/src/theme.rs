@@ -131,9 +131,12 @@ fn system_scheme() -> Scheme {
             .args(["get", "org.gnome.desktop.interface", key])
             .output()
             .ok()?;
-        out.status
-            .success()
-            .then(|| String::from_utf8_lossy(&out.stdout).trim().trim_matches('\'').to_lowercase())
+        out.status.success().then(|| {
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .trim_matches('\'')
+                .to_lowercase()
+        })
     }
     if let Ok(theme) = std::env::var("GTK_THEME") {
         return if theme.to_lowercase().contains("dark") {
@@ -271,7 +274,11 @@ pub fn contrast(a: &str, b: &str) -> f64 {
     fn lum(c: Rgb) -> f64 {
         let f = |x: u8| {
             let x = f64::from(x) / 255.0;
-            if x <= 0.03928 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) }
+            if x <= 0.03928 {
+                x / 12.92
+            } else {
+                ((x + 0.055) / 1.055).powf(2.4)
+            }
         };
         0.2126 * f(c.red) + 0.7152 * f(c.green) + 0.0722 * f(c.blue)
     }
@@ -307,7 +314,14 @@ pub fn contrast_pairs() -> Vec<(&'static str, &'static str, f64)> {
         "surface-container-high",
         "surface-container-highest",
     ] {
-        for fg in ["on-surface", "on-surface-variant", "primary", "tertiary", "error", "success"] {
+        for fg in [
+            "on-surface",
+            "on-surface-variant",
+            "primary",
+            "tertiary",
+            "error",
+            "success",
+        ] {
             pairs.push((fg, bg, 4.5));
         }
         pairs.push(("outline", bg, 3.0));
@@ -334,16 +348,17 @@ mod tests {
     fn tokens_json_matches_the_seed() {
         let tokens = tokens();
         let seed = tokens["seed"].as_str().unwrap();
-        let computed: serde_json::Map<String, serde_json::Value> = [("dark", Scheme::Dark), ("light", Scheme::Light)]
-            .into_iter()
-            .map(|(name, scheme)| {
-                let roles = roles(seed, scheme)
-                    .into_iter()
-                    .map(|(k, v)| (k.to_string(), serde_json::Value::String(v)))
-                    .collect();
-                (name.to_string(), serde_json::Value::Object(roles))
-            })
-            .collect();
+        let computed: serde_json::Map<String, serde_json::Value> =
+            [("dark", Scheme::Dark), ("light", Scheme::Light)]
+                .into_iter()
+                .map(|(name, scheme)| {
+                    let roles = roles(seed, scheme)
+                        .into_iter()
+                        .map(|(k, v)| (k.to_string(), serde_json::Value::String(v)))
+                        .collect();
+                    (name.to_string(), serde_json::Value::Object(roles))
+                })
+                .collect();
         if let Some(path) = std::env::var_os("LIRTUP_THEME_DUMP") {
             std::fs::write(path, serde_json::to_string(&computed).unwrap()).unwrap();
             return;

@@ -253,9 +253,9 @@ impl X11 {
         if window.is_lirtup_class() {
             return Ok(true);
         }
-        let marker = self
-            .conn
-            .get_property(false, window.xid, self.atoms._LIRTUP_OVERLAY, AtomEnum::ANY, 0, 1)?;
+        let marker =
+            self.conn
+                .get_property(false, window.xid, self.atoms._LIRTUP_OVERLAY, AtomEnum::ANY, 0, 1)?;
         Ok(gone_to_none(marker.reply())?.is_some_and(|m| m.type_ != u32::from(AtomEnum::NONE)))
     }
 

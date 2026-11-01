@@ -97,7 +97,11 @@ pub fn NavItem(
     if dirty {
         status.push(t!("nav-unsaved"));
     }
-    let full = if status.is_empty() { label.clone() } else { format!("{label} · {}", status.join(" · ")) };
+    let full = if status.is_empty() {
+        label.clone()
+    } else {
+        format!("{label} · {}", status.join(" · "))
+    };
     let item = rsx! {
         button {
             r#type: "button",
@@ -148,7 +152,11 @@ pub struct TabItem<T> {
 /// Arrows, Home and End select the tab they reach (automatic activation)
 /// and move the focus there; only the selected tab is in the Tab order.
 #[component]
-pub fn Tabs<T: Clone + PartialEq + 'static>(tabs: Vec<TabItem<T>>, selected: T, on_select: EventHandler<T>) -> Element {
+pub fn Tabs<T: Clone + PartialEq + 'static>(
+    tabs: Vec<TabItem<T>>,
+    selected: T,
+    on_select: EventHandler<T>,
+) -> Element {
     let id = super::overlays::use_dom_id();
     let count = tabs.len();
     let current = tabs.iter().position(|t| t.value == selected).unwrap_or(0);

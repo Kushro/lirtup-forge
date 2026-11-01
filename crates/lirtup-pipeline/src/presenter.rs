@@ -616,7 +616,10 @@ impl Presenter {
             Some(fg) => {
                 fg.present(&self.screen)?;
                 let waited = fg.take_waited();
-                (self.surface.lock().map_err(|_| poisoned())?.needs_recreation(), waited)
+                (
+                    self.surface.lock().map_err(|_| poisoned())?.needs_recreation(),
+                    waited,
+                )
             }
             None => {
                 let started = Instant::now();

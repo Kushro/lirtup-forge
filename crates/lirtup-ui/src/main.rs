@@ -50,6 +50,9 @@ fn main() {
         .with_window(window)
         .with_menu(None)
         .with_disable_context_menu(!cfg!(debug_assertions))
+        // wry's file-drop handler eats the HTML5 drag events the effect
+        // chain reorders with (front D's note); the GUI takes no file drops.
+        .with_disable_drag_drop_handler(true)
         // The dark surface, so the window does not flash white.
         .with_background_color((0x11, 0x13, 0x18, 0xff));
     dioxus::LaunchBuilder::desktop().with_cfg(config).launch(app::App);

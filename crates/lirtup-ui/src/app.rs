@@ -8,6 +8,17 @@
 //!
 //! With `LIRTUP_GUI_GALLERY=1` the app shows only the component gallery,
 //! without the store, the link or the screens (front A's bench).
+//!
+//! Test aids (screenshots, the reviewer's checks; input injection does not
+//! reach XWayland windows under KWin):
+//!
+//! - `LIRTUP_GUI_ROUTE`: the first page (`home`, `modes`, `modes/<id>`,
+//!   `profile/default/<tab>`, `profile/<name>/<tab>`, `settings/<tab>`,
+//!   `about`, `gallery`; tabs as `scaling`, `presentation`, `display`,
+//!   `extras`, `advanced`, `general`, `hotkeys`, `style`);
+//! - `LIRTUP_GUI_THEME`: `dark` or `light`, over `gui-config.yaml`;
+//! - `LIRTUP_GUI_EVAL`: a JavaScript file run in the page 2 s after start
+//!   (clicks and key events on the DOM reach the Dioxus handlers).
 
 use std::time::Duration;
 
@@ -16,6 +27,7 @@ use dioxus::desktop::{use_window, use_wry_event_handler};
 use dioxus::prelude::*;
 use lirtup_config::{ConfigFile, GuiConfig, ModeStore};
 
+use crate::components::RowLayer;
 use crate::components::{
     Button, ButtonVariant, FloatingToolbar, Gallery, IconButton, MenuItem, NavDrawer, NavHeader, NavIcon,
     NavItem, Snackbar, SplitButton,
@@ -108,16 +120,29 @@ fn Root() -> Element {
     });
     // The files, once (small and local: read on the UI thread).
     use_hook(move || dispatch(load_files()));
+    use_hook(move || test_aids(dispatch));
     // Window list and previews (front B).
     windows::use_window_list(dispatch);
     let thumbs = thumbs::use_thumbnails();
     use_context_provider(|| thumbs);
 
+    // The origin notes of the rows depend on the page's layer.
+    let layer = use_memo(move || match &store.read().route {
+        Route::Profile {
+            id: ProfileRef::Default,
+            ..
+        }
+        | Route::Settings { .. } => RowLayer::Default,
+        Route::Modes { .. } => RowLayer::Mode,
+        _ => RowLayer::Profile,
+    });
+    use_context_provider(|| layer);
+
     // Language and theme follow gui-config.yaml.
     use_effect(move || {
         let gui = store.read().gui.clone();
         *LANG.write() = Lang::from_config(gui.language);
-        *SCHEME.write() = theme::resolve(gui.theme);
+        *SCHEME.write() = forced_scheme().unwrap_or_else(|| theme::resolve(gui.theme));
     });
 
     // Rail below 1100 px.
@@ -156,6 +181,80 @@ fn Root() -> Element {
     }
 }
 
+/// `LIRTUP_GUI_THEME` (module docs).
+fn forced_scheme() -> Option<theme::Scheme> {
+    match std::env::var("LIRTUP_GUI_THEME").ok()?.as_str() {
+        "light" => Some(theme::Scheme::Light),
+        "dark" => Some(theme::Scheme::Dark),
+        _ => None,
+    }
+}
+
+/// `LIRTUP_GUI_ROUTE` and `LIRTUP_GUI_EVAL` (module docs).
+fn test_aids(dispatch: Callback<Action>) {
+    if let Some(route) = std::env::var("LIRTUP_GUI_ROUTE")
+        .ok()
+        .and_then(|r| parse_route(&r))
+    {
+        dispatch(Action::Navigate(route));
+    }
+    if let Some(path) = std::env::var_os("LIRTUP_GUI_EVAL") {
+        match std::fs::read_to_string(&path) {
+            Ok(script) => {
+                spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    if let Err(e) = document::eval(&script).await {
+                        tracing::warn!("LIRTUP_GUI_EVAL: {e}");
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("LIRTUP_GUI_EVAL {}: {e}", std::path::Path::new(&path).display()),
+        }
+    }
+}
+
+/// A route as `LIRTUP_GUI_ROUTE` spells it.
+fn parse_route(text: &str) -> Option<Route> {
+    let profile_tab = |t: &str| {
+        ProfileTab::ALL
+            .into_iter()
+            .find(|tab| format!("{tab:?}").eq_ignore_ascii_case(t))
+    };
+    let settings_tab = |t: &str| {
+        SettingsTab::ALL
+            .into_iter()
+            .find(|tab| format!("{tab:?}").eq_ignore_ascii_case(t))
+    };
+    let parts: Vec<&str> = text.splitn(3, '/').collect();
+    Some(match parts.as_slice() {
+        ["home"] => Route::Home,
+        ["about"] => Route::About,
+        ["gallery"] => Route::Gallery,
+        ["modes"] => Route::Modes { id: None },
+        ["modes", id] => Route::Modes {
+            id: Some((*id).into()),
+        },
+        ["settings"] => Route::Settings {
+            tab: SettingsTab::General,
+        },
+        ["settings", tab] => Route::Settings {
+            tab: settings_tab(tab)?,
+        },
+        ["profile", name, rest @ ..] => Route::Profile {
+            id: if *name == "default" {
+                ProfileRef::Default
+            } else {
+                ProfileRef::Named((*name).into())
+            },
+            tab: match rest.first() {
+                Some(tab) => profile_tab(tab)?,
+                None => ProfileTab::default(),
+            },
+        },
+        _ => return None,
+    })
+}
+
 /// Read `config.yaml`, `modes/` and `gui-config.yaml`. A file that cannot be
 /// read leaves its defaults and a log line (the scaler reports the same
 /// warnings on its side).
@@ -192,7 +291,7 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
                 written(flatten(result).map(|()| Written::Config));
             });
         }
-        Effect::WriteMode { id, mode } => {
+        Effect::WriteMode { id, raw, .. } => {
             let dir = store.peek().modes.store.dir.clone();
             spawn(async move {
                 let saved = id.clone();
@@ -201,7 +300,7 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
                         dir,
                         ..ModeStore::default()
                     };
-                    modes.save(&id, mode)
+                    modes.save_raw(&id, raw).map(|_| ())
                 })
                 .await;
                 written(flatten(result).map(|()| Written::Mode(saved)));
@@ -308,9 +407,9 @@ fn TitleBar() -> Element {
                 class: "flex items-center gap-1",
                 // Buttons must not start a drag.
                 onmousedown: move |e| e.stop_propagation(),
-                IconButton { icon: "remove", label: t!("titlebar-minimize"), size: 32, onclick: move |_| min.window.set_minimized(true) }
-                IconButton { icon: "crop_square", label: t!("titlebar-maximize"), size: 32, onclick: move |_| max2.toggle_maximized() }
-                IconButton { icon: "close", label: t!("titlebar-close"), size: 32, onclick: move |_| close.close() }
+                IconButton { icon: "remove", label: t!("titlebar-minimize"), size: 32, tip: "right", onclick: move |_| min.window.set_minimized(true) }
+                IconButton { icon: "crop_square", label: t!("titlebar-maximize"), size: 32, tip: "right", onclick: move |_| max2.toggle_maximized() }
+                IconButton { icon: "close", label: t!("titlebar-close"), size: 32, tip: "right", onclick: move |_| close.close() }
             }
         }
     }
@@ -451,7 +550,14 @@ fn SaveBar() -> Element {
         MenuItem::new("overrides", t!("savebar-remove-overrides")).icon("layers_clear"),
         MenuItem {
             divider_before: true,
-            ..MenuItem::new("all", t!("savebar-reset-all")).icon("restart_alt")
+            ..MenuItem::new(
+                "all",
+                match route.profile() {
+                    Some(ProfileRef::Named(_)) => t!("profile-reset-all-named"),
+                    _ => t!("savebar-reset-all"),
+                },
+            )
+            .icon("restart_alt")
         },
     ];
     let reset = move |id: &'static str| {

@@ -1095,7 +1095,9 @@ impl Inner {
     #[allow(unsafe_code)]
     fn cancel_bench(&self) {
         let Some(pid) = *lock(&self.bench) else { return };
-        let Ok(pid) = libc::pid_t::try_from(pid) else { return };
+        let Ok(pid) = libc::pid_t::try_from(pid) else {
+            return;
+        };
         // SAFETY: `kill` takes plain integers and touches no memory of ours.
         // The pid is our own child, still unreaped while `self.bench` holds
         // it (the relay thread clears it after `wait`).

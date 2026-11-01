@@ -322,8 +322,10 @@ impl Stats {
         expire(&mut self.latency, now, |e| e.0);
         let (latency_ms, latency_p95_ms) = latency_summary(self.latency.iter().map(|e| e.1));
         let n = self.render_ms.len() as f32;
-        let render_ms = (!self.render_ms.is_empty()).then(|| self.render_ms.iter().map(|e| e.1).sum::<f32>() / n);
-        let wait_ms = (!self.render_ms.is_empty()).then(|| self.render_ms.iter().map(|e| e.2).sum::<f32>() / n);
+        let render_ms =
+            (!self.render_ms.is_empty()).then(|| self.render_ms.iter().map(|e| e.1).sum::<f32>() / n);
+        let wait_ms =
+            (!self.render_ms.is_empty()).then(|| self.render_ms.iter().map(|e| e.2).sum::<f32>() / n);
         let latency_by_kind = [FrameKind::Real, FrameKind::Generated]
             .into_iter()
             .filter_map(|kind| {

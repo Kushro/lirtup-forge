@@ -100,11 +100,14 @@ pub fn tr_in(
 }
 
 /// Whether `key` exists in `lang` itself (not by fallback); for the round 4
-/// test of complete translations.
+/// test of complete translations. A message with variables formats with
+/// errors when called without them (`FluentError`): it exists all the same.
 pub fn has_key(lang: Lang, key: &str) -> bool {
-    LOCALES
-        .lookup_single_language::<&str>(lang.id(), key, None)
-        .is_ok()
+    // `LookupError` is not exported: tell its `FluentError` by its Debug.
+    match LOCALES.lookup_single_language::<&str>(lang.id(), key, None) {
+        Ok(_) => true,
+        Err(e) => format!("{e:?}").starts_with("FluentError"),
+    }
 }
 
 /// An argument for [`tr_args`] (numbers stay numbers, so Fluent can pick
@@ -141,6 +144,9 @@ mod tests {
             assert!(has_key(Lang::Es, key), "es: {key}");
             assert!(has_key(Lang::En, key), "en: {key}");
         }
+        // With variables, and missing.
+        assert!(has_key(Lang::Es, "savebar-changes") && has_key(Lang::En, "savebar-changes"));
+        assert!(!has_key(Lang::Es, "no-such-key"));
     }
 
     #[test]

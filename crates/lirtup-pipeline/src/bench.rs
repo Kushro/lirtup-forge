@@ -1073,8 +1073,14 @@ mod tests {
         assert_eq!(data["version"], 1);
         assert_eq!(data["gpus"][&gpu]["name"], "AMD Radeon RX 6800");
         assert_eq!(data["gpus"][&gpu]["magpiefx"]["CAS"]["ms"], 0.5);
-        assert_eq!(data["gpus"][&gpu]["sizes"]["magpiefx"]["input"], json!([1280, 720]));
-        assert_eq!(data["gpus"][&gpu]["sizes"]["magpiefx"]["target"], json!([2560, 1440]));
+        assert_eq!(
+            data["gpus"][&gpu]["sizes"]["magpiefx"]["input"],
+            json!([1280, 720])
+        );
+        assert_eq!(
+            data["gpus"][&gpu]["sizes"]["magpiefx"]["target"],
+            json!([2560, 1440])
+        );
         assert_eq!(data["selectors"]["rx 6800"], json!(gpu));
 
         // Other sizes: that kind starts over.

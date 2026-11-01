@@ -101,6 +101,21 @@ impl ModeStore {
         Ok(())
     }
 
+    /// Write one mode file as a raw layer (temporary file + rename): only
+    /// the keys it holds, so a key the mode does not set stays unset and the
+    /// layers below show through (the GUI saves the file as read plus its
+    /// edits). Returns the mode as parsed.
+    pub fn save_raw(&mut self, id: &str, raw: Mapping) -> Result<Mode, ConfigError> {
+        let path = self.path(id)?;
+        crate::util::write_atomic(&path, &crate::util::to_yaml(&raw, &path)?)?;
+        let (mode, _) = Mode::from_mapping(id, &raw);
+        self.modes.insert(id.to_owned(), mode.clone());
+        self.raw.insert(id.to_owned(), raw);
+        self.modes.sort_keys();
+        self.raw.sort_keys();
+        Ok(mode)
+    }
+
     /// Delete a mode file.
     pub fn delete(&mut self, id: &str) -> Result<(), ConfigError> {
         let path = self.path(id)?;

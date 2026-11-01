@@ -162,7 +162,9 @@ fn DialogOpen(
         }
     };
     let wide = if wide { "wide" } else { "" };
-    let icon_style = icon_color.map(|c| format!("color: var(--{c})")).unwrap_or_default();
+    let icon_style = icon_color
+        .map(|c| format!("color: var(--{c})"))
+        .unwrap_or_default();
     let title_id = format!("{id}-t");
     rsx! {
         div {

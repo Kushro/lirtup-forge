@@ -113,7 +113,10 @@ mod tests {
             ("en", include_str!("../../i18n/en/components.ftl")),
         ] {
             for key in &keys {
-                assert!(ftl.lines().any(|l| l.starts_with(&format!("{key} ="))), "{key} missing in {lang}");
+                assert!(
+                    ftl.lines().any(|l| l.starts_with(&format!("{key} ="))),
+                    "{key} missing in {lang}"
+                );
             }
         }
     }

@@ -742,6 +742,12 @@ impl Runner {
             Some(p) => (p.window.xid, p.overlay.surface().window()),
             None => return Ok(()),
         };
+        // LirtUp Forge itself (the GUI, another overlay) neither takes the
+        // session (`follow_focus`) nor pauses it: the person is using the
+        // app, not leaving the game.
+        if active.xid != target && active.xid != overlay && self.x11.is_lirtup_window(&active)? {
+            return Ok(());
+        }
         if active.xid == target || active.xid == overlay {
             if self.focus_paused {
                 self.focus_paused = false;

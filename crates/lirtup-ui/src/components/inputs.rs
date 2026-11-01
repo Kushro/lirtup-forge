@@ -3,8 +3,8 @@
 
 use dioxus::prelude::*;
 
-use super::overlays::{MenuEntry, MenuPopup, use_dom_id};
 use super::Icon;
+use super::overlays::{MenuEntry, MenuPopup, use_dom_id};
 use crate::i18n::{LANG, Lang};
 
 /// A connected button group (`.seg`): short choices such as the effects
@@ -174,19 +174,30 @@ pub fn Slider(
     on_change: Option<EventHandler<f64>>,
 ) -> Element {
     let named = !stops.is_empty();
-    let (min, max, step) = if named { (0.0, (stops.len() - 1) as f64, 1.0) } else { (min, max, step) };
+    let (min, max, step) = if named {
+        (0.0, (stops.len() - 1) as f64, 1.0)
+    } else {
+        (min, max, step)
+    };
     let digits = decimals(step);
     // While the number box has the focus it shows the plain number.
     let mut draft = use_signal(|| None::<String>);
     let v = value();
     let shown = if named {
-        stops.get(v.round().max(0.0) as usize).cloned().unwrap_or_default()
+        stops
+            .get(v.round().max(0.0) as usize)
+            .cloned()
+            .unwrap_or_default()
     } else if let Some(format) = format {
         format(v)
     } else {
         format_number(v, digits)
     };
-    let frac = if max > min { ((v - min) / (max - min)).clamp(0.0, 1.0) } else { 0.0 };
+    let frac = if max > min {
+        ((v - min) / (max - min)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let mut commit = move |next: f64| {
         let next = snap(next, min, max, step);
         if (next - *value.peek()).abs() > f64::EPSILON {
@@ -452,7 +463,11 @@ pub fn PathField(
             on_change(text);
         }
     };
-    let (field_icon, pick_icon) = if directory { ("folder", "folder_open") } else { ("description", "upload_file") };
+    let (field_icon, pick_icon) = if directory {
+        ("folder", "folder_open")
+    } else {
+        ("description", "upload_file")
+    };
     rsx! {
         div { class: "flex items-center gap-2 min-w-0 flex-1",
             label { class: "lf-fld flex-1 min-w-[200px]", class: if disabled { "off" },
@@ -594,9 +609,18 @@ pub fn FontField(
     on_change: Option<EventHandler<String>>,
 ) -> Element {
     let mut options = vec![(String::new(), t!("cmp-font-bundled"))];
-    options.extend(families.into_iter().filter(|f| !f.is_empty()).map(|f| (f.clone(), f)));
+    options.extend(
+        families
+            .into_iter()
+            .filter(|f| !f.is_empty())
+            .map(|f| (f.clone(), f)),
+    );
     let family = value.read().clone();
-    let sample = if family.is_empty() { "var(--font-brand)".to_string() } else { format!("\"{family}\"") };
+    let sample = if family.is_empty() {
+        "var(--font-brand)".to_string()
+    } else {
+        format!("\"{family}\"")
+    };
     rsx! {
         div { class: "flex items-center gap-3 flex-wrap",
             Select { options, value, label, disabled, on_change }

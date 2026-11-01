@@ -63,8 +63,10 @@ pub fn ProfilePage(id: ProfileRef, tab: ProfileTab) -> Element {
                 selected: tab,
                 on_select: move |t| dispatch(Action::Navigate(Route::Profile { id: go.clone(), tab: t })),
             }
-            div { key: "{key}", class: "flex flex-col gap-6", role: "tabpanel",
-                tabs::TabContent { scope, tab }
+            div { class: "flex flex-col gap-6", role: "tabpanel",
+                // A key on a component (rsx drops it on an element in
+                // release builds): each page and tab starts fresh.
+                tabs::TabContent { key: "{key}", scope, tab }
             }
         }
     }
