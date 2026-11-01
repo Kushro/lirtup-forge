@@ -304,7 +304,9 @@ Hallazgos (verificado):
   - CLI con ×1: la capa no se carga.
   - Con `LSFGVK_ENV` puesto por la persona: se respeta su ×3.
   - Pestaña de la GUI renderizada sin ventana en inglés y español, en tres estados.
-- Sin probar: la GUI real de punta a punta (guardar, reiniciar, iniciar una sesión).
+- **Probado por la persona en la GUI real** (2026-10-31, instalación con pipx): ×4 con la novela
+  visual G-senjou no Maou funcionó bien en principio. Es una impresión, no una medición.
+- Sin probar: latencia medida, juegos con mucho movimiento, estelas del OSD, otras GPU.
 
 ## Próximos pasos propuestos
 
