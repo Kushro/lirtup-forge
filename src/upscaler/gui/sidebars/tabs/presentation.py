@@ -276,6 +276,9 @@ class PresentationTab(SettingsTab):
                 "frames over the upscaler's window (needs lsfg-vk.dll).\n"
                 "Built in: the upscaler runs the lsfg core itself on the same "
                 "GPU and paces the frames (needs Lossless.dll; no layer).\n"
+                "With heavy effects (such as the Anime4K UL ones) the layer "
+                "keeps a higher frame rate: the built-in engine shares the "
+                "GPU time of each frame with them.\n"
                 "Read at startup: restart to apply.",
                 "Description of a setting (tooltip)",
             ),

@@ -53,7 +53,7 @@ Convenciones:
 | T3.4 | *Auto* con video 24, 30 y 60 (monitor de 144 Hz) | Elige el multiplicador esperado (p. ej. ×5 o ×4, ×4, ×2) y no salta entre valores; el cambio no corta la imagen |
 | T3.5 | *Auto* con video que cambia de fps a mitad (concatenar 30 y 60) | Cambia una vez, con la histéresis prevista |
 | T3.6 | Latencia (`--latency-log`): sin FG, capa ×2, integrado ×2, con video 30 | CSV completo; latencia del integrado ≈ un intervalo del juego más la de sin FG; anotar las tres |
-| T3.7 | Aviso de GPU con video 24 y efectos de ~35 ms que alcanzan | No avisa |
+| T3.7 | Aviso de GPU con video 24 y efectos de ~35 ms que alcanzan | Avisa (piso de 30 fps, ver resultados: el intento de no avisar se revirtió) |
 | T3.8 | Aviso de GPU con video 60 y la cadena UL | Avisa en rojo, como en 1.2 |
 | T3.9 | `robustImageAccess`: log de arranque | Activado en RADV; arranca igual donde no está |
 | T3.10 | Motor integrado en la GPU integrada del Ryzen (`--gpu`), ×2 con video 30 | Funciona o falla con un mensaje claro y sigue sin FG |

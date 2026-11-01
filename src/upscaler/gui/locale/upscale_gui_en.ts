@@ -1634,6 +1634,7 @@ Supports transparency.</source>
         <message>
             <source>lsfg-vk layer: the installed lsfg-vk Vulkan layer generates frames over the upscaler's window (needs lsfg-vk.dll).
 Built in: the upscaler runs the lsfg core itself on the same GPU and paces the frames (needs Lossless.dll; no layer).
+With heavy effects (such as the Anime4K UL ones) the layer keeps a higher frame rate: the built-in engine shares the GPU time of each frame with them.
 Read at startup: restart to apply.</source>
             <comment>Description of a setting (tooltip)</comment>
             <translation type="unfinished" />

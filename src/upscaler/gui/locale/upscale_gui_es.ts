@@ -1700,10 +1700,12 @@ Admite transparencia.</translation>
         <message>
             <source>lsfg-vk layer: the installed lsfg-vk Vulkan layer generates frames over the upscaler's window (needs lsfg-vk.dll).
 Built in: the upscaler runs the lsfg core itself on the same GPU and paces the frames (needs Lossless.dll; no layer).
+With heavy effects (such as the Anime4K UL ones) the layer keeps a higher frame rate: the built-in engine shares the GPU time of each frame with them.
 Read at startup: restart to apply.</source>
             <comment>Description of a setting (tooltip)</comment>
             <translation>Capa lsfg-vk: la capa Vulkan de lsfg-vk instalada genera cuadros sobre la ventana del escalador (necesita lsfg-vk.dll).
 Integrado: el escalador ejecuta el núcleo de lsfg en la misma GPU y reparte los cuadros (necesita Lossless.dll; sin capa).
+Con efectos pesados (como los Anime4K UL) la capa mantiene más cuadros por segundo: el motor integrado comparte con ellos el tiempo de GPU de cada cuadro.
 Se lee al iniciar: reinicia para aplicarlo.</translation>
         </message>
         <message>
