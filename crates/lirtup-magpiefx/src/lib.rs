@@ -16,9 +16,6 @@
 //! `verified` flag from `magpiefx-report.md`. [`spec`] parses the
 //! `magpie_effects:` items.
 
-// Round 0 stubs: the bodies are `todo!()`. Front E removes this.
-#![allow(unused_variables)]
-
 pub mod catalog;
 pub mod codegen;
 pub mod compiler;
@@ -34,5 +31,5 @@ pub mod swizzle;
 pub use catalog::{Catalog, CatalogEntry, EffectOrigin};
 pub use error::{MagpieError, Result};
 pub use parser::{EffectDesc, EffectParameter, EffectPass, EffectSampler, EffectTexture, ParamKind};
-pub use runtime::{CompiledEffect, MagpieEffect};
+pub use runtime::{CompileOptions, CompiledEffect, MagpieEffect};
 pub use spec::EffectSpec;
