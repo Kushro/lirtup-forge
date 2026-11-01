@@ -19,6 +19,7 @@ lirtup-proto.workspace = true
 crossbeam-channel.workspace = true
 arc-swap.workspace = true
 image.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

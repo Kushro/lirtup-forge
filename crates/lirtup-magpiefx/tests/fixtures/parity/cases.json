@@ -1,0 +1,8 @@
+{
+  "comment": "Parity cases of lirtup-magpiefx against 1.x: every effect marked ok in docs/developer/magpiefx-report.md, RGBA input (no red/blue swap), default parameters, frame 0. Effects that do not fix their OUTPUT size render at 'target'. scripts/rust-parity-refs.py writes refs/<name>.png (with / as __); tests/parity.rs compares.",
+  "input": { "width": 160, "height": 96 },
+  "target": [320, 192],
+  "max_diff": 1,
+  "effects": "verified",
+  "max_diff_by_effect": {}
+}
