@@ -54,14 +54,18 @@ fn main() {
     }
     tray::claim_instance();
 
-    // Start hidden in the tray, where the window was (front Y).
+    // Where the window was (front Y). It is created hidden and `tray`
+    // shows it unless `start_hidden`: a window created hidden makes the
+    // Dioxus interpreter apply edits at once instead of on
+    // `requestAnimationFrame`, which WebKit never runs while the window is
+    // hidden; without that the whole app (the link to the scaler too)
+    // stalls while it sits in the tray.
     let gui = lirtup_config::GuiConfig::load(None).unwrap_or_default();
-    let hidden = gui.start_hidden && gui.show_tray_icon;
     let geometry = tray::saved_geometry(&gui);
     let mut window = WindowBuilder::new()
         .with_title("LirtUp Forge")
         .with_decorations(false)
-        .with_visible(!hidden)
+        .with_visible(false)
         .with_inner_size(geometry.map_or(LogicalSize::new(1280.0, 820.0), |g| {
             LogicalSize::new(g.width, g.height)
         }))

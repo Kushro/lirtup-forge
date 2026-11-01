@@ -20,6 +20,8 @@
 //!   exits ([`forward_to_running`], [`claim_instance`]);
 //! - a session hides the window to the tray and its end shows it again
 //!   (1.x hid itself while scaling);
+//! - the window is created hidden and shown here (see `main.rs`: it keeps
+//!   the app running while hidden);
 //! - «Salir» asks about unsaved edits ([`QuitDialog`]), then stops the
 //!   session and the daemon unless «Seguir ejecutándose tras salir» keeps
 //!   the daemon, saves the window geometry (`window_geometry` in
@@ -41,7 +43,8 @@ use dioxus::desktop::trayicon::menu::{
 };
 use dioxus::desktop::trayicon::{Icon, TrayIcon, TrayIconBuilder};
 use dioxus::desktop::{
-    DesktopContext, WindowCloseBehaviour, use_tray_menu_event_handler, use_window, use_wry_event_handler,
+    DesktopContext, WindowCloseBehaviour, use_muda_event_handler, use_tray_menu_event_handler, use_window,
+    use_wry_event_handler,
 };
 use dioxus::prelude::*;
 use lirtup_config::{FrameGenMultiplier, GuiConfig, Value};
@@ -228,18 +231,57 @@ const MULTIPLIERS: [(&str, FrameGenMultiplier); 5] = [
     ("framegen:auto", FrameGenMultiplier::Auto),
 ];
 
-/// The tray and the items it updates in place (rebuilding the menu while
-/// it is open would close it).
-struct Tray {
-    icon: TrayIcon,
-    shown: TrayStatus,
+/// What gives the menu its shape. A change rebuilds it (`set_menu`):
+/// libdbusmenu does not show a submenu's label changed after it was
+/// exported. Everything else (texts of plain items, checks, enabled) is
+/// updated in place, so a menu left open is not closed every 500 ms.
+#[derive(Debug, Clone, PartialEq)]
+struct Layout {
+    /// «Perfil: …».
+    profiles: String,
+    /// «Generación de cuadros: …».
+    framegen: String,
+    /// The named profiles.
+    names: Vec<String>,
+    /// The second line (fps and mode, or the error).
+    detail: bool,
+}
+
+fn layout(store: &Store) -> Layout {
+    let profiles = match store.running_profile() {
+        Some(p) => tr_args("tray-profile-of", &[("name", arg(profile_label(&p)))]),
+        None => tr("tray-profile"),
+    };
+    let framegen = tr_args(
+        "tray-framegen",
+        &[("value", arg(multiplier_label(multiplier(store))))],
+    );
+    Layout {
+        profiles,
+        framegen,
+        names: store.config.file.profiles.keys().cloned().collect(),
+        detail: summary(store).1.is_some(),
+    }
+}
+
+/// The global multiplier (*Predeterminado*, with its unsaved edit).
+fn multiplier(store: &Store) -> FrameGenMultiplier {
+    store
+        .field(
+            &crate::state::Scope::Profile(ProfileRef::Default),
+            "frame_gen_multiplier",
+        )
+        .value()
+}
+
+/// The items [`Tray::sync`] updates.
+struct Items {
     header: MenuItem,
-    detail: MenuItem,
+    detail: Option<MenuItem>,
     stop: MenuItem,
     restart: MenuItem,
     profiles: Submenu,
     profile_items: Vec<(CheckMenuItem, String)>,
-    framegen: Submenu,
     fg_items: Vec<CheckMenuItem>,
     fg_reason: MenuItem,
     daemon: CheckMenuItem,
@@ -247,43 +289,87 @@ struct Tray {
     quit: MenuItem,
 }
 
+/// The menu of `layout`.
+fn build(layout: &Layout) -> Option<(Menu, Items)> {
+    let header = MenuItem::with_id("tray:header", "", false, None);
+    let detail = layout
+        .detail
+        .then(|| MenuItem::with_id("tray:detail", "", false, None));
+    let stop = MenuItem::with_id("tray:stop", "", true, None);
+    let restart = MenuItem::with_id("tray:restart", "", true, None);
+    let profiles = Submenu::with_id("tray:profiles", &layout.profiles, true);
+    let profile_items: Vec<(CheckMenuItem, String)> = layout
+        .names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let item = CheckMenuItem::with_id(format!("tray:profile:{i}"), name, true, false, None);
+            (item, name.clone())
+        })
+        .collect();
+    for (item, _) in &profile_items {
+        profiles.append(item).ok()?;
+    }
+    let framegen = Submenu::with_id("tray:framegen", &layout.framegen, true);
+    let fg_items: Vec<CheckMenuItem> = MULTIPLIERS
+        .iter()
+        .map(|(id, _)| CheckMenuItem::with_id(*id, "", true, false, None))
+        .collect();
+    let fg_reason = MenuItem::with_id("framegen:reason", "", false, None);
+    for item in &fg_items {
+        framegen.append(item).ok()?;
+    }
+    framegen.append(&PredefinedMenuItem::separator()).ok()?;
+    framegen.append(&fg_reason).ok()?;
+    let daemon = CheckMenuItem::with_id("tray:daemon", "", true, false, None);
+    let show = MenuItem::with_id("tray:show", "", true, None);
+    let quit = MenuItem::with_id("tray:quit", "", true, None);
+    let menu = Menu::new();
+    menu.append(&header).ok()?;
+    if let Some(detail) = &detail {
+        menu.append(detail).ok()?;
+    }
+    menu.append_items(&[
+        &PredefinedMenuItem::separator(),
+        &stop,
+        &restart,
+        &profiles,
+        &framegen,
+        &PredefinedMenuItem::separator(),
+        &daemon,
+        &show,
+        &PredefinedMenuItem::separator(),
+        &quit,
+    ])
+    .ok()?;
+    let items = Items {
+        header,
+        detail,
+        stop,
+        restart,
+        profiles,
+        profile_items,
+        fg_items,
+        fg_reason,
+        daemon,
+        show,
+        quit,
+    };
+    Some((menu, items))
+}
+
+/// The tray icon, its menu and the shape the menu was built with.
+struct Tray {
+    icon: TrayIcon,
+    shown: TrayStatus,
+    layout: Layout,
+    items: Items,
+}
+
 impl Tray {
     fn new(store: &Store) -> Option<Tray> {
-        let header = MenuItem::with_id("tray:header", "", false, None);
-        let detail = MenuItem::with_id("tray:detail", "", false, None);
-        let stop = MenuItem::with_id("tray:stop", "", true, None);
-        let restart = MenuItem::with_id("tray:restart", "", true, None);
-        let profiles = Submenu::with_id("tray:profiles", "", true);
-        let framegen = Submenu::with_id("tray:framegen", "", true);
-        let fg_items: Vec<CheckMenuItem> = MULTIPLIERS
-            .iter()
-            .map(|(id, _)| CheckMenuItem::with_id(*id, "", true, false, None))
-            .collect();
-        let fg_reason = MenuItem::with_id("framegen:reason", "", false, None);
-        for item in &fg_items {
-            framegen.append(item).ok()?;
-        }
-        framegen.append(&PredefinedMenuItem::separator()).ok()?;
-        framegen.append(&fg_reason).ok()?;
-        let daemon = CheckMenuItem::with_id("tray:daemon", "", true, false, None);
-        let show = MenuItem::with_id("tray:show", "", true, None);
-        let quit = MenuItem::with_id("tray:quit", "", true, None);
-        let menu = Menu::new();
-        menu.append_items(&[
-            &header,
-            &detail,
-            &PredefinedMenuItem::separator(),
-            &stop,
-            &restart,
-            &profiles,
-            &framegen,
-            &PredefinedMenuItem::separator(),
-            &daemon,
-            &show,
-            &PredefinedMenuItem::separator(),
-            &quit,
-        ])
-        .ok()?;
+        let layout = layout(store);
+        let (menu, items) = build(&layout)?;
         let shown = status(store);
         let mut builder = TrayIconBuilder::new()
             .with_id("lirtup")
@@ -300,18 +386,8 @@ impl Tray {
         Some(Tray {
             icon,
             shown,
-            header,
-            detail,
-            stop,
-            restart,
-            profiles,
-            profile_items: Vec::new(),
-            framegen,
-            fg_items,
-            fg_reason,
-            daemon,
-            show,
-            quit,
+            layout,
+            items,
         })
     }
 
@@ -321,60 +397,44 @@ impl Tray {
             self.icon.set_icon(icon(status)).ok();
             self.shown = status;
         }
+        let wanted = layout(store);
+        if wanted != self.layout
+            && let Some((menu, items)) = build(&wanted)
+        {
+            self.icon.set_menu(Some(Box::new(menu)));
+            self.items = items;
+            self.layout = wanted;
+        }
+        let items = &self.items;
         let (header, detail) = summary(store);
         self.icon
             .set_tooltip(Some(format!("LirtUp Forge · {header}")))
             .ok();
-        self.header.set_text(header);
-        self.detail.set_text(detail.clone().unwrap_or_default());
-        self.detail.set_enabled(false);
+        items.header.set_text(header);
+        if let (Some(item), Some(text)) = (&items.detail, detail) {
+            item.set_text(text);
+        }
 
         let running = matches!(store.session, SessionState::Running(_));
         let busy = running || matches!(store.session, SessionState::Starting { .. });
-        self.stop.set_text(tr("tray-stop"));
-        self.stop.set_enabled(busy);
-        self.restart.set_text(tr("tray-restart"));
-        self.restart.set_enabled(running);
+        items.stop.set_text(tr("tray-stop"));
+        items.stop.set_enabled(busy);
+        items.restart.set_text(tr("tray-restart"));
+        items.restart.set_enabled(running);
 
         // Perfil ▸ (named profiles; a session restarts with the chosen one).
         let current = store.running_profile();
-        self.profiles.set_text(match &current {
-            Some(p) => tr_args("tray-profile-of", &[("name", arg(profile_label(p)))]),
-            None => tr("tray-profile"),
-        });
-        self.profiles.set_enabled(running);
-        let names: Vec<String> = store.config.file.profiles.keys().cloned().collect();
-        let same = self.profile_items.len() == names.len()
-            && self.profile_items.iter().zip(&names).all(|((_, a), b)| a == b);
-        if !same {
-            for (item, _) in self.profile_items.drain(..) {
-                self.profiles.remove(&item).ok();
-            }
-            for (i, name) in names.iter().enumerate() {
-                let item = CheckMenuItem::with_id(format!("tray:profile:{i}"), name, true, false, None);
-                self.profiles.append(&item).ok();
-                self.profile_items.push((item, name.clone()));
-            }
-        }
-        for (item, name) in &self.profile_items {
+        items.profiles.set_enabled(running);
+        for (item, name) in &items.profile_items {
             item.set_checked(current.as_ref() == Some(&ProfileRef::Named(name.clone())));
         }
 
         // Generación de cuadros ▸ (global: Predeterminado).
-        let multiplier: FrameGenMultiplier = store
-            .field(
-                &crate::state::Scope::Profile(ProfileRef::Default),
-                "frame_gen_multiplier",
-            )
-            .value();
+        let multiplier = multiplier(store);
         let fg = &store.framegen;
         let reason = crate::screens::profile::framegen::reason_text(fg);
         let locked = fg.env_locked;
-        self.framegen.set_text(tr_args(
-            "tray-framegen",
-            &[("value", arg(multiplier_label(multiplier)))],
-        ));
-        for (item, (_, m)) in self.fg_items.iter().zip(MULTIPLIERS) {
+        for (item, (_, m)) in items.fg_items.iter().zip(MULTIPLIERS) {
             item.set_text(multiplier_label(m));
             item.set_checked(m == multiplier);
             // Auto needs the native engine; with the engine missing only
@@ -386,13 +446,14 @@ impl Tray {
             };
             item.set_enabled(!locked && usable);
         }
-        self.fg_reason
+        items
+            .fg_reason
             .set_text(reason.unwrap_or_else(|| tr("tray-framegen-note")));
 
-        self.daemon.set_text(tr("tray-daemon"));
-        self.daemon.set_checked(store.daemon.on);
-        self.show.set_text(tr("tray-show"));
-        self.quit.set_text(tr("tray-quit"));
+        items.daemon.set_text(tr("tray-daemon"));
+        items.daemon.set_checked(store.daemon.on);
+        items.show.set_text(tr("tray-show"));
+        items.quit.set_text(tr("tray-quit"));
     }
 }
 
@@ -402,10 +463,15 @@ fn summary(store: &Store) -> (String, Option<String>) {
     match &store.session {
         SessionState::Running(view) => {
             let header = tr_args("tray-scaling", &[("title", arg(view.window.title.clone()))]);
-            let mode = view.mode.clone().unwrap_or_else(|| tr("nav-default-profile"));
+            // «60 → 120 fps · Anime nítido»: the mode, else the profile.
+            let name = view
+                .mode
+                .clone()
+                .or_else(|| view.profile.clone())
+                .unwrap_or_else(|| tr("nav-default-profile"));
             let detail = match &store.stats {
-                Some(s) => format!("{:.0} → {:.0} fps · {mode}", s.capture_fps, s.present_fps),
-                None => mode,
+                Some(s) => format!("{:.0} → {:.0} fps · {name}", s.capture_fps, s.present_fps),
+                None => name,
             };
             (header, Some(detail))
         }
@@ -458,6 +524,12 @@ pub fn use_tray(store: Signal<Store>, dispatch: Callback<Action>) {
     {
         let window = window.clone();
         use_hook(move || {
+            // `main.rs` creates the window hidden (see there): show it,
+            // unless it starts in the tray.
+            let gui = store.peek().gui.clone();
+            if !(gui.start_hidden && tray_on(&gui)) {
+                window.window.set_visible(true);
+            }
             // The close button of the window manager goes through
             // `close_window` below; quitting sets `WindowCloses` itself.
             window.set_close_behavior(WindowCloseBehaviour::WindowHides);
@@ -533,48 +605,48 @@ pub fn use_tray(store: Signal<Store>, dispatch: Callback<Action>) {
         let window = window.clone();
         let tray = Rc::clone(&tray);
         let core = core.clone();
-        use_tray_menu_event_handler(move |event: &MenuEvent| {
+        let on_menu = move |event: &MenuEvent| {
             seen.set(true);
             let id = event.id.0.as_str();
-            let s = store.peek();
+            tracing::debug!("tray menu: {id}");
+            // What the items need, read before dispatching (which writes
+            // the store).
+            let (daemon_on, running) = {
+                let s = store.peek();
+                let running = match &s.session {
+                    SessionState::Running(view) => Some((view.window.xid, view.kind)),
+                    _ => None,
+                };
+                (s.daemon.on, running)
+            };
             match id {
                 "tray:stop" => dispatch(Action::StopScaling),
                 "tray:restart" => dispatch(Action::RestartScaling),
-                "tray:daemon" => {
-                    let on = !s.daemon.on;
-                    drop(s);
-                    dispatch(Action::SetDaemon { on });
-                }
+                "tray:daemon" => dispatch(Action::SetDaemon { on: !daemon_on }),
                 "tray:show" => {
-                    drop(s);
                     hidden_for_session.set(false);
                     show_window(&window, dispatch);
                 }
-                "tray:quit" => {
-                    drop(s);
-                    request_quit(store, &window, &core, dispatch);
-                }
+                "tray:quit" => request_quit(store, &window, &core, dispatch),
                 _ if id.starts_with("tray:profile:") => {
                     let name = tray.borrow().as_ref().and_then(|t| {
-                        t.profile_items
+                        t.items
+                            .profile_items
                             .iter()
                             .find(|(item, _)| item.id() == &event.id)
                             .map(|(_, name)| name.clone())
                     });
-                    if let (Some(name), SessionState::Running(view)) = (name, &s.session) {
-                        let action = Action::StartScaling {
-                            target: Target::Window(view.window.xid),
-                            kind: view.kind,
+                    if let (Some(name), Some((xid, kind))) = (name, running) {
+                        dispatch(Action::StartScaling {
+                            target: Target::Window(xid),
+                            kind,
                             delay_s: None,
                             profile: Some(name),
-                        };
-                        drop(s);
-                        dispatch(action);
+                        });
                     }
                 }
                 _ => {
                     if let Some((_, m)) = MULTIPLIERS.iter().find(|(i, _)| *i == id) {
-                        drop(s);
                         set_multiplier(store, dispatch, *m);
                     }
                 }
@@ -585,7 +657,14 @@ pub fn use_tray(store: Signal<Store>, dispatch: Callback<Action>) {
                 let shown = t.shown;
                 t.sync(&s, shown);
             }
-        });
+        };
+        // dioxus-desktop 0.7.10 sets muda's one global handler twice; the
+        // menu bar's wins, so tray clicks arrive as `MudaMenuEvent`. Listen
+        // to both (the ids of the tray never clash with `dioxus-*`).
+        let on_menu = Rc::new(RefCell::new(on_menu));
+        let on_muda = Rc::clone(&on_menu);
+        use_tray_menu_event_handler(move |event: &MenuEvent| (on_menu.borrow_mut())(event));
+        use_muda_event_handler(move |event: &MenuEvent| (on_muda.borrow_mut())(event));
     }
 
     // The window manager's close button (Alt+F4): hidden already by
@@ -646,8 +725,11 @@ fn tray_on(gui: &GuiConfig) -> bool {
 /// The title bar's minimize: to the tray with `minimize_to_tray`, else the
 /// taskbar.
 pub fn minimize_window(window: &DesktopContext, store: Signal<Store>, dispatch: Callback<Action>) {
-    let gui = &store.peek().gui;
-    if tray_on(gui) && gui.minimize_to_tray {
+    let to_tray = {
+        let gui = &store.peek().gui;
+        tray_on(gui) && gui.minimize_to_tray
+    };
+    if to_tray {
         window.window.set_visible(false);
     } else {
         window.window.set_minimized(true);
@@ -664,8 +746,11 @@ pub fn close_window(
     dispatch: Callback<Action>,
     hidden: bool,
 ) {
-    let gui = &store.peek().gui;
-    if tray_on(gui) && gui.close_to_tray {
+    let to_tray = {
+        let gui = &store.peek().gui;
+        tray_on(gui) && gui.close_to_tray
+    };
+    if to_tray {
         if !hidden {
             window.window.set_visible(false);
         }
