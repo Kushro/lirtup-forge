@@ -1,9 +1,9 @@
 # Reescritura en Rust con Dioxus: análisis y plan
 
-Estado: **fase 1 del análisis** (inventario, referencias, arquitectura, etapas y plan de
-ejecución). La fase 2, que mapea el diseño nuevo de la GUI a componentes Dioxus, espera el
-artefacto de diseño de la sesión «Diseño: sistema de diseño y flujos de LirtUp Forge».
-Fecha: 2026-11-01. Base: `main` en la 1.3.0 (`454d7962`).
+Estado: **fases 1 y 2 del análisis**: inventario, referencias, arquitectura, etapas, plan de
+ejecución y el diseño de la GUI llevado a Dioxus (sección 6, sobre el lienzo de la sesión
+«Diseño: sistema de diseño y flujos de LirtUp Forge»). Fecha: 2026-11-01. Base: `main` en la
+1.3.0 (`454d7962`).
 
 Convención, la misma de [frame-generation-analysis.md](frame-generation-analysis.md):
 **verificado** = leído en el código; **estimado** = cuenta hecha aquí, sin medir ni probar.
@@ -27,9 +27,12 @@ Convención, la misma de [frame-generation-analysis.md](frame-generation-analysi
   la superposición necesita una ventana X11 propia, transparente y encima de todo, con su
   swapchain Vulkan. Se crea con `x11rb` en su propio hilo, igual que hoy el swapchain usa su
   propia conexión XCB.
+- **Dos procesos.** El escalador (`lirtup serve`, el mismo binario que la CLI) y la GUI
+  (`lirtup-gui`) hablan por un socket Unix. Lo pide el modo daemon del diseño, y además aísla los
+  fallos de Vulkan o lsfg de los de WebKitGTK (secciones 3.7 y 6.5).
 - **Etapa recomendada:** primero el núcleo como binario de línea de comandos (`lirtup`, el
   equivalente a `upscale`), comparado lado a lado con la versión de Python; después la GUI
-  Dioxus sobre ese mismo núcleo, en proceso. **No** recomiendo poner el núcleo de Rust detrás
+  Dioxus del diseño M3 Expressive sobre ese mismo núcleo (sección 6). **No** recomiendo poner el núcleo de Rust detrás
   de la GUI de Qt con PyO3: la superposición, los atajos y el hilo del pipeline hoy dependen de
   Qt, y ese puente se tiraría al terminar.
 - **Esfuerzo (estimado):** unas 4 rondas de trabajo en paralelo (4 subagentes y un revisor por
@@ -265,7 +268,7 @@ manda a un teléfono. No tiene superposición, captura, swapchain ni código Vul
 ```
 lirtup/                      (workspace, edición 2024, toolchain fijo)
   crates/
-    lirtup-config/           Config, perfiles, YAML, validadores, CLI (clap)
+    lirtup-config/           Config, perfiles, modos de escalado, YAML, validadores, CLI (clap)
     lirtup-gpu/              ash: instancia, dispositivo, recursos, compute, timestamps,
                              memoria externa, swapchain, mutex de cola
     lirtup-x11/              x11rb: captura (XShm + XDamage + tiles), ventanas, foco,
@@ -276,18 +279,22 @@ lirtup/                      (workspace, edición 2024, toolchain fijo)
     lirtup-fg/               capa lsfg-vk (config, entorno) y motor integrado sobre lsfg-sys
     lirtup-pipeline/         hilo del pipeline, presentador, tiles, stats, latencia,
                              hilo de presentación de FG, daemon, medición
-    lirtup-core/             API pública: Engine, comandos, eventos, estado (contrato con la UI)
-    lirtup-cli/              binario `lirtup` (reemplaza `upscale`)
-    lirtup-ui/               binario `lirtup-gui`, Dioxus Desktop
-  assets/                    tailwind.css, íconos, fuentes
-  i18n/                      es.ftl, en.ftl
+    lirtup-core/             Engine, protocolo (proto), servidor y cliente del socket Unix
+    lirtup-cli/              binario `lirtup` (`run` reemplaza a `upscale`; `serve` es el
+                             escalador y daemon para la GUI)
+    lirtup-ui/               binario `lirtup-gui`, Dioxus Desktop, bandeja
+  design/tokens.json         fuente única de los tokens M3 Expressive
+  scripts/gen-tokens         tokens.json → assets/tokens.css y lirtup-pipeline/src/tokens.rs
+  assets/                    tokens.css, tailwind.css, main.css, fuentes e íconos (woff2)
+  i18n/                      {es,en}/<pantalla>.ftl
   shaders/                   .hlsl y .spv de CuNNy y nativos; effects/ de Magpie
   packaging/                 .desktop, metainfo, PKGBUILD, AppImage
 ```
 
 Las dependencias van en una sola dirección: `config` y `gpu` abajo; `x11`, `effects`,
 `magpiefx` y `fg` encima de `gpu`; `pipeline` encima de todos; `core` es la fachada; `cli` y
-`ui` solo dependen de `core` (y de `config` para los tipos). Eso es lo que permite repartir el
+`ui` solo dependen de `core` (y de `config` para los tipos; `ui` también de `x11` para la lista
+de ventanas y las miniaturas). Eso es lo que permite repartir el
 trabajo por crates sin que dos subagentes toquen lo mismo (sección 5).
 
 ### 3.2 Captura X11
@@ -418,7 +425,7 @@ En Rust:
 
 | Hilo | Hoy | En Rust |
 | --- | --- | --- |
-| Principal | Bucle de Qt (GUI, superposición, temporizadores) | Bucle de Dioxus/tao (GTK). Solo la GUI |
+| Principal | Bucle de Qt (GUI, superposición, temporizadores) | En `lirtup-gui`: bucle de Dioxus/tao (GTK), con la bandeja. En `lirtup serve`: el hilo del servidor de socket (runtime de tokio) |
 | Pipeline | `threading.Thread` (`PipelineThread`) | `std::thread` con su conexión X11; captura, cómputo y presentación como hoy |
 | Presentación de FG | `lsfg-present` | `std::thread`; recibe ciclos por canal acotado; comparte la cola por el mutex |
 | Reinicio de lsfg | Hilo temporal | `std::thread` temporal o tarea en el hilo de FG |
@@ -427,15 +434,34 @@ En Rust:
 | Foco y daemon | `threading.Thread` con sondeo | `std::thread` o tareas de `tokio` con intervalo |
 | Compilación de MagpieFX y miniaturas | En el hilo que las pide | `spawn_blocking` |
 
-**Comunicación**: el patrón `CoreThread` + `CoreLink` de Temple. La UI manda comandos por un
-`mpsc` al hilo del núcleo (con su runtime de tokio), que reenvía al pipeline lo que toca por un
-canal que el pipeline lee entre cuadros (`crossbeam-channel`); los eventos del núcleo a la UI
-van por `tokio::sync::broadcast`; los datos de alta frecuencia (stats, fps) por un
-`watch` o un `ArcSwap` que la UI lee a su ritmo (dos veces por segundo, como el panel), nunca un
-evento por cuadro.
+**Dos procesos** (cambio de la fase 2, por el diseño): el escalador corre en `lirtup serve`, el
+mismo binario que la CLI, y la GUI (`lirtup-gui`) le habla por un socket Unix. Así lo pide el
+modo daemon del diseño («Seguir ejecutándose tras salir»), y además:
 
-La configuración viva se publica como `Arc<Config>` inmutable (`arc-swap`): la UI crea una nueva
-y el pipeline la toma al principio del cuadro siguiente, igual que hoy `update_config`.
+- un fallo de Vulkan, de lsfg o del driver no se lleva la GUI, y un fallo de WebKitGTK no corta
+  el escalado;
+- reiniciar para que la capa lsfg-vk relea el multiplicador hace `exec` solo del escalador, no
+  de la GUI;
+- la CLI, el daemon y la GUI usan exactamente el mismo motor.
+
+**Comunicación** (el patrón `CoreThread` + `CoreLink` de Temple, con el socket en el medio):
+
+- En la GUI, un hilo con su runtime de tokio mantiene la conexión (y lanza `lirtup serve` si no
+  está corriendo). La UI le pasa comandos por un `mpsc` y recibe eventos por
+  `tokio::sync::broadcast`.
+- En `lirtup serve`, el servidor reenvía al pipeline lo que toca por un canal que el pipeline lee
+  entre cuadros (`crossbeam-channel`).
+- Los mensajes son enums de `serde` (`lirtup-core::proto`), en JSON por líneas: fácil de
+  depurar con `socat`, y el volumen es chico.
+- Los datos de alta frecuencia (stats, fps) van como una muestra cada 500 ms, como el panel de
+  hoy, nunca un evento por cuadro.
+- La lista de ventanas y las miniaturas **no** pasan por el socket: la GUI las saca directamente
+  con `lirtup-x11`, sin GPU (sección 6.4).
+
+La configuración viva se publica dentro de `lirtup serve` como `Arc<Config>` inmutable
+(`arc-swap`): el pipeline toma la nueva al principio del cuadro siguiente, igual que hoy
+`update_config`. La GUI es la única que escribe los YAML. Después de guardar manda
+`ReloadConfig`, y el escalador vuelve a leer.
 
 ### 3.8 Bandeja
 
@@ -444,8 +470,12 @@ y el pipeline la toma al principio del cuadro siguiente, igual que hoy `update_c
 | **`ksni`** (StatusNotifierItem por D-Bus, puro Rust) | Funciona bien en KDE (la máquina de la persona usa Plasma), sin GTK, en su propio hilo; menús con submenús y casillas | En GNOME necesita la extensión AppIndicator, igual que hoy Qt |
 | `tray-icon` (lo que usa Dioxus/tauri) | Integrado con el bucle de tao | En Linux va por `libayatana-appindicator` y GTK; menús más limitados |
 
-Recomiendo `ksni`. El menú actual (reiniciar, cambiar de ventana, de perfil, multiplicador)
-pasa como está; las acciones son los mismos comandos que manda la UI.
+El diseño elige `tray-icon` + `muda` sobre el bucle de tao que ya trae Dioxus Desktop. Lo
+acepto: la bandeja vive en el proceso de la GUI, GTK ya está cargado por WebKitGTK, y `muda`
+tiene submenús y elementos con marca (lo que piden *Perfil ▸* y *Generación de cuadros ▸*).
+`ksni` queda como alternativa si el menú dinámico da problemas con libayatana en KDE. Con la GUI
+cerrada y el daemon corriendo no hay bandeja (así está en el diseño): el aviso del escritorio
+(`notify-rust`) es lo que avisa que se está escalando.
 
 ### 3.9 GUI con Dioxus
 
@@ -455,17 +485,15 @@ pasa como está; las acciones son los mismos comandos que manda la UI.
   Material 3 Expressive del diseño se generan a CSS con un script, como en Temple
   (`generar-tokens-css.js`), y Tailwind los toma en su `@theme`.
 - **Estado**: el modelo puro de Temple (`update(Action) -> Option<Effect>`) para la GUI, y el
-  `CoreLink` como contexto.
-- **Miniaturas de ventanas**: el núcleo captura cada ventana una vez (XShm o `GetImage`), la
-  achica y la entrega como PNG o WebP en base64, o por un protocolo propio de Dioxus
-  (`use_asset_handler`), que evita base64.
-- **i18n**: `fluent` (con `fluent-templates` o `i18n-embed`), archivos `i18n/{es,en}.ftl`, una
-  señal global de idioma y una función `t!("clave")`. Las 526 cadenas de los `.ts` se pasan a
-  `.ftl` con un script de una vez; el contexto de Qt pasa a ser el prefijo de la clave.
-- **El contrato con el núcleo** (estado, comandos y eventos) se detalla en la fase 2. La
-  semilla: `Engine::start(target, profile)`, `stop()`, `apply_config(Arc<Config>)`,
-  `list_windows()`, `thumbnail(window)`, `bench(...)`, y los eventos `Started`, `Stopped`,
-  `Error`, `WindowChanged`, `DaemonMatch`, `FrameGenStatus` y `Stats`.
+  `CoreLink` como contexto (detalle en 6.3).
+- **Miniaturas de ventanas**: la GUI las captura con XComposite en un hilo propio, las achica a
+  320 px y las sirve con `use_asset_handler` como `/thumb/{xid}?v={n}` (sin base64), cada 500 ms
+  y en pausa con la ventana oculta (6.4).
+- **i18n**: `fluent` (con `fluent-templates`), un archivo `.ftl` por pantalla y por idioma
+  (`i18n/{es,en}/<pantalla>.ftl`, así cada subagente tiene los suyos), una señal de idioma en un
+  contexto (cambia sin reiniciar) y una macro `t!("clave")`. Las 526 cadenas de los `.ts` se
+  pasan con un script de una vez.
+- **El contrato con el núcleo** está en 6.5.
 
 ### 3.10 Qué se conserva en C/C++ y qué se porta
 
@@ -496,8 +524,8 @@ pasa como está; las acciones son los mismos comandos que manda la UI.
 | 0 (revisor, corta) | Workspace, `Cargo.toml`, crates vacíos con su API pública escrita como firmas (`todo!()`), tipos compartidos, `lsfg_c.h`, reglas | Que el workspace pase `cargo check` vacío |
 | 1 | `lirtup-gpu`, `lirtup-x11`, `lirtup-effects` + `lirtup-magpiefx`, `lirtup-config` + `lsfg-sys` + `lirtup-fg` | Tests unitarios; ejemplos sin ventana (escalar una imagen, compilar los 117 efectos, sondear lsfg) |
 | 2 | `lirtup-pipeline`, `lirtup-core`, `lirtup-cli`, superposición y entrada | `lirtup` escala una ventana como `upscale`: mismos modos, efectos, tiles, FG por capa y por motor |
-| 3 | `lirtup-ui` (Dioxus), según el diseño de la fase 2 | La GUI completa contra el núcleo real |
-| 4 | Bandeja, daemon, reinicio, medición, i18n completo, empaquetado (AUR, AppImage), documentación, paridad | Reemplaza a la 1.x |
+| 3 | `lirtup-ui` (Dioxus) según el diseño: componentes, Inicio, Perfiles, Modos, Ajustes | La GUI completa contra `lirtup serve` |
+| 4 | Barra sobre el juego en Vulkan, bandeja y daemon, migración y traducciones, empaquetado y documentación | Reemplaza a la 1.x |
 
 ### 4.3 Esfuerzo (estimado)
 
@@ -528,7 +556,8 @@ En rondas como la 1.3 (4 subagentes y un revisor), unas **4 rondas más una de c
 | Sincronización: lo que hoy separa el GIL queda a cargo de mutexes explícitos | Mutex de cola en `lirtup-gpu` desde el primer día; validation layers en todos los ejemplos |
 | Paridad de imagen | Comparar bit a bit la salida de Rust y de Python en las mismas imágenes de prueba (ya existe la prueba de rojo/verde/azul de MagpieFX) |
 | WebKitGTK: ventana en blanco con DMA-BUF, consumo de memoria | `WEBKIT_DISABLE_DMABUF_RENDERER=1` en el lanzador, como Miko Kagura |
-| La GUI de Dioxus y la superposición en el mismo proceso: GTK y X11 compiten por el hilo principal | La superposición nunca toca GTK; tiene su propia conexión X11 en su hilo |
+| GUI y escalador en procesos distintos: versiones desparejas, socket caído | `Hello` con versión; la GUI relanza `lirtup serve` y muestra el estado de la conexión (6.5) |
+| La superposición y la bandeja (GTK) en el mismo sistema de ventanas | La superposición vive en otro proceso, con su propia conexión X11; nunca toca GTK |
 | Dos versiones vivas durante meses | Congelar funciones nuevas en Python durante las rondas 1 a 4, o anotarlas para portar |
 | Cambios de API de Dioxus (0.7 → 0.8) | Fijar el crate y `dx` a la misma versión, como Miko Kagura |
 | Licencias: Magpie (GPLv3), shader loader de Temple (GPL-3.0), lsfg-vk (MIT) | El workspace queda en GPL-3.0-or-later como hoy |
@@ -558,8 +587,8 @@ En rondas como la 1.3 (4 subagentes y un revisor), unas **4 rondas más una de c
   (es solo análisis, no genera binarios); si la persona prefiere que tampoco, se quita. Los tests
   unitarios se escriben, no se corren.
 - **No toca** lo compartido: `Cargo.toml` del workspace (las dependencias nuevas se piden en la
-  nota de rama y las agrega el revisor), `Cargo.lock`, `i18n/*.ftl`, `CHANGELOG.md`, la
-  versión.
+  nota de rama y las agrega el revisor), `Cargo.lock`, `CHANGELOG.md`, la versión. Las cadenas
+  de la GUI van en sus propios `.ftl` (`i18n/{es,en}/<pantalla>.ftl`), uno por frente.
 - **No cambia la API pública de otro crate.** Si la necesita distinta, lo anota en su nota de
   rama (`docs/developer/rust-r<N>-<frente>.md`) para el revisor.
 - Un commit por cambio coherente, sin líneas de coautoría.
@@ -585,7 +614,7 @@ En rondas como la 1.3 (4 subagentes y un revisor), unas **4 rondas más una de c
 | **G. GPU** | `crates/lirtup-gpu/**` | el resto | Port de `vulkan/lib`: instancia, selección de dispositivo, recursos, compute con timestamps, memoria y semáforos externos, swapchain XCB, mutex de cola, `robustImageAccess`, FP16. Ejemplo `examples/copy.rs` sin ventana |
 | **X. X11** | `crates/lirtup-x11/**` | el resto | Captura XShm + XDamage + tiles con xxh64; ventanas, foco, ícono, PID; atajos; reenvío de entrada; ventana de superposición (sin swapchain, que conecta la ronda 2). Ejemplo que captura una ventana a PNG |
 | **E. Efectos** | `crates/lirtup-effects/**`, `crates/lirtup-magpiefx/**`, `shaders/**` | `lirtup-gpu` (solo lo usa por su API) | SRCNN, escaladores, efectos nativos, conversores, OSD; MagpieFX completo con compilador por subproceso y caché. Tests de parser, `.dds`, FP16 |
-| **C. Config y FG** | `crates/lirtup-config/**`, `crates/lsfg-sys/**`, `crates/lirtup-fg/**` | el resto | `Config` con todos los campos y validadores, perfiles, CLI con clap; `lsfg_c.cpp` y `build.rs`; capa (toml, entorno, búsqueda de DLL y capa); multiplicador automático. Tests de config y FG |
+| **C. Config y FG** | `crates/lirtup-config/**`, `crates/lsfg-sys/**`, `crates/lirtup-fg/**` | el resto | `Config` con todos los campos y validadores, perfiles, **modos de escalado** (`modes/*.yaml`, ver 6.6) y la lectura de los YAML de la 1.x sin migrar, `gui-config.yaml`, CLI con clap; `lsfg_c.cpp` y `build.rs`; capa (toml, entorno, búsqueda de DLL y capa); multiplicador automático. Tests de config y FG |
 
 Orden de integración de la ronda 1 (cada uno sobre el anterior, en la rama
 `rust/r1-integration`): **C** (no depende de nadie) → **G** → **X** (usa `Format` de G) → **E**
@@ -598,20 +627,52 @@ Orden de integración de la ronda 1 (cada uno sobre el anterior, en la rama
 | **P. Pipeline** | `crates/lirtup-pipeline/src/{pipeline,tiles,upscale,presenter}.rs` | Hilo del pipeline, tiles, escalado, cadena de efectos y presentación |
 | **F. FG en el pipeline** | `crates/lirtup-pipeline/src/{framegen,pacing}.rs`, `crates/lirtup-fg/**` | Hilo de presentación de FG, ciclos, ritmo, reinicio en segundo plano |
 | **S. Stats y OSD** | `crates/lirtup-pipeline/src/{stats,osd,latency,menubar,bench}.rs` | Panel de stats, OSD, CSV de latencia, barra de menú, medición |
-| **K. Core y CLI** | `crates/lirtup-core/**`, `crates/lirtup-cli/**`, `crates/lirtup-x11/src/overlay*` | Fachada `Engine`, comandos y eventos, binario `lirtup`, conexión de la superposición con el swapchain |
+| **K. Core, socket y CLI** | `crates/lirtup-core/**`, `crates/lirtup-cli/**`, `crates/lirtup-x11/src/overlay*` | Fachada `Engine`; protocolo de 6.5, servidor y cliente del socket Unix; binario `lirtup` con `run` y `serve`; conexión de la superposición con el swapchain; un cliente de prueba (`lirtup ctl`) |
 
 Orden: **S** → **P** → **F** → **K**. El `mod.rs` de `lirtup-pipeline` lo escribe el revisor en
 la ronda 0 de esta ronda, con los módulos ya declarados, para que P, F y S no compartan archivo.
 
-### 5.5 Rondas 3 y 4
+### 5.5 Ronda 3: la GUI
 
-Se detallan en la fase 2, con el diseño: la ronda 3 reparte `lirtup-ui` por pantallas
-(componentes propios por subagente, un `app.rs` y un `state.rs` del revisor); la ronda 4 es
-bandeja, daemon, i18n, empaquetado y paridad.
+**Antes de los frentes, el revisor** escribe el esqueleto de `crates/lirtup-ui`, para que los
+cuatro frentes programen contra firmas fijas:
 
-### 5.6 Integración y builds
+- `main.rs`, `app.rs` (ventana sin marco, barra de título, cajón y router), `route.rs`.
+- `link.rs`: el `CoreLink` cliente del socket.
+- `state/mod.rs`: `Store`, `Field<T>`, `Origin`, `Action`, `Effect` y `update()` con sus
+  variantes declaradas.
+- `i18n.rs` con la macro `t!`.
+- `components/mod.rs` con cada componente de 6.2 declarado como `#[component]` con sus props y
+  el cuerpo en `todo!()`.
+- `design/tokens.json` copiado del lienzo, `tailwind.css` con el `@theme` de las notas de
+  implementación del diseño, y `package.json`.
 
-Al terminar los cuatro frentes de una ronda:
+| Frente | Toca | No toca | Entregable |
+| --- | --- | --- | --- |
+| **A. Componentes y tema** | `crates/lirtup-ui/src/components/**` (cuerpos), `src/theme.rs`, `assets/main.css`, `assets/fonts/**`, `scripts/gen-tokens*`, `i18n/{es,en}/components.ftl` | pantallas, estado | Los 20 componentes de 6.2 con sus variantes, estados de foco y `prefers-reduced-motion`; `gen-tokens` (tokens → `tokens.css` y `tokens.rs`); semilla del tema con `material-colors` y las 20 paletas como semillas; subconjunto de Material Symbols y fuentes sin red |
+| **B. Inicio y ventanas** | `src/screens/home/**`, `src/screens/about.rs`, `src/thumbs.rs`, `src/windows.rs`, `i18n/*/home.ftl`, `about.ftl` | componentes (solo los usa), estado de perfiles | Inicio completo (6.1): tarjeta de sesión, activación, daemon, cuadrícula con filtros, menú del mosaico, navegación con teclado; miniaturas por `use_asset_handler`; lista de ventanas; Acerca de con diagnóstico |
+| **C. Perfiles** | `src/screens/profile/**`, `src/screens/new_profile.rs`, `src/state/store.rs` (cuerpos de `Store`, `Field`, `update`), `i18n/*/profile.ftl` | componentes, pantallas de B y D | Página de perfil con sus 5 pestañas; herencia, sucio, barra flotante, Restablecer con sus 3 opciones, diálogo de cambios sin guardar, snackbar con Deshacer; Nuevo perfil con captura de ventana y vista previa de coincidencia; guardado a YAML; tests de `update()` |
+| **D. Modos y Ajustes** | `src/screens/modes/**`, `src/screens/settings/**`, `src/screens/bench.rs`, `i18n/*/modes.ftl`, `settings.ftl` | lo de A, B y C | Lista y editor de modos (modelo, escalado doble, muestreo, motor, cadena con arrastre, catálogo MagpieFX, controles generados por parámetro, aviso de modo compartido); diálogo de medición; Ajustes (General, Atajos con `HotkeyCapture`, Estilo) |
+
+Orden de integración: **A** → **C** (el estado que usan B y D) → **B** → **D**. Al integrar, el
+revisor junta los `.ftl`, corre el script que pasa las cadenas de los `.ts` y completa las
+claves que falten.
+
+### 5.6 Ronda 4: superposición, bandeja, migración y empaquetado
+
+| Frente | Toca | Entregable |
+| --- | --- | --- |
+| **T. Barra sobre el juego** | `crates/lirtup-pipeline/src/{toolbar,tokens}.rs`, `crates/lirtup-x11/src/overlay_input.rs`, `crates/lirtup-effects/src/ui_draw*` | La barra flotante del diseño dibujada en Vulkan (fijar, stats, recorte, captura, multiplicador, fps, ocultar, a ventana, detener): aparece al acercar el cursor al borde, se oculta a los 2 s y arrastra la ventana en modo ventana. Panel de stats y OSD con los tokens y las fuentes nuevas |
+| **Y. Bandeja, daemon y avisos** | `crates/lirtup-ui/src/tray.rs`, `crates/lirtup-core/src/daemon.rs`, `crates/lirtup-cli/src/serve.rs` (ciclo de vida) | Menú de la bandeja del diseño, ícono con sus 4 estados, cerrar o minimizar a la bandeja, empezar oculto; daemon con «Seguir ejecutándose tras salir»; avisos del escritorio con «Detener» |
+| **M. Migración y traducciones** | `crates/lirtup-config/src/migrate.rs`, `scripts/ts-to-ftl*`, `crates/lirtup-ui/tests/i18n.rs` | Migración de la 1.x a modos (6.6), con copia de respaldo; inglés completo; test de que todas las claves existen en los dos idiomas |
+| **P. Empaquetado y documentación** | `packaging/**`, `scripts/build-release-linux.sh`, `.github/workflows/**`, `README.md`, `docs/user/**` | PKGBUILD de AUR, AppImage, `.desktop` y metainfo, lanzador con `WEBKIT_DISABLE_DMABUF_RENDERER=1`, CI (fmt, clippy, test, `dx build`), README y guías actualizadas |
+
+Orden: **M** → **T** → **Y** → **P**.
+
+### 5.7 Integración y builds
+
+Al terminar los cuatro frentes de una ronda (las rondas 3 y 4 empiezan con su esqueleto del
+revisor, como la ronda 0):
 
 1. El revisor revisa cada rama contra su nota y contra el contrato de la ronda 0.
 2. Merge en el orden de la ronda.
@@ -622,18 +683,287 @@ Al terminar los cuatro frentes de una ronda:
 5. **Build 2** igual al 1. Si algo sigue fallando, se anota y pasa a la ronda siguiente.
 6. Pruebas a mano de la ronda (un guion como `round-1.3-test-script.md`).
 
-### 5.7 Criterios de aceptación
+### 5.8 Criterios de aceptación
 
 | Ronda | Criterio |
 | --- | --- |
 | 0 | El workspace pasa `cargo check`; cada crate tiene su API pública documentada |
 | 1 | `cargo test --workspace` en verde; el ejemplo de G corre sin errores de validation layers; X captura una ventana a PNG; E compila los 117 efectos con dxc (los 3 Denoise con glslang) y da la misma salida que Python en la imagen RGB de prueba; C lee `config-example.yaml` y los perfiles de la persona sin cambiarlos; `lsfg_probe` encuentra `Lossless.dll` |
 | 2 | `lirtup` escala una ventana en los cuatro modos de superposición, con tiles, reenvío de ratón y atajos; los tiempos de GPU de la tabla del README dentro de un 5 % de la versión de Python; FG por capa y por motor integrado a ×2 y ×4 con video, sin errores de validación; panel de stats y CSV de latencia iguales en contenido |
-| 3 | Todas las pantallas y flujos del diseño funcionan contra el núcleo real; las cadenas en español completas |
-| 4 | Bandeja, daemon y reinicio; paquete AUR y AppImage que se instalan y arrancan en una máquina limpia; ningún pendiente de paridad abierto |
+| 3 | `dx build` sin advertencias de Tailwind; los 6 flujos de 6.1 de punta a punta contra `lirtup serve`; un perfil de la 1.x se abre y se guarda sin perder campos (diff del YAML vacío salvo lo cambiado); herencia y sucio correctos en los tres niveles (fila, pestaña, cajón); tests de `update()` en verde; ningún texto sin traducir en español; contraste AA de los roles de color medido (el diseño no lo midió); navegable con teclado |
+| 4 | La barra sobre el juego no cambia los tiempos de GPU más de 0,1 ms; bandeja con los 4 estados; el daemon sigue escalando con la GUI cerrada; la migración de la configuración real de la persona da los mismos resultados de escalado; paquete AUR y AppImage que se instalan y arrancan en una máquina limpia; ningún pendiente de paridad abierto |
 
-## 6. Fase 2 (pendiente)
 
-Cuando esté el artefacto de diseño: mapa de cada pantalla, flujo y componente a componentes
-Dioxus; el estado de la UI (señales, contextos, qué vive en el núcleo); el contrato completo
-entre `lirtup-core` y `lirtup-ui`; y el reparto de la ronda 3 en frentes.
+## 6. Fase 2: el diseño en Dioxus
+
+Fuente: el lienzo [LirtUp Forge — Sistema de diseño M3 Expressive](https://claude.ai/artifact/19aBN9Lzfh8aibMbazSXRM)
+(13 tableros: portada, color, tipografía, componentes, 7 pantallas, flujos, notas de Dioxus) y
+`docs/design/README.md` + `lf.css` en la rama `claude/design-system-1937a8` (`277c7d48`). La
+sesión de diseño avisa que no revisó el lienzo renderizado ni midió los contrastes.
+
+### 6.0 Qué cambia del plan de la fase 1
+
+| Tema | Fase 1 | Con el diseño |
+| --- | --- | --- |
+| Procesos | Escalador y GUI en un proceso | Dos: `lirtup serve` (escalador y daemon) y `lirtup-gui`, por socket Unix (3.7). El diseño lo pide para que el daemon siga sin la GUI |
+| Bandeja | `ksni` | `tray-icon` + `muda` en el proceso de la GUI (3.8) |
+| Configuración | Los YAML de hoy | Más un concepto nuevo: **modos de escalado** en `modes/*.yaml` que los perfiles eligen (6.6) |
+| «Global» | Perfil global | Se llama **Predeterminado** y es un perfil más en el cajón |
+| Panel de stats y OSD | Mismo contenido, dibujados como hoy | Además, una **barra flotante sobre el juego** dibujada en Vulkan con los mismos tokens (ronda 4, frente T) |
+| Atajos | `GrabKey` con x11rb | El diseño menciona `global-hotkey` y el portal GlobalShortcuts. **Me quedo con `GrabKey` en `lirtup serve`**: los atajos de activación tienen que andar con la GUI cerrada (daemon), y la app solo funciona sobre X11/XWayland, donde el portal no agrega nada. El portal queda anotado para cuando haya captura Wayland |
+
+### 6.1 Pantallas y flujos → componentes Dioxus
+
+Rutas (`route.rs`): `Home`, `Modes { id: Option<ModeId> }`, `Profile { id: ProfileId, tab: ProfileTab }`,
+`Settings { tab: SettingsTab }`, `About`. *Nuevo perfil*, *Cambios sin guardar* y *Medir en mi GPU*
+son diálogos sobre la ruta actual, no rutas.
+
+**Marco común (todas las pantallas)**
+
+| Pieza del diseño | Componente | Notas |
+| --- | --- | --- |
+| Barra de título de 40 px (minimizar, maximizar, cerrar a la bandeja) | `TitleBar` | `use_window()`: `drag()`, `set_minimized`, `toggle_maximized`, ocultar si «Cerrar a la bandeja» |
+| Cajón de 288 px; riel de 80 px por debajo de 1100 px | `NavDrawer`, `NavItem`, `NavHeader` | Perfiles con ícono, punto de sucio y ▶ ámbar si escalan; *Nuevo perfil*; Acerca de y Ajustes abajo |
+| Barra flotante de cambios | `SaveBar` (`FloatingToolbar` + `SplitButton`) | Solo con cambios; «N cambios sin guardar», Restablecer ▾ (3 opciones), Guardar |
+| Snackbar con Deshacer | `Snackbar` | Un `Signal<Option<Toast>>` global |
+| Atajos de la app | `use_app_shortcuts` | Ctrl+S, Ctrl+N, Ctrl+D, Ctrl+F, en un `onkeydown` del contenedor raíz |
+
+**Inicio** (`screens/home/`)
+
+| Pieza | Componente | Datos |
+| --- | --- | --- |
+| Tarjeta «Escalando …» (ámbar; error-container si falla) | `SessionCard` | `Session` del núcleo: ventana, modo, `src → dst`, fps capturados → mostrados, multiplicador; botones Reiniciar y Detener; Reintentar con el detalle si falla |
+| Activación: pantalla completa, ventana, escalado diferido, modo daemon | `ActivationGroup` con `SettingRow`, `Keycap`, `Switch` | Atajos de `gui-config`/`config`; *Empezar* manda `Start { target: Focused, delay }` |
+| «Ventanas abiertas · N», filtro rápido, búsqueda | `WindowsHeader`, `Connected<Filter>`, `TextField` | Lista de `windows.rs` |
+| Cuadrícula de mosaicos | `WindowGrid`, `WindowTile` | Estados Idle, Hover, Focus, Running; clic = escalar con el perfil que coincide; clic derecho o ⋮ = `TileMenu` (en ventana, crear perfil, copiar título); flechas e Intro |
+
+**Modos de escalado** (`screens/modes/`)
+
+| Pieza | Componente | Datos |
+| --- | --- | --- |
+| Lista de modos con costo total y uso | `ModeList`, `ModeCard` | `modes/*.yaml`, conteo de perfiles que lo usan, ms de la última medición |
+| Modelo SRCNN (de `none` a `8x32`), escalado doble | `ModelSlider` (`Slider` con pasos con nombre), `Switch` | |
+| Muestreo: sobremuestreador, submuestreador, desenfoque, opciones de Lanczos | `Select`, `Slider`, `Disclosure` | |
+| Motor Nativo / MagpieFX con explicación | `Connected<EffectsEngine>` | |
+| Cadena de efectos | `EffectChain`, `EffectCard`, `EffectParam` | Reordenar con arrastre (HTML5 drag en el webview, con botones subir/bajar para teclado); costo en ms por efecto; parámetros generados desde los `//!PARAMETER` de MagpieFX |
+| Agregar efecto | `EffectPicker` (diálogo) | Catálogo del núcleo (`ListEffects`): los incluidos y los de `~/.config/linux-rt-upscaler/effects` |
+| Medir en mi GPU | `BenchDialog` | Comandos `Bench`, eventos `BenchProgress` y `BenchResult` |
+| Retoque final (CAS, deband, bloom, viñeta, grano, LUT) | `SettingGroup` de `SettingRow` | |
+| Aviso «Este modo lo usan N perfiles» | `SharedModeBanner` | Ofrece duplicar antes de editar |
+
+**Perfil** (`screens/profile/`)
+
+| Pieza | Componente | Datos |
+| --- | --- | --- |
+| Cabecera: ícono, nombre, reglas como chips, *Editar perfil* | `ProfileHeader`, `RuleChip` | `Profile.match` |
+| Pestañas con punto de sucio | `Tabs<ProfileTab>` | Escalado, Presentación, Pantalla, Extras, Avanzado |
+| Escalado: modo (+ Editar modo), seguir enfoque, pausa al perder foco, excluir del daemon | `tabs/scaling.rs` | |
+| Presentación: modo de ventana, geometría, barra de menú, cursor, recorte y desplazamiento, color de fondo, generación de cuadros (global) | `tabs/presentation.rs`, `FrameGenSection` | La sección de FG lee el estado del motor (`FrameGenStatus`) y queda deshabilitada con «Definida por variables LSFGVK_*» si corresponde |
+| Pantalla: monitor, GPU, modo de presentación, límite de fps, factor de escala | `tabs/display.rs` | Monitores y GPUs del núcleo (`ListDevices`) |
+| Extras: capturas, OSD, panel de stats | `tabs/extras.rs` | |
+| Avanzado: bloques, seguimiento de daño, tiempos y recuperación | `tabs/advanced.rs` | Grupos plegables |
+| Cada fila | `SettingRow { origin }` | Hereda / Cambiado (franja primaria + volver a heredar) / Sin guardar (franja ámbar, «antes: …») |
+| Diálogo de cambios sin guardar | `UnsavedDialog` | Guardar y cambiar / Descartar y cambiar / Cancelar |
+
+**Nuevo perfil** (`screens/new_profile.rs`): `NewProfileDialog` con `IconPicker` (capturar de una
+ventana, archivo, quitar), nombre con validación en línea, `Select` de modo y de «Copiar ajustes
+de», `RuleEditor` (título exacto/contiene/regex, ancho, alto con `>`/`<`), `MatchPreview`
+(«Coincide con N ventanas», verde o ámbar, calculado en la GUI con la lista de ventanas) y el
+panel lateral *Capturar ventana* (`WindowPickList` + «Señalar ventana», que manda `PickWindow`
+al núcleo: el cursor en cruz y el clic se hacen con x11rb).
+
+**Ajustes** (`screens/settings/`): General (idioma, tema Sistema/Claro/Oscuro, semilla de color,
+bandeja, daemon y «Seguir ejecutándose tras salir»), Atajos (grupos Activación, Sesión, Vista,
+Zoom y desplazamiento, con `HotkeyCapture`), Estilo (zoom, escala de fuente, fuente, cuadrícula
+4:3/16:9/Auto, intervalos de lista y vista previa).
+
+**Superposición** (no es Dioxus): la barra flotante, el panel de stats y el OSD se dibujan en
+Vulkan dentro de la ventana del escalador (ronda 4, frente T), con constantes de `tokens.rs`.
+
+**Bandeja** (`tray.rs`): «Escalando: …» con fps y modo, Detener, Reiniciar, Perfil ▸, Generación de
+cuadros ▸ (Apagada, ×2, ×3, ×4, Auto, con motivo si falta el motor), Modo daemon, Mostrar, Salir;
+ícono en reposo, daemon vigilando, escalando y error.
+
+**Acerca de** (`screens/about.rs`): versión, enlaces, licencias de terceros y *Diagnóstico* (GPU,
+driver, lsfg, dxc; comando `Diagnostics`, copiar al portapapeles).
+
+**Flujos del diseño y quién los resuelve**
+
+| Flujo | Recorrido | Comandos y eventos (6.5) |
+| --- | --- | --- |
+| 1. Escalar una ventana | Mosaico, atajo o diferido → ¿perfil? → arranque → sesión → barra → Detener | `Start`, `SessionStarting`, `SessionStarted`, `Stats`, `SessionError`, `Stop`, `SessionStopped` |
+| 2. Crear un perfil | Menú del mosaico o *Nuevo perfil* → diálogo con la ventana → vista previa → Crear → página del perfil | Solo GUI (YAML) + `ReloadConfig`; `PickWindow` para «Señalar ventana» |
+| 3. Editar y guardar | Cambio → fila ámbar → barra → (diálogo al navegar) → Guardar → snackbar con Deshacer | Solo GUI + `ReloadConfig`; si hay sesión con ese perfil, el núcleo aplica en vivo |
+| 4. Modo y efectos | Perfil → Escalado → Modo → editor → agregar o reordenar → medir → en vivo | `ListEffects`, `CompileEffect` (progreso `EffectCompile`), `Bench*`, `ReloadConfig` |
+| 5. Generación de cuadros | Presentación, barra del juego o bandeja → ¿motor disponible? → multiplicador → activo | `FrameGenProbe`, `FrameGenStatus`; cambiar el multiplicador = guardar + `Restart` |
+| 6. Bandeja y daemon | Activar → anillo → ventana que coincide → escala sola → menú | `SetDaemon`, `DaemonState`, `DaemonMatch`, avisos del escritorio |
+
+### 6.2 Biblioteca de componentes (`components/`)
+
+| Componente | Props (del diseño) | Reemplaza a (GUI de hoy) |
+| --- | --- | --- |
+| `Button` | `variant: Filled \| Tonal \| Outlined \| Text \| Tertiary \| Danger`, `size: Xs \| S \| M \| L`, `icon` | `QPushButton` con estilos |
+| `IconButton` | `icon`, `variant`, `selected`, `label` (aria) | botones de ícono de `sidebars/` |
+| `SplitButton` | `label`, `on_click`, `menu: Vec<MenuItem>` | Restablecer con menú |
+| `Connected<T>` | `options: Vec<(T, String)>`, `value: Signal<T>` | combos cortos (`controls/combo.py`) |
+| `Switch`, `Checkbox` | `value: Signal<bool>` | `controls/checkbox.py` (en ajustes, siempre switch) |
+| `Slider` | `min`, `max`, `step`, `format`, campo editable | `controls/slider.py` |
+| `Select`, `TextField`, `PathField`, `ColorField`, `FontField` | `value: Signal<…>` | `combo.py`, `text.py`, `path.py`, `color.py`, `font.py` |
+| `SettingRow` | `icon`, `title`, `subtitle`, `origin: Inherited \| Overridden \| Dirty { before }`, `children` | `controls/base.py` + la herencia nueva |
+| `SettingGroup` | `title`, `children` | `controls/section.py` |
+| `NavDrawer`, `NavItem` | `route`, `icon` o ícono de perfil, `dirty`, `running` | `sidebars/profiles.py`, `icon_sidebar.py` |
+| `Tabs<T>` | pestañas con punto | `icon_tab_bar.py` |
+| `WindowTile` | `window`, `profile`, `state` | `grid/item.py` |
+| `HotkeyCapture`, `Keycap` | `value: Signal<Option<Hotkey>>`, `require_modifier` | `controls/hotkey.py` |
+| `FloatingToolbar`, `Snackbar`, `Dialog`, `Menu`, `Tooltip` | `open: Signal<bool>`, `children` | diálogos de `dialogs/` |
+| `Badge`, `Chip` | variante | — |
+| `Icon` | `name` (Material Symbols Rounded, subconjunto) | íconos SVG de `gui/icons` |
+| `LoadingIndicator` | forma expresiva | — |
+
+Las clases base de cada uno están en las notas de implementación del diseño, y los tokens en
+`lf.css`.
+
+### 6.3 Estado de la UI
+
+Combinación de lo que propone el diseño (`Field<T>` y `Store`) con el modelo puro de Temple:
+
+```rust
+pub struct Field<T> { pub default: T, pub profile: Option<T>, pub edit: Option<Option<T>> }
+// edit: None = sin tocar; Some(Some(v)) = valor nuevo sin guardar; Some(None) = «volver a heredar»
+
+pub enum Origin { Inherited, Overridden, Dirty { before: String } }
+
+pub struct Store {
+    pub config: ConfigDoc,            // config.yaml: Predeterminado + perfiles, con Field por ajuste
+    pub modes: Vec<ModeDoc>,          // modes/*.yaml
+    pub gui: GuiSettings,             // gui-config.yaml: idioma, tema, semilla, bandeja, cuadrícula
+    pub windows: Vec<WindowInfo>,     // de windows.rs, cada 1000 ms
+    pub session: Option<SessionView>, // del núcleo
+    pub stats: Option<StatsSample>,   // del núcleo, cada 500 ms
+    pub framegen: FrameGenStatus,
+    pub daemon: DaemonState,
+    pub link: LinkState,              // Conectando | Conectado | Caído { motivo }
+}
+
+pub fn update(store: &mut Store, action: Action) -> Option<Effect>;
+```
+
+- **Un solo `Signal<Store>`** en un contexto, más `use_memo` para lo derivado: origen de cada
+  fila, conteo de cambios, punto de cada pestaña y del cajón, perfil que coincide con cada
+  mosaico.
+- **`Action`** es todo lo que hace la persona (`SetField`, `ResetTab`, `RemoveProfileOverrides`,
+  `ResetAll`, `Save`, `Undo`, `Navigate`, `StartScaling`, …) y todo lo que llega del núcleo
+  (`CoreEvent(Event)`). **`Effect`** es lo que sale: `Send(Command)`, `WriteYaml(…)`,
+  `Toast(…)`, `Confirm(Dialog)`. Así `update()` es puro y se prueba sin Dioxus, como en Temple.
+- **Navegar con cambios** devuelve `Effect::Confirm(UnsavedDialog)`; la respuesta vuelve como
+  `Action`.
+- **Deshacer** guarda el `ConfigDoc` anterior al último guardado.
+- **Idioma y tema** son contextos aparte (`Signal<Lang>`, `Signal<Theme>`) para que un cambio no
+  vuelva a evaluar todo el árbol. El tema se calcula en Rust con `material-colors` desde la
+  semilla y se escribe como `style` en el elemento raíz: Tailwind solo ve variables.
+- **Escrituras de YAML**: siempre con `lirtup-config` (las mismas estructuras que lee el
+  escalador), a un archivo temporal y `rename`, conservando las claves que la GUI no conoce.
+
+### 6.4 Ventanas y miniaturas (en la GUI, sin el núcleo)
+
+- `windows.rs`: un hilo con su conexión x11rb lista las ventanas cada 1000 ms (ajustable) con
+  `lirtup-x11` y manda la lista por un `Signal` (vía `spawn` + canal).
+- `thumbs.rs`: otro hilo captura cada ventana visible con XComposite (`NameWindowPixmap` +
+  `GetImage`), la achica a 320 px de ancho, la codifica en WebP o JPEG en memoria y la guarda en
+  un mapa `xid → (versión, bytes)`. `use_asset_handler("thumb", …)` sirve `/thumb/{xid}?v={n}`.
+  Se pausa cuando la ventana principal está oculta o minimizada.
+- El ícono de cada ventana (`_NET_WM_ICON`) se sirve igual, en `/icon/{xid}`.
+
+### 6.5 Contrato con el núcleo (`lirtup-core::proto`)
+
+Socket en `$XDG_RUNTIME_DIR/lirtup/lirtup.sock`; JSON por líneas; cada mensaje con
+`{"v": 1, ...}`. Al conectar, la GUI manda `Hello` y recibe `Snapshot` con todo el estado; después
+solo eventos.
+
+```rust
+pub enum Command {
+    Hello { version: u32, client: String },
+    Start { target: Target, kind: SessionKind, delay_s: Option<f32>, profile: Option<String> },
+    Stop,
+    Restart,                          // misma ventana y ajustes; con la capa lsfg-vk, exec del escalador
+    ReloadConfig,                     // la GUI guardó YAML
+    SetDaemon { on: bool, keep_after_exit: bool },
+    PickWindow,                       // cursor en cruz; responde WindowPicked
+    ListEffects, CompileEffect { name: String },
+    ListDevices,                      // monitores y GPUs
+    FrameGenProbe,
+    Bench { req: BenchRequest }, CancelBench,
+    Diagnostics,
+    Quit,
+}
+
+pub enum Target { Window(u32 /* xid */), Focused, Title(String), Pid(u32) }
+pub enum SessionKind { Fullscreen, Windowed }
+
+pub enum Event {
+    Snapshot(EngineSnapshot),         // sesión, daemon, FG, versión
+    SessionStarting { target: WindowRef },
+    SessionStarted(SessionView),      // ventana, perfil, modo, src → dst, cadena
+    SessionStopped { reason: StopReason },
+    SessionError { stage: Stage, message: String, retry: bool },
+    Stats(StatsSample),               // cada 500 ms: fps, latencia, ms por etapa, aviso de GPU
+    FrameGen(FrameGenStatus),         // motor, disponible, multiplicador activo, motivo
+    DaemonState { on: bool, watching: usize },
+    DaemonMatch { window: WindowRef, profile: String },
+    MenuBarDetected { profile: String, crop: Crop },  // la GUI lo guarda en el perfil
+    WindowPicked(Option<WindowRef>),
+    Effects(Vec<EffectInfo>), EffectCompile { name: String, done: bool, error: Option<String> },
+    Devices { monitors: Vec<MonitorInfo>, gpus: Vec<GpuInfo> },
+    BenchProgress { done: u32, total: u32 }, BenchResult(BenchReport),
+    Diagnostics(DiagReport),
+    Log { level: Level, message: String },
+}
+```
+
+Reglas:
+
+- **La GUI es la única que escribe YAML.** El escalador solo lee (también con `lirtup run`). Lo
+  que el escalador descubre y hay que guardar (recorte de la barra de menú) llega como evento.
+- **Perfiles y modos viajan por nombre**, no por contenido: el escalador los resuelve leyendo el
+  disco después de `ReloadConfig`.
+- **Versión**: `Hello.version` distinta de la del escalador → la GUI muestra un aviso y ofrece
+  reiniciarlo.
+- **Sin socket** (el escalador se cayó): `LinkState::Caído`, tarjeta de error en Inicio y
+  relanzar al primer comando.
+- Los tipos (`SessionView`, `StatsSample`, `FrameGenStatus`, …) viven en `lirtup-core::proto` y
+  derivan `Serialize`/`Deserialize`; los usa también el panel de stats del escalador, así ambos
+  muestran lo mismo.
+
+### 6.6 Modos de escalado y migración de la configuración
+
+- Un **modo** junta lo que hoy es modelo, escalado doble, muestreo (sobremuestreador,
+  submuestreador, Lanczos), motor de efectos, cadena y retoque final (CAS, deband, bloom,
+  viñeta, grano, LUT). Se guarda en `~/.config/linux-rt-upscaler/modes/<id>.yaml`; cada perfil
+  lo nombra con `mode: <id>`.
+- **Lectura sin migrar**: `lirtup-config` sigue aceptando esos campos sueltos en el nivel
+  superior y en los perfiles. Si un perfil tiene `mode:` y además campos de modo sueltos, los
+  sueltos ganan (como hoy la CLI gana sobre el perfil). Así la 1.x y la 2.0 pueden leer el mismo
+  archivo durante la transición.
+- **Migración** (ronda 4, frente M), ofrecida en la primera ejecución y con copia de respaldo
+  (`config.yaml.1x.bak`): cada combinación distinta de campos de modo pasa a un modo con nombre
+  («Predeterminado», «Modo de <perfil>»), y los perfiles pasan a nombrarlo.
+- `gui-config.yaml` sigue aparte, con los campos nuevos (semilla, cerrar a la bandeja, empezar
+  oculto, seguir tras salir, intervalos de la cuadrícula).
+
+### 6.7 Cosas del diseño que hay que confirmar
+
+| Tema | Detalle | Propuesta |
+| --- | --- | --- |
+| Contraste | El diseño eligió los roles a mano y no los midió | Criterio de la ronda 3: generar con `material-colors` y medir AA |
+| Fuente Google Sans Flex | Hay que confirmar su licencia y que se pueda incluir en el paquete | Si no se puede, Roboto Flex (OFL), que ya es el respaldo del diseño |
+| Material Symbols | Licencia Apache-2.0; hace falta un subconjunto en woff2 para la GUI y en TTF para la barra en Vulkan (`ab_glyph` no lee woff2) | El script `gen-tokens` saca los dos |
+| Cantidad de efectos | El diseño dice 86 efectos en MagpieFX; el README dice que se incluyen los 117 y se verificaron 86 | Mostrar la cantidad real del catálogo (`ListEffects`) |
+| Ajustes por perfil que hoy son globales | Generación de cuadros es global (bien marcado); revisar en la ronda 3 qué otros campos de `Config` no tienen sentido por perfil | Lista en la nota de la ronda 3 |
+| Barra sobre el juego | Medidas sin probar con la tipografía real | Frente T, ronda 4, con criterio de costo de GPU |
+
+### 6.8 Esfuerzo de la GUI (estimado)
+
+Con el diseño, la parte de UI queda en unas 6 000 a 8 000 líneas de Rust más unas 1 000 de CSS
+(Tailwind hace la mayor parte), algo más que lo estimado en 4.3. Suben la herencia de ajustes,
+los modos y el editor de la cadena de efectos. La barra en Vulkan suma unas 800 a 1 200 líneas
+en la ronda 4. El total sigue dentro del rango de 4.3, en su parte alta.
