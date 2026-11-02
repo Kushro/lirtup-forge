@@ -27,7 +27,7 @@ selector en la barra flotante (la que dibuja Vulkan) para el **modo** y, quizá,
 
 - `Command::ReloadConfig` → `Inner::reload` (`crates/lirtup-core/src/engine.rs:1227`) vuelve a
   resolver la config de la ventana y manda `PipelineCommand::UpdateConfig { config, profile,
-  mode }` (`engine.rs:1250-1256`, que se define en `crates/lirtup-pipeline/src/pipeline.rs:136-144`).
+  mode }` (`engine.rs:1251-1262`, que se define en `crates/lirtup-pipeline/src/pipeline.rs:136-144`).
 - El hilo de la sesión lo atiende en `Runner::handle_command` (`pipeline.rs:797-805`) →
   `Runner::update_config` (`pipeline.rs:1163-1233`), que compara la config vieja con la nueva y
   rehace solo lo que cambió.
@@ -85,7 +85,7 @@ Qué arrastra un cambio de perfil a mitad de sesión con `UpdateConfig`:
 | `gpu` | El dispositivo se abre una vez y queda hasta el cierre (`engine.rs`, `device()`): **se ignora sin aviso** |
 | Atajos | Se toman del nivel de arriba (más `-p`), no del perfil de la sesión (`engine.rs:59-61`): el cambio no hace nada |
 | `match` y ventana objetivo | No cambian la ventana actual. El daemon puede volver a elegir otro perfil después |
-| Estado del motor | `Running.profile` (`engine.rs:183-188`) y `last_start` (`:198`) siguen con el perfil viejo. **El próximo `ReloadConfig` (`engine.rs:1241-1249`) vuelve a resolver con el perfil viejo y deshace el cambio**, y `Restart` también vuelve al viejo. Hay que actualizarlos |
+| Estado del motor | `Running.profile` (`engine.rs:183-188`) y `last_start` (`:198`) siguen con el perfil viejo. **El próximo `ReloadConfig` (`engine.rs:1251-1256`) vuelve a resolver con el perfil viejo y deshace el cambio**, y `Restart` también vuelve al viejo. Hay que actualizarlos |
 | La tarjeta de la GUI | Ver la sección 3: hoy no se entera |
 
 **Conclusión:** el cambio de perfil es posible, pero toca el motor, la superposición y la GUI.
@@ -197,7 +197,7 @@ lo típico, alcanza de sobra.
   **archivo del modo**, no el perfil, y solo los usa el editor de modos de la GUI. El selector no
   debe tocarlos: elegir un modo no es editarlo.
 - **El perfil guarda el modo como `mode: <id>`** en `profile.options`, igual que hace
-  `create_profile` (`store.rs:1040-1044`).
+  `create_profile` (`store.rs:1045-1048`).
 - **Hoy `save_setting` del hilo de la sesión siempre manda `profile: None`**
   (`pipeline.rs:1448-1454`). Para el modo hay que mandar `self.profile`. Sin perfil va a
   *Predeterminado*, es decir, al `mode` del nivel de arriba (`resolve.rs:102`), y eso afecta a
