@@ -3,6 +3,12 @@
 //! (`notify-rust`, the freedesktop notifications over D-Bus). Only while
 //! the window is hidden or unfocused; never one per `Stats`. With the GUI
 //! closed, `lirtup serve` sends its own (`lirtup_core::server`).
+//!
+//! Plasma never expires a notification with an action, and the thread
+//! waiting on «Detener» would wait forever: the notification is closed when
+//! the session stops or another one replaces it ([`close_waiting`]).
+
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use dioxus::desktop::tao::event::{Event as TaoEvent, WindowEvent};
 use dioxus::desktop::use_wry_event_handler;
@@ -60,6 +66,11 @@ pub fn use_notifications(store: Signal<Store>, dispatch: Callback<Action>) {
         drop(s);
         let previous = before.peek().clone();
         before.set(Some(now.clone()));
+        let stopped =
+            matches!(previous, Some(SessionState::Running(_))) && !matches!(now, SessionState::Running(_));
+        if stopped {
+            close_waiting();
+        }
         if quiet {
             return;
         }
@@ -79,6 +90,11 @@ fn show(notice: Notice, core: CoreLink) {
         ),
     };
     let label = tr("notify-stop");
+    if stop {
+        // One «Detener» at a time: the new session's replaces it.
+        close_waiting();
+    }
+    let generation = waiting().generation;
     let spawned = std::thread::Builder::new()
         .name("lirtup-notify".into())
         .spawn(move || {
@@ -91,14 +107,94 @@ fn show(notice: Notice, core: CoreLink) {
                 n.action("stop", &label);
             }
             match n.show() {
-                Ok(handle) if stop => handle.wait_for_action(|action| {
-                    if action == "stop" {
-                        tracing::info!("notification: Detener");
-                        core.send(Command::Stop);
+                Ok(handle) if stop => {
+                    let id = handle.id();
+                    let closed = {
+                        let mut w = waiting();
+                        let closed = w.generation != generation;
+                        if !closed {
+                            w.id = Some(id);
+                        }
+                        closed
+                    };
+                    if closed {
+                        // The session stopped while it was being shown.
+                        close_notification(id);
                     }
-                }),
+                    handle.wait_for_action(|action| {
+                        if action == "stop" {
+                            tracing::info!("notification: Detener");
+                            core.send(Command::Stop);
+                        }
+                    });
+                    let mut w = waiting();
+                    if w.id == Some(id) {
+                        w.id = None;
+                    }
+                }
                 Ok(_) => {}
                 Err(e) => tracing::debug!("notification: {e}"),
+            }
+        });
+    if let Err(e) = spawned {
+        tracing::debug!("notification: {e}");
+    }
+}
+
+/// The notification waiting on «Detener» (its D-Bus id), if any.
+struct Waiting {
+    id: Option<u32>,
+    /// Bumped by every [`close_waiting`]: a notification shown before the
+    /// last close is closed as soon as its id is known.
+    generation: u64,
+}
+
+static WAITING: Mutex<Waiting> = Mutex::new(Waiting {
+    id: None,
+    generation: 0,
+});
+
+fn waiting() -> MutexGuard<'static, Waiting> {
+    WAITING.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Close the notification waiting on «Detener», and any shown before this
+/// call.
+fn close_waiting() {
+    let id = {
+        let mut w = waiting();
+        w.generation += 1;
+        w.id.take()
+    };
+    if let Some(id) = id {
+        close_notification(id);
+    }
+}
+
+/// `CloseNotification` through `gdbus` (GLib, which WebKitGTK needs
+/// anyway), on a thread: the waiting thread then gets `__closed` and ends.
+fn close_notification(id: u32) {
+    let spawned = std::thread::Builder::new()
+        .name("lirtup-notify-close".into())
+        .spawn(move || {
+            let status = std::process::Command::new("gdbus")
+                .args([
+                    "call",
+                    "--session",
+                    "--dest",
+                    "org.freedesktop.Notifications",
+                    "--object-path",
+                    "/org/freedesktop/Notifications",
+                    "--method",
+                    "org.freedesktop.Notifications.CloseNotification",
+                ])
+                .arg(id.to_string())
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            if let Err(e) = status {
+                tracing::debug!("gdbus CloseNotification: {e}");
             }
         });
     if let Err(e) = spawned {

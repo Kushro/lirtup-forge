@@ -142,33 +142,64 @@ pub fn ensure_not_running(socket: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The `notify-send` waiting on «Detener», if any (its pid).
+/// The `notify-send` waiting on «Detener», if any.
 #[derive(Clone, Default)]
-struct Notice(Arc<Mutex<Option<u32>>>);
+struct Notice(Arc<Mutex<Waiting>>);
+
+#[derive(Default)]
+struct Waiting {
+    pid: Option<u32>,
+    /// Bumped by every [`Notice::close`]: a `notify-send` started before
+    /// the last close (the session stopped before it got its pid) is
+    /// closed as soon as it is known.
+    generation: u64,
+}
 
 impl Notice {
-    fn set(&self, pid: Option<u32>) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = pid;
+    fn lock(&self) -> std::sync::MutexGuard<'_, Waiting> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn generation(&self) -> u64 {
+        self.lock().generation
+    }
+
+    /// Keep `pid` as the one waiting, or close it now if the notice was
+    /// closed since `generation`.
+    fn started(&self, pid: u32, generation: u64) {
+        let mut waiting = self.lock();
+        if waiting.generation == generation {
+            waiting.pid = Some(pid);
+        } else {
+            interrupt(pid);
+        }
     }
 
     /// Forget `pid` if it is still the one waiting (it exited by itself).
     fn exited(&self, pid: u32) {
-        let mut current = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if *current == Some(pid) {
-            *current = None;
+        let mut waiting = self.lock();
+        if waiting.pid == Some(pid) {
+            waiting.pid = None;
         }
     }
 
-    /// SIGINT to the waiting `notify-send`: it closes its notification and
-    /// exits.
-    #[allow(unsafe_code)]
+    /// Close the waiting `notify-send`, and any started before this call.
     fn close(&self) {
-        let pid = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
-        if let Some(pid) = pid.and_then(|p| libc::pid_t::try_from(p).ok()) {
-            // SAFETY: `kill` takes plain integers; the pid is our own child,
-            // forgotten (`exited`) right after it is reaped.
-            unsafe { libc::kill(pid, libc::SIGINT) };
+        let mut waiting = self.lock();
+        waiting.generation += 1;
+        if let Some(pid) = waiting.pid.take() {
+            interrupt(pid);
         }
+    }
+}
+
+/// SIGINT to a `notify-send`: it closes its notification and exits.
+#[allow(unsafe_code)]
+fn interrupt(pid: u32) {
+    if let Ok(pid) = libc::pid_t::try_from(pid) {
+        // SAFETY: `kill` takes plain integers; the pid is our own child, not
+        // reaped yet (`Notice::exited` forgets it right after the wait).
+        unsafe { libc::kill(pid, libc::SIGINT) };
     }
 }
 
@@ -199,6 +230,11 @@ fn notify_headless(engine: &Arc<Engine>, event: &Event, notice: &Notice) {
         Event::SessionError { message, .. } => (format!("Scaling failed: {message}"), false),
         _ => return,
     };
+    if stop {
+        // One «Detener» at a time: the new session's replaces it.
+        notice.close();
+    }
+    let generation = notice.generation();
     let engine = Arc::clone(engine);
     let notice = notice.clone();
     let label = if spanish { "Detener" } else { "Stop" };
@@ -221,9 +257,7 @@ fn notify_headless(engine: &Arc<Engine>, event: &Event, notice: &Notice) {
             let output = child.and_then(|child| {
                 let pid = child.id();
                 if stop {
-                    // One «Detener» at a time: the new session's replaces it.
-                    notice.close();
-                    notice.set(Some(pid));
+                    notice.started(pid, generation);
                 }
                 let output = child.wait_with_output();
                 notice.exited(pid);
