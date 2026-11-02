@@ -1,9 +1,11 @@
 //! The session card (6.1 «Tarjeta "Escalando …"»): amber while starting
 //! and running, error-container with the detail and «Reintentar» when the
-//! session failed. Nothing while idle.
+//! session failed. Nothing while idle. A mode chosen in the bar over the
+//! game shows as temporary, with «Guardar en …» (the bar's own «save»).
 
 use dioxus::prelude::*;
-use lirtup_proto::{SessionView, Stage, StatsSample};
+use lirtup_config::Value;
+use lirtup_proto::{Event, SessionView, Stage, StatsSample};
 
 use super::LAST_START;
 use crate::app::{use_dispatch, use_store};
@@ -37,6 +39,11 @@ pub fn SessionCard() -> Element {
         SessionState::Running(view) => {
             let line = summary(&view, s.stats.as_ref(), &s);
             let warning = s.stats.as_ref().and_then(|st| st.gpu_warning.clone());
+            let save = save_mode(&view);
+            let save_label = match &view.profile {
+                Some(name) => t!("home-session-save-mode", name = name.clone()),
+                None => t!("home-session-save-mode-default"),
+            };
             drop(s);
             rsx! {
                 section {
@@ -53,6 +60,15 @@ pub fn SessionCard() -> Element {
                                 Icon { name: "warning", size: 18 }
                                 {t!("home-session-gpu-warning", gpu = format!("{:.1}", w.gpu_ms), budget = format!("{:.1}", w.budget_ms))}
                             }
+                        }
+                    }
+                    if let Some(action) = save {
+                        Button {
+                            label: save_label,
+                            variant: ButtonVariant::Tonal,
+                            icon: "save",
+                            title: t!("home-session-save-mode-hint"),
+                            onclick: move |_| dispatch(action.clone()),
                         }
                     }
                     Button {
@@ -115,7 +131,11 @@ fn summary(view: &SessionView, stats: Option<&StatsSample>, store: &Store) -> St
             .map(|m| m.name.clone())
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| mode.clone());
-        parts.push(name);
+        if view.mode_temporary {
+            parts.push(t!("home-session-mode-temporary", mode = name));
+        } else {
+            parts.push(name);
+        }
     }
     parts.push(format!(
         "{}×{} → {}×{}",
@@ -129,6 +149,17 @@ fn summary(view: &SessionView, stats: Option<&StatsSample>, store: &Store) -> St
         parts.push(fps);
     }
     parts.join(" · ")
+}
+
+/// «Guardar en …» of a mode chosen in the bar: the `SaveSetting` the bar
+/// sends, written in the session's profile like any other.
+fn save_mode(view: &SessionView) -> Option<Action> {
+    let mode = view.mode.clone().filter(|_| view.mode_temporary)?;
+    Some(Action::Core(Event::SaveSetting {
+        profile: view.profile.clone(),
+        key: "mode".into(),
+        value: Value::String(mode),
+    }))
 }
 
 /// Where a session failed, translated.
@@ -163,6 +194,7 @@ mod tests {
             },
             profile: None,
             mode: Some("anime".into()),
+            mode_temporary: false,
             kind: SessionKind::Fullscreen,
             src: Size {
                 width: 1280,
@@ -186,6 +218,36 @@ mod tests {
         assert_eq!(
             summary(&view, Some(&stats), &store),
             "anime · 1280×720 → 2560×1440 · 60 → 120 fps (×2)"
+        );
+    }
+
+    #[test]
+    fn save_a_temporary_mode() {
+        let mut view = SessionView {
+            window: WindowRef {
+                xid: 1,
+                title: "Juego".into(),
+                class: None,
+                pid: None,
+            },
+            profile: Some("Juego".into()),
+            mode: Some("crt".into()),
+            mode_temporary: false,
+            kind: SessionKind::Fullscreen,
+            src: Size::default(),
+            dst: Size::default(),
+            chain: Vec::new(),
+            started_at_ms: 0,
+        };
+        assert_eq!(save_mode(&view), None);
+        view.mode_temporary = true;
+        assert_eq!(
+            save_mode(&view),
+            Some(Action::Core(Event::SaveSetting {
+                profile: Some("Juego".into()),
+                key: "mode".into(),
+                value: Value::String("crt".into()),
+            }))
         );
     }
 }

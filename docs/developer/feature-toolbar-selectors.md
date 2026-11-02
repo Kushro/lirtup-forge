@@ -348,3 +348,55 @@ mano. El riesgo principal está en la prueba con el puntero real.
 - **El puntero real:** el clic derecho y la rueda sobre la barra en `top-transparent` (región
   XFixes) y en modo ventana no se pueden probar con `xdotool`. Hay que sumarlos al guion de
   `rust-r4-toolbar.md`.
+
+---
+
+## Implementación (opción A, aprobada el 2026-11-02)
+
+Lo que quedó, y en qué se aparta de la propuesta de arriba:
+
+- **`lirtup_config::resolve::resolve_with_mode`** reemplaza el id del modo **en la misma capa** que
+  lo nombra. Si ninguna capa nombra un modo, va a la capa del perfil, o al nivel de arriba si no hay
+  perfil. `Resolved` suma `named_mode`, el modo del perfil antes del reemplazo. Tiene test de capas
+  (`a_replaced_mode_keeps_the_layer`).
+- **El modo temporal vive en el hilo de la sesión, no en el motor.** Es un cambio respecto de la
+  sección 5: así no hay estado compartido. El motor solo da dos cosas por `SessionSetup`:
+  - `resolve(ventana, modo)`: `Resolver` ahora recibe el modo;
+  - `modes()`: la lista `(id, nombre)` de `ModeStore`.
+
+  Cómo se comporta:
+  - **`ReloadConfig`:** `Runner::reload_config` vuelve a resolver con el modo temporal mientras el
+    perfil sea el mismo y todavía no lo nombre. Cuando el perfil ya lo nombra, que es lo que pasa
+    después de «Guardar», el temporal se borra y el OSD avisa «Modo guardado en el perfil».
+  - **Diferencia con lo propuesto:** `Restart` empieza una sesión nueva y el modo temporal se
+    pierde.
+  - **`follow_focus`:** si resuelve otra configuración, el modo temporal se descarta.
+- **La barra.**
+  - Agregué `ItemKind::Mode` y `ToolbarAction::ModeNext/ModePrev/SaveMode`.
+  - Clic o rueda hacia abajo: el siguiente. Clic derecho o rueda hacia arriba: el anterior.
+  - Con un modo temporal, el chip se pinta en `primary` con el ícono relleno, y aparece al lado el
+    botón `save`.
+  - El nombre se recorta a 160 px de diseño (`MODE_TEXT_MAX`).
+  - Íconos nuevos en las `.ttf` de la barra: `tune` y `save`. Corrí `gen-tokens-icons.py` con la
+    fuente en caché y dejé fuera el `.woff2` y el `icons.json` de la GUI. Esos dos ya tenían
+    diferencias pendientes que no son de esta función (`backup`, `call`, `download`, `upload`).
+  - Hay un test con GPU: `the_mode_chip_steps_and_saves`.
+- **La espera.** Se aplica `MODE_APPLY_AFTER` (300 ms) después del último clic. El OSD dice «Modo:
+  X (temporal)», y suma «· preparando efectos…» cuando la cadena de MagpieFX cambia
+  (`rebuilds_effects`). La compilación sigue siendo síncrona.
+- **El protocolo.**
+  - `SessionView.mode_temporary`, con `#[serde(default)]`.
+  - `SessionStarted` se vuelve a mandar después de cada `UpdateConfig` y de cada cambio de modo
+    (`Runner::announce_view`).
+  - `PROTOCOL_VERSION` sigue en 1.
+- **La GUI.**
+  - La tarjeta de sesión muestra «X (temporal)» y el botón «Guardar en «perfil»» (o «Guardar en
+    Predeterminado»). Manda el mismo `Event::SaveSetting` que la barra, al reductor de siempre.
+  - Hay test de `save_mode` y del reductor con `key: mode`.
+
+**Falta probar con el puntero real:**
+
+- el clic, el clic derecho y la rueda sobre el chip, en `always-on-top`, en `top-transparent` (la
+  región XFixes) y en modo ventana;
+- «Guardar» con la GUI abierta y con la GUI cerrada;
+- un modo con MagpieFX sin caché.

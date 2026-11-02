@@ -31,6 +31,9 @@ pub struct Resolved {
     pub profile: Option<String>,
     /// Mode applied, if any.
     pub mode: Option<String>,
+    /// The mode the layers name, before [`resolve_with_mode`] replaced it
+    /// (equal to [`Resolved::mode`] without a replacement).
+    pub named_mode: Option<String>,
     /// Everything ignored or corrected on the way.
     pub warnings: Vec<ConfigWarning>,
 }
@@ -66,6 +69,24 @@ pub fn resolve(
     profile: &ProfileChoice,
     cli: &Mapping,
 ) -> Result<Resolved, ConfigError> {
+    resolve_with_mode(file, modes, profile, cli, None)
+}
+
+/// [`resolve`] with another mode in place of the one the layers name (the
+/// mode chip of the bar over the game, for this session only).
+///
+/// The replacement takes the place of the named mode, in the same layer:
+/// the loose mode fields of that layer and of the layers above still win
+/// over it, so what the session shows is what saving `mode: <id>` in that
+/// layer gives. With no mode named, it goes where the profile (or, without
+/// one, the top level) would name it.
+pub fn resolve_with_mode(
+    file: &ConfigFile,
+    modes: &ModeStore,
+    profile: &ProfileChoice,
+    cli: &Mapping,
+    mode: Option<&str>,
+) -> Result<Resolved, ConfigError> {
     let selected: Option<(String, &Profile)> = match profile {
         ProfileChoice::None => None,
         ProfileChoice::Named(name) => Some(
@@ -100,6 +121,13 @@ pub fn resolve(
         Some((id, Named::Profile))
     } else {
         mode_of(&file.general).map(|id| (id, Named::General))
+    };
+    let named_mode = named.as_ref().map(|(id, _)| id.clone());
+    let named = match (mode.filter(|m| !m.is_empty()), named) {
+        (Some(id), Some((_, layer))) => Some((id.to_owned(), layer)),
+        (Some(id), None) if options.is_some() => Some((id.to_owned(), Named::Profile)),
+        (Some(id), None) => Some((id.to_owned(), Named::General)),
+        (None, named) => named,
     };
     let mode_layer = match &named {
         Some((id, _)) => {
@@ -150,6 +178,7 @@ pub fn resolve(
         config,
         profile: selected.map(|(name, _)| name),
         mode: named.map(|(id, _)| id),
+        named_mode,
         warnings,
     })
 }
@@ -297,6 +326,48 @@ profiles:
 
         assert!(matches!(
             resolve(&file, &ModeStore::default(), &named("Anime"), &Mapping::new()),
+            Err(ConfigError::UnknownMode(_))
+        ));
+    }
+
+    #[test]
+    fn a_replaced_mode_keeps_the_layer() {
+        let file = file(FILE);
+        let store = modes(&[
+            ("anime", "name: Anime\nmodel: 4x24\n"),
+            ("crt", "name: CRT\ncrt_enabled: true\nmodel: none\n"),
+        ]);
+        let named = |n: &str| ProfileChoice::Named(n.into());
+        let with = |p: &ProfileChoice, m| resolve_with_mode(&file, &store, p, &Mapping::new(), m).unwrap();
+
+        // The profile's loose fields still win over the replacement, as they
+        // would after saving `mode: crt` in the profile.
+        let r = with(&named("AnimeLoose"), Some("crt"));
+        assert_eq!(r.mode.as_deref(), Some("crt"));
+        assert_eq!(r.named_mode.as_deref(), Some("anime"));
+        assert_eq!(r.config.mode.as_deref(), Some("crt"));
+        assert!(r.config.scaling.crt_enabled);
+        assert_eq!(r.config.scaling.model, Model::M8x32);
+
+        // A profile that names no mode: the replacement goes in its layer,
+        // so the profile's loose fields win and the top level's lose.
+        let r = with(&named("Game"), Some("crt"));
+        assert_eq!(r.named_mode, None);
+        assert_eq!(r.config.scaling.model, Model::M4x12);
+        assert!(r.config.scaling.crt_enabled);
+
+        // No profile: where the top level would name it (its loose fields win).
+        let r = with(&ProfileChoice::None, Some("crt"));
+        assert_eq!(r.config.scaling.model, Model::Faster);
+        assert!(r.config.scaling.crt_enabled);
+
+        // None, or an empty id, changes nothing.
+        let r = with(&named("Anime"), None);
+        assert_eq!(r.mode, r.named_mode);
+        assert_eq!(with(&named("Anime"), Some("")).mode.as_deref(), Some("anime"));
+
+        assert!(matches!(
+            resolve_with_mode(&file, &store, &named("Anime"), &Mapping::new(), Some("nope")),
             Err(ConfigError::UnknownMode(_))
         ));
     }

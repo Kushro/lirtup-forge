@@ -217,6 +217,7 @@ mod tests {
             },
             profile: None,
             mode: None,
+            mode_temporary: false,
             kind: SessionKind::Fullscreen,
             src: Size::default(),
             dst: Size::default(),

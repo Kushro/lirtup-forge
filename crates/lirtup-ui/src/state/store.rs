@@ -1722,6 +1722,7 @@ profiles:
             },
             profile: Some("baldr sky".into()),
             mode: None,
+            mode_temporary: false,
             kind: SessionKind::Fullscreen,
             src: Size {
                 width: 800,
@@ -2703,6 +2704,21 @@ profiles:
             file.profiles["BALDR SKY"].options["output_geometry"],
             Value::from("stretch")
         );
+        update(&mut store, Action::Written(Ok(Written::Config)));
+
+        // The mode chip's «save» (2.1): `mode` in the profile, never in the
+        // mode file.
+        let effect = update(
+            &mut store,
+            Action::Core(Event::SaveSetting {
+                profile: Some("BALDR SKY".into()),
+                key: "mode".into(),
+                value: Value::from("crt"),
+            }),
+        );
+        let file = written_config(effect);
+        assert_eq!(file.profiles["BALDR SKY"].options["mode"], Value::from("crt"));
+        assert!(!file.general.contains_key("mode"));
     }
 
     #[test]

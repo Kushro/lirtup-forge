@@ -47,6 +47,7 @@ fn session() -> SessionView {
         window: window(),
         profile: Some("Ys VIII".into()),
         mode: Some("calidad".into()),
+        mode_temporary: false,
         kind: SessionKind::Fullscreen,
         src: Size {
             width: 1280,
@@ -653,4 +654,20 @@ fn socket_path_is_under_the_runtime_dir() {
     let parent = path.parent().unwrap();
     let dir = parent.file_name().and_then(|n| n.to_str()).unwrap();
     assert!(dir == "lirtup" || dir.starts_with("lirtup-"), "{path:?}");
+}
+
+#[test]
+fn a_session_view_of_2_0_has_no_temporary_mode() {
+    // `lirtup serve` 2.0 sends no `mode_temporary`; 2.1 reads it as false,
+    // and 2.0 ignores it (no `deny_unknown_fields`).
+    let mut json = serde_json::to_value(Event::SessionStarted(session())).unwrap();
+    json.as_object_mut()
+        .unwrap()
+        .remove("mode_temporary")
+        .expect("2.1 sends it");
+    let line = format!("{{\"v\":1,{}", &json.to_string()[1..]);
+    match decode_line::<Event>(&line).unwrap() {
+        Event::SessionStarted(view) => assert!(!view.mode_temporary),
+        other => panic!("{other:?}"),
+    }
 }
