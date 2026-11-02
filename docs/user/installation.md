@@ -68,7 +68,7 @@ symlink named `lirtup`:
 
 ```sh
 ./LirtUp_Forge-*-x86_64.AppImage cli list windows
-ln -s "$PWD/LirtUp_Forge-2.0.0-x86_64.AppImage" ~/.local/bin/lirtup
+ln -s "$PWD/LirtUp_Forge-2.0.1-x86_64.AppImage" ~/.local/bin/lirtup
 lirtup run -s
 ```
 

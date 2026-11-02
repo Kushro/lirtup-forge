@@ -6,7 +6,7 @@
 # /usr/bin, MagpieFX effects in /usr/share/lirtup/effects.
 
 pkgname=linux-rt-upscaler
-pkgver=2.0.0
+pkgver=2.0.1
 pkgrel=1
 pkgdesc='LirtUp Forge: real-time SRCNN upscaler for X11 windows, with Magpie effects and frame generation'
 arch=('x86_64')

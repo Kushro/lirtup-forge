@@ -1,6 +1,6 @@
 pkgbase = linux-rt-upscaler
 	pkgdesc = LirtUp Forge: real-time SRCNN upscaler for X11 windows, with Magpie effects and frame generation
-	pkgver = 2.0.0
+	pkgver = 2.0.1
 	pkgrel = 1
 	url = https://github.com/Kushro/lirtup-forge
 	arch = x86_64
@@ -26,7 +26,7 @@ pkgbase = linux-rt-upscaler
 	optdepends = glslang: compile the MagpieFX effects without dxc, and the 3 Anime4K Denoise effects
 	optdepends = lsfg-vk: frame generation through the lsfg-vk Vulkan layer
 	options = !lto
-	source = linux-rt-upscaler::git+https://github.com/Kushro/lirtup-forge.git#tag=v2.0.0
+	source = linux-rt-upscaler::git+https://github.com/Kushro/lirtup-forge.git#tag=v2.0.1
 	sha256sums = SKIP
 
 pkgname = linux-rt-upscaler
