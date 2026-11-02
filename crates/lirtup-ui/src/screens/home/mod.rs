@@ -114,7 +114,7 @@ mod tests {
             // arguments the screens pass (`has_key` does not take messages
             // with variables yet).
             let args: HashMap<Cow<'static, str>, FluentValue<'static>> = [
-                "title", "stage", "gpu", "budget", "seconds", "count", "ms", "version",
+                "title", "stage", "gpu", "budget", "seconds", "count", "ms", "version", "mode", "name",
             ]
             .into_iter()
             .map(|name| (Cow::Borrowed(name), FluentValue::from(1)))

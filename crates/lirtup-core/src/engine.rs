@@ -80,12 +80,13 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
-use lirtup_config::resolve::{ProfileChoice, Resolved, resolve};
+use lirtup_config::resolve::{ProfileChoice, Resolved, resolve, resolve_with_mode};
 use lirtup_config::{Config, ConfigFile, FrameGenEngine, FrameGenMultiplier, HotkeyAction, ModeStore, paths};
 use lirtup_fg::FrameGenState;
 use lirtup_fg::layer::{self, LayerSetup};
 use lirtup_gpu::{Device, GpuError, Instance, InstanceOptions};
 use lirtup_pipeline::framegen::status_from_setup;
+use lirtup_pipeline::pipeline::ModeEntry;
 use lirtup_pipeline::{PipelineCommand, Session, SessionSetup};
 use lirtup_x11::acquire::PidSearch;
 use lirtup_x11::{Hotkeys, WindowInfo, X11};
@@ -797,7 +798,7 @@ impl Inner {
     /// The daemon found `window` for `profile`: `DaemonMatch`, then a
     /// `Start` after `target_delay`, in the overlay mode of that profile.
     fn start_matched(self: &Arc<Self>, window: WindowInfo, profile: String) {
-        let kind = match self.resolve_for(&window, Some(&profile)) {
+        let kind = match self.resolve_for(&window, Some(&profile), None) {
             Ok(r) if r.config.overlay_mode == lirtup_config::OverlayMode::Windowed => SessionKind::Windowed,
             _ => SessionKind::Fullscreen,
         };
@@ -954,7 +955,7 @@ impl Inner {
         drop(x11);
 
         let profile = request.profile.clone().or_else(|| self.options.profile.clone());
-        let resolved = match self.resolve_for(&window, profile.as_deref()) {
+        let resolved = match self.resolve_for(&window, profile.as_deref(), None) {
             Ok(r) => r,
             // 1.x (`config/setup.py`): an unknown `-p` warns and goes on
             // with the base configuration.
@@ -963,7 +964,7 @@ impl Inner {
                     Level::Warn,
                     format!("no profile named {name:?}: using the base configuration"),
                 );
-                match self.resolve_for(&window, None) {
+                match self.resolve_for(&window, None, None) {
                     Ok(r) => r,
                     Err(e) => return self.fail(Stage::Config, e.to_string(), false),
                 }
@@ -1008,18 +1009,19 @@ impl Inner {
             resolve: Some({
                 let inner = Arc::clone(self);
                 let profile = profile.clone();
-                Arc::new(
-                    move |window: &WindowInfo| match inner.resolve_for(window, profile.as_deref()) {
+                Arc::new(move |window: &WindowInfo, mode: Option<&str>| {
+                    match inner.resolve_for(window, profile.as_deref(), mode) {
                         Ok(resolved) => Some(resolved),
                         Err(e) => {
-                            tracing::warn!(
-                                "follow_focus: cannot resolve the profile of {}: {e}",
-                                window.title
-                            );
+                            tracing::warn!("cannot resolve the configuration of {}: {e}", window.title);
                             None
                         }
-                    },
-                )
+                    }
+                })
+            }),
+            modes: Some({
+                let inner = Arc::clone(self);
+                Arc::new(move || inner.mode_entries())
             }),
         };
         match Session::start(setup) {
@@ -1099,8 +1101,14 @@ impl Inner {
     }
 
     /// The configuration of one window: the named profile, or the one whose
-    /// `match` fits.
-    fn resolve_for(&self, window: &WindowInfo, profile: Option<&str>) -> Result<Resolved> {
+    /// `match` fits; `mode` replaces the mode it names (the bar's mode chip,
+    /// [`resolve_with_mode`]).
+    fn resolve_for(
+        &self,
+        window: &WindowInfo,
+        profile: Option<&str>,
+        mode: Option<&str>,
+    ) -> Result<Resolved> {
         let choice = match profile {
             Some(name) => ProfileChoice::Named(name.into()),
             None => ProfileChoice::Auto {
@@ -1110,12 +1118,27 @@ impl Inner {
             },
         };
         let files = lock(&self.files);
-        Ok(resolve(
+        Ok(resolve_with_mode(
             &files.file,
             &files.modes,
             &choice,
             &self.options.cli_overrides,
+            mode,
         )?)
+    }
+
+    /// The modes of `modes/`, for the bar's mode chip (read again after
+    /// every `ReloadConfig`).
+    fn mode_entries(&self) -> Vec<ModeEntry> {
+        lock(&self.files)
+            .modes
+            .modes
+            .iter()
+            .map(|(id, mode)| ModeEntry {
+                id: id.clone(),
+                name: mode.name.clone(),
+            })
+            .collect()
     }
 
     fn instance(&self) -> Result<Arc<Instance>> {
@@ -1251,7 +1274,7 @@ impl Inner {
         match live {
             Some((window, profile)) => {
                 let profile = profile.or_else(|| self.options.profile.clone());
-                match self.resolve_for(&window, profile.as_deref()) {
+                match self.resolve_for(&window, profile.as_deref(), None) {
                     Ok(resolved) => {
                         let st = lock(&self.state);
                         if let Some(running) = st.live() {

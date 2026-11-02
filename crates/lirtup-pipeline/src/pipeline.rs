@@ -49,6 +49,20 @@
 //! by the next windowed session. A minimized target pauses the session with
 //! the overlay hidden (1.x).
 //!
+//! # The mode chip (2.1)
+//!
+//! The bar's mode chip steps through the modes of `modes/`
+//! ([`SessionSetup::modes`]); the step is applied [`MODE_APPLY_AFTER`]
+//! after the last click, as a [`PipelineCommand::UpdateConfig`] would,
+//! with the configuration resolved again for the chosen mode
+//! ([`SessionSetup::resolve`], `lirtup_config::resolve::resolve_with_mode`).
+//! The choice is temporary: it lasts until the session ends, survives
+//! `ReloadConfig` (resolved again with it), and ends when the profile names
+//! that mode (after «Guardar», which is `Event::SaveSetting` with the key
+//! `mode` in the session's profile) or when `follow_focus` resolves another
+//! window. `SessionView::mode_temporary` tells the GUI; `SessionStarted` is
+//! sent again after every change of configuration so the GUI's card follows.
+//!
 //! As in 1.x `controller.py`: zoom steps through `50 %` to `800 %` of the
 //! monitor in `fit` (25 % steps, starting at the configured geometry);
 //! `CycleGeometry` goes `fit` → `stretch` → `cover`; the offsets move by 25
@@ -120,14 +134,32 @@ pub struct SessionSetup {
     /// `SetTimestamps` changes it). The stats panel asks for them too while
     /// it is visible.
     pub timestamps: bool,
-    /// Resolve the configuration for another window (`follow_focus`: the
-    /// new window takes the profile that matches it, as 1.x). `None` keeps
-    /// the session's configuration. `Engine` passes its `resolve_for`.
+    /// Resolve the configuration for a window (`follow_focus`: the new
+    /// window takes the profile that matches it, as 1.x), with another mode
+    /// in place of the profile's when given (the bar's mode chip). `None`
+    /// keeps the session's configuration and hides the mode chip. `Engine`
+    /// passes its `resolve_for`.
     pub resolve: Option<Resolver>,
+    /// The modes the bar's mode chip steps through, read again after every
+    /// [`PipelineCommand::UpdateConfig`] (`None` hides the chip).
+    pub modes: Option<ModeList>,
 }
 
 /// See [`SessionSetup::resolve`].
-pub type Resolver = Arc<dyn Fn(&WindowInfo) -> Option<lirtup_config::resolve::Resolved> + Send + Sync>;
+pub type Resolver =
+    Arc<dyn Fn(&WindowInfo, Option<&str>) -> Option<lirtup_config::resolve::Resolved> + Send + Sync>;
+
+/// See [`SessionSetup::modes`].
+pub type ModeList = Arc<dyn Fn() -> Vec<ModeEntry> + Send + Sync>;
+
+/// A mode of the bar's mode chip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModeEntry {
+    /// Id (file stem of `modes/<id>.yaml`).
+    pub id: String,
+    /// Display name.
+    pub name: String,
+}
 
 /// What `Engine` can ask of a running session.
 #[derive(Debug, Clone, PartialEq)]
@@ -323,6 +355,26 @@ const MINIMIZED_POLL: Duration = Duration::from_millis(500);
 /// last move (the window manager reports every step of the drag).
 const SAVE_POSITION_AFTER: Duration = Duration::from_millis(800);
 
+/// The mode chip applies its choice this long after the last click, so
+/// stepping through several modes rebuilds the chain once.
+pub const MODE_APPLY_AFTER: Duration = Duration::from_millis(300);
+
+/// A mode chosen in the bar, waiting for [`MODE_APPLY_AFTER`].
+struct PendingMode {
+    id: String,
+    at: Instant,
+}
+
+/// Whether going from `old` to `new` builds another MagpieFX chain (it may
+/// compile, which stalls the session: the OSD says so first).
+fn rebuilds_effects(old: &Config, new: &Config) -> bool {
+    use lirtup_config::EffectsEngine;
+    fn effects(c: &Config) -> Option<&[lirtup_config::MagpieEffectSpec]> {
+        (c.scaling.effects_engine == EffectsEngine::Magpiefx).then_some(&c.scaling.magpie_effects)
+    }
+    effects(new).is_some_and(|e| !e.is_empty()) && effects(old) != effects(new)
+}
+
 /// `hide_cursor` (ms) as the overlay takes it: a timer, or with `0` the
 /// cursor hidden for good (1.x; the bar still shows it over itself).
 fn cursor_commands(config: &Config) -> [OverlayCommand; 2] {
@@ -479,7 +531,18 @@ struct Runner {
     layer: LayerSetup,
     kind: SessionKind,
     profile: Option<String>,
+    /// The mode applied (the profile's, or the one chosen in the bar).
     mode: Option<String>,
+    /// The mode the profile names.
+    named_mode: Option<String>,
+    /// The mode chosen in the bar, while it is not the profile's.
+    mode_override: Option<String>,
+    /// A mode chosen in the bar, not applied yet.
+    pending_mode: Option<PendingMode>,
+    /// [`SessionSetup::modes`].
+    mode_list: Option<ModeList>,
+    /// What [`Runner::mode_list`] returned last.
+    modes: Vec<ModeEntry>,
     /// The working configuration (hotkeys change model and geometry here).
     config: Config,
     initial_geometry: OutputGeometry,
@@ -546,7 +609,12 @@ impl Runner {
             layer: setup.layer,
             kind: setup.kind,
             profile: setup.profile,
+            named_mode: setup.mode.clone(),
             mode: setup.mode,
+            mode_override: None,
+            pending_mode: None,
+            modes: setup.modes.as_ref().map(|list| list()).unwrap_or_default(),
+            mode_list: setup.modes,
             initial_geometry: config.output_geometry.clone(),
             menubar: config.auto_crop_menu_bar.then(|| MenuBarDetector::new(now)),
             config,
@@ -744,6 +812,7 @@ impl Runner {
                 }
             }
             self.screenshot_results();
+            self.apply_pending_mode()?;
 
             if self.user_paused || self.focus_paused || self.minimized || self.orphaned {
                 self.wait_paused(rx);
@@ -797,13 +866,44 @@ impl Runner {
                 config,
                 profile,
                 mode,
-            } => {
-                self.profile = profile;
-                self.mode = mode;
-                self.update_config((*config).clone())?;
-            }
+            } => self.reload_config(&config, profile, mode)?,
         }
         Ok(None)
+    }
+
+    /// `ReloadConfig`: the new configuration, keeping the mode chosen in the
+    /// bar while the profile does not change and does not name it yet.
+    fn reload_config(
+        &mut self,
+        config: &Config,
+        profile: Option<String>,
+        mode: Option<String>,
+    ) -> Result<()> {
+        if let Some(list) = &self.mode_list {
+            self.modes = list();
+        }
+        let same_profile = profile == self.profile;
+        let saved = same_profile && self.mode_override.is_some() && mode == self.mode_override;
+        let kept = self
+            .mode_override
+            .clone()
+            .filter(|_| same_profile && !saved)
+            .and_then(|id| self.resolve_mode(Some(&id)));
+        match kept {
+            Some(resolved) => self.apply_resolved_mode(resolved)?,
+            None => {
+                self.mode_override = None;
+                self.profile = profile;
+                self.named_mode = mode.clone();
+                self.mode = mode;
+                self.update_config(config.clone())?;
+            }
+        }
+        if saved {
+            self.osd(&tr("Modo guardado en el perfil", "Mode saved in the profile"));
+        }
+        self.announce_view();
+        Ok(())
     }
 
     fn drain_notices(&mut self) -> Result<Option<StopReason>> {
@@ -1060,7 +1160,7 @@ impl Runner {
             return Ok(());
         };
         let xid = window.xid;
-        let resolved = self.resolve.as_ref().and_then(|resolve| resolve(&window));
+        let resolved = self.resolve.as_ref().and_then(|resolve| resolve(&window, None));
         parts.window = window;
         parts.overlay.send(OverlayCommand::SetTarget(xid));
         match resolved {
@@ -1072,7 +1172,11 @@ impl Runner {
                     resolved.profile,
                     resolved.mode
                 );
+                // The mode chosen in the bar was for the other window.
+                self.mode_override = None;
+                self.pending_mode = None;
                 self.profile = resolved.profile;
+                self.named_mode = resolved.named_mode;
                 self.mode = resolved.mode;
                 self.update_config(resolved.config)?;
                 self.rebuild_capture()?;
@@ -1358,6 +1462,9 @@ impl Runner {
             ToolbarAction::Crop => self.toolbar_crop()?,
             ToolbarAction::Screenshot => self.screenshot(),
             ToolbarAction::Multiplier => self.cycle_multiplier()?,
+            ToolbarAction::ModeNext => self.cycle_mode(true),
+            ToolbarAction::ModePrev => self.cycle_mode(false),
+            ToolbarAction::SaveMode => self.save_mode()?,
             ToolbarAction::Hide => {}
             ToolbarAction::ToWindow => self.toggle_windowed()?,
             ToolbarAction::Stop => return Ok(Some(StopReason::User)),
@@ -1425,6 +1532,150 @@ impl Runner {
         Ok(())
     }
 
+    /// The mode chip: the next (or previous) mode of `modes/`, applied
+    /// [`MODE_APPLY_AFTER`] after the last click.
+    fn cycle_mode(&mut self, forward: bool) {
+        if self.modes.is_empty() {
+            return;
+        }
+        let current = self
+            .pending_mode
+            .as_ref()
+            .map(|p| p.id.as_str())
+            .or(self.mode.as_deref());
+        let n = self.modes.len();
+        let next = match (
+            current.and_then(|c| self.modes.iter().position(|m| m.id == c)),
+            forward,
+        ) {
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+            (None, true) => 0,
+            (None, false) => n - 1,
+        };
+        let entry = self.modes[next].clone();
+        let name = mode_name(&entry);
+        let temporary = Some(&entry.id) != self.named_mode.as_ref();
+        let effects = self
+            .resolve_mode(Some(&entry.id))
+            .is_some_and(|r| rebuilds_effects(&self.config, &r.config));
+        let mut es = format!("Modo: {name}");
+        let mut en = format!("Mode: {name}");
+        if temporary {
+            es.push_str(" (temporal)");
+            en.push_str(" (temporary)");
+        }
+        if effects {
+            es.push_str(" · preparando efectos…");
+            en.push_str(" · preparing effects…");
+        }
+        self.osd(&tr(&es, &en));
+        self.pending_mode = Some(PendingMode {
+            id: entry.id,
+            at: Instant::now() + MODE_APPLY_AFTER,
+        });
+        self.stale = true;
+    }
+
+    /// Apply the mode chosen in the bar once [`MODE_APPLY_AFTER`] passed.
+    fn apply_pending_mode(&mut self) -> Result<()> {
+        if self.pending_mode.as_ref().is_none_or(|p| Instant::now() < p.at) {
+            return Ok(());
+        }
+        let Some(PendingMode { id, .. }) = self.pending_mode.take() else {
+            return Ok(());
+        };
+        if self.mode.as_deref() == Some(id.as_str()) {
+            return Ok(());
+        }
+        match self.resolve_mode(Some(&id)) {
+            Some(resolved) => {
+                tracing::info!("mode chip: {id} (profile {:?})", resolved.profile);
+                self.apply_resolved_mode(resolved)?;
+                self.announce_view();
+            }
+            None => self.osd(&tr("No se pudo aplicar el modo", "Cannot apply the mode")),
+        }
+        Ok(())
+    }
+
+    /// The configuration of this window with `mode` in place of the
+    /// profile's ([`SessionSetup::resolve`]).
+    fn resolve_mode(&self, mode: Option<&str>) -> Option<lirtup_config::resolve::Resolved> {
+        let window = &self.parts.as_ref()?.window;
+        (self.resolve.as_ref()?)(window, mode)
+    }
+
+    /// Take a configuration resolved with a mode: temporary unless it is
+    /// the profile's own.
+    fn apply_resolved_mode(&mut self, resolved: lirtup_config::resolve::Resolved) -> Result<()> {
+        self.mode_override = resolved
+            .mode
+            .clone()
+            .filter(|_| resolved.mode != resolved.named_mode);
+        self.profile = resolved.profile;
+        self.named_mode = resolved.named_mode;
+        self.mode = resolved.mode;
+        self.update_config(resolved.config)
+    }
+
+    /// «Guardar» next to the mode chip: ask the GUI to write `mode` in the
+    /// session's profile (*Predeterminado* without one). Its `ReloadConfig`
+    /// ends the temporary mode and the OSD confirms.
+    fn save_mode(&mut self) -> Result<()> {
+        if let Some(p) = self.pending_mode.as_mut() {
+            p.at = Instant::now();
+            self.apply_pending_mode()?;
+        }
+        let Some(id) = self.mode_override.clone() else {
+            return Ok(());
+        };
+        let _ = self.events.send(Event::SaveSetting {
+            profile: self.profile.clone(),
+            key: "mode".to_owned(),
+            value: lirtup_config::Value::String(id),
+        });
+        let target = self
+            .profile
+            .clone()
+            .unwrap_or_else(|| tr("Predeterminado", "Default"));
+        self.osd(&tr(
+            &format!("Guardando el modo en «{target}»…"),
+            &format!("Saving the mode in “{target}”…"),
+        ));
+        Ok(())
+    }
+
+    /// The mode chip's label (the name of the chosen mode, or of the
+    /// applied one), or `None` to hide the chip.
+    fn mode_label(&self) -> Option<String> {
+        if self.modes.is_empty() || self.resolve.is_none() {
+            return None;
+        }
+        let id = self
+            .pending_mode
+            .as_ref()
+            .map(|p| p.id.as_str())
+            .or(self.mode.as_deref());
+        Some(match id {
+            Some(id) => self
+                .modes
+                .iter()
+                .find(|m| m.id == id)
+                .map(mode_name)
+                .unwrap_or_else(|| id.to_owned()),
+            None => tr("Sin modo", "No mode"),
+        })
+    }
+
+    /// The chip shows a mode that is not the profile's.
+    fn mode_temporary(&self) -> bool {
+        match &self.pending_mode {
+            Some(p) => Some(&p.id) != self.named_mode.as_ref(),
+            None => self.mode_override.is_some(),
+        }
+    }
+
     /// The to-window button: the same target, fullscreen ↔ windowed, with a
     /// new overlay.
     fn toggle_windowed(&mut self) -> Result<()> {
@@ -1469,6 +1720,8 @@ impl Runner {
         }
         let windowed = self.overlay_mode() == OverlayMode::Windowed;
         let multiplier_label = self.multiplier_label();
+        let mode_label = self.mode_label();
+        let mode_temporary = self.mode_temporary();
         let Some(parts) = self.parts.as_mut() else {
             return Ok(false);
         };
@@ -1479,6 +1732,8 @@ impl Runner {
             multiplier: fg.and_then(|fg| fg.active_multiplier()).filter(|m| *m > 1),
             auto: self.config.frame_gen_multiplier == lirtup_config::FrameGenMultiplier::Auto,
             multiplier_label,
+            mode_label,
+            mode_temporary,
             stats: parts.panel.visible(),
             windowed,
             scheme: crate::tokens::Scheme::Dark,
@@ -1816,6 +2071,7 @@ impl Runner {
             window: window_ref(&parts.window),
             profile: self.profile.clone(),
             mode: self.mode.clone(),
+            mode_temporary: self.mode_override.is_some(),
             kind: self.kind,
             src: Size {
                 width: sw,
@@ -1828,6 +2084,15 @@ impl Runner {
             chain: self.chain(),
             started_at_ms: self.started_at_ms?,
         })
+    }
+
+    /// [`Runner::publish_view`], and `SessionStarted` again so the clients
+    /// see the new profile, mode and chain (once started).
+    fn announce_view(&self) {
+        if let Some(view) = self.session_view() {
+            self.view.store(Some(Arc::new(view.clone())));
+            let _ = self.events.send(Event::SessionStarted(view));
+        }
     }
 
     /// Update what [`Session::view`] returns (once started).
@@ -1911,6 +2176,15 @@ impl Runner {
 }
 
 /// The config spelling of a unit enum (`lanczos`, `fifo`, ...).
+/// A mode's display name (its id when the name is empty).
+fn mode_name(entry: &ModeEntry) -> String {
+    if entry.name.is_empty() {
+        entry.id.clone()
+    } else {
+        entry.name.clone()
+    }
+}
+
 fn serde_name<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_value(value)
         .ok()
@@ -2219,6 +2493,26 @@ mod tests {
         assert_eq!(path, PathBuf::from("/tmp/Tue 318 23.png"));
         let path = screenshot_path(Path::new("/tmp"), "{timestamp}", &vars);
         assert_eq!(path, PathBuf::from("/tmp/20231114_221320.png"));
+    }
+
+    #[test]
+    fn only_another_magpie_chain_rebuilds_effects() {
+        use lirtup_config::{EffectsEngine, MagpieEffectSpec};
+
+        let mut old = Config::default();
+        let mut new = old.clone();
+        assert!(!rebuilds_effects(&old, &new));
+        new.scaling.effects_engine = EffectsEngine::Magpiefx;
+        assert!(!rebuilds_effects(&old, &new), "an empty chain builds nothing");
+        new.scaling.magpie_effects = vec![MagpieEffectSpec::Short("FSR_EASU".into())];
+        assert!(rebuilds_effects(&old, &new));
+        old = new.clone();
+        assert!(!rebuilds_effects(&old, &new), "the same chain");
+        new.scaling.effects_engine = EffectsEngine::Native;
+        assert!(
+            !rebuilds_effects(&old, &new),
+            "the native engine compiles nothing"
+        );
     }
 
     #[test]

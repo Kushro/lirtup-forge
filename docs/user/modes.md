@@ -15,6 +15,10 @@ editor says how many use it and offers to duplicate it before you change it.
 Open *Scaling modes* in the drawer to see the list, with the GPU cost of each
 mode and how many profiles use it, or *Edit mode* on a profile's *Scaling* tab.
 
+To compare modes in the game, use the *Mode* chip of the toolbar over the game
+([Controls](controls.md#trying-modes-in-the-game)): it changes the mode for the
+session only, and *Save* keeps it in the profile.
+
 ## Model
 
 The slider goes from `none` (no neural network, only the filters) to `8x32`,

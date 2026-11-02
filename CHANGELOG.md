@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased (2.1.0)
+
+### Added
+
+- **Mode chip in the toolbar over the game.** It goes through the scaling
+  modes without leaving the game: a click or the wheel down for the next one,
+  a right click or the wheel up for the previous one. The change applies
+  live, without restarting the session or the frame generation, 300 ms after
+  the last click. It is temporary: the next session uses the profile's mode
+  again. *Save* (next to the chip, or on Inicio's session card) writes it in
+  the profile; the GUI must be open.
+
+### Changed
+
+- Inicio's session card follows a configuration change during the session
+  (saving in the GUI, the mode chip, `follow_focus`): `lirtup serve` sends
+  `SessionStarted` again with the new mode and chain. `SessionView` gains
+  `mode_temporary`; the protocol stays at version 1.
+
 ## 2.0.1 (2026-11-01)
 
 ### Fixed

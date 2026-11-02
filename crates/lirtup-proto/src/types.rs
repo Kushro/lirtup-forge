@@ -60,6 +60,11 @@ pub struct SessionView {
     pub profile: Option<String>,
     /// Mode applied.
     pub mode: Option<String>,
+    /// `mode` was chosen in the bar over the game and is not the profile's
+    /// (it lasts until the session ends, or until the profile names it).
+    /// New in 2.1; absent from an older `lirtup serve`.
+    #[serde(default)]
+    pub mode_temporary: bool,
     /// Fullscreen or windowed.
     pub kind: SessionKind,
     /// Captured size (after crop).

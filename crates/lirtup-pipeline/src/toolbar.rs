@@ -5,8 +5,9 @@
 //! - It shows when the pointer reaches the top edge of the overlay (the
 //!   reveal band of [`ToolbarZone`]) or with `ToggleToolbar`, and hides
 //!   [`HIDE_AFTER`] after the pointer leaves it, unless pinned.
-//! - Buttons: pin, stats, crop, screenshot, frame generation multiplier,
-//!   fps (a readout), hide, to window / fullscreen, stop.
+//! - Buttons: pin, stats, crop, screenshot, scaling mode (2.1), save the
+//!   mode, frame generation multiplier, fps (a readout), hide, to window /
+//!   fullscreen, stop.
 //! - While it is shown, the pointer over it is not forwarded to the game
 //!   (`OverlayCommand::SetToolbarZone`); its events come back as
 //!   `OverlayNotice::Pointer`.
@@ -16,6 +17,10 @@
 //! - Changing the multiplier applies it live and sends
 //!   `Event::SaveSetting` so the GUI keeps it; so does «pin»
 //!   ([`PINNED_KEY`]).
+//! - The mode chip steps through the modes: a click or the wheel down goes
+//!   to the next, a right click or the wheel up to the previous. A mode
+//!   that is not the profile's shows in the primary color, with «save»
+//!   next to it.
 //!
 //! Layout, in CSS pixels of the design (`lf.css`: `.ftb.glass`, `.ibtn`,
 //! `.btn-xs`), times [`Toolbar::scale`]: 64 high, fully rounded, 16 from
@@ -53,11 +58,13 @@ pub const PINNED_KEY: &str = "toolbar_pinned";
 /// The Material Symbols the bar uses. `scripts/gen-tokens-icons.py` reads
 /// the string literals of this file for the bar's font instances, so every
 /// icon is named here.
-pub const ICON_NAMES: [&str; 9] = [
+pub const ICON_NAMES: [&str; 11] = [
     "push_pin",
     "monitoring",
     "crop",
     "photo_camera",
+    "tune",
+    "save",
     "animation",
     "visibility_off",
     "close_fullscreen",
@@ -78,6 +85,12 @@ pub enum ToolbarAction {
     Crop,
     /// Save a screenshot.
     Screenshot,
+    /// Next scaling mode (a click or the wheel down on the mode chip).
+    ModeNext,
+    /// Previous scaling mode (a right click or the wheel up).
+    ModePrev,
+    /// Save the chosen mode in the session's profile.
+    SaveMode,
     /// Next frame generation multiplier (Off, ×2, ×3, ×4, Auto).
     Multiplier,
     /// Hide the bar (until the pointer comes back to the edge). The bar
@@ -114,6 +127,10 @@ pub struct ToolbarState {
     /// The label of the multiplier button («×2 Auto», «No»); `None` hides
     /// the button (no frame generation in this session).
     pub multiplier_label: Option<String>,
+    /// The name of the scaling mode; `None` hides the mode chip (no modes).
+    pub mode_label: Option<String>,
+    /// The mode is not the profile's (temporary; «save» shows).
+    pub mode_temporary: bool,
     /// The stats panel is visible.
     pub stats: bool,
     /// The session is windowed (the to-window button shows «fullscreen»).
@@ -175,6 +192,8 @@ const READOUT_TEXT: f32 = 15.0;
 const REVEAL: f32 = 6.0;
 /// The image's bound: the bar never gets wider than this (CSS px).
 const MAX_W: f32 = 900.0;
+/// The widest mode name on the mode chip (longer names end in «…»).
+const MODE_TEXT_MAX: f32 = 160.0;
 
 /// One element of the bar, its box relative to the bar's top-left.
 #[derive(Debug, Clone, PartialEq)]
@@ -190,6 +209,10 @@ enum ItemKind {
         icon: &'static str,
     },
     Divider,
+    Mode {
+        label: String,
+        temporary: bool,
+    },
     Multiplier(String),
     Readout(String),
 }
@@ -198,6 +221,7 @@ impl Item {
     fn action(&self) -> Option<ToolbarAction> {
         match self.kind {
             ItemKind::Button { action, .. } => Some(action),
+            ItemKind::Mode { .. } => Some(ToolbarAction::ModeNext),
             ItemKind::Multiplier(_) => Some(ToolbarAction::Multiplier),
             _ => None,
         }
@@ -247,6 +271,8 @@ pub struct Toolbar {
     hide_at: Option<Instant>,
     hover: Option<usize>,
     pressed: Option<usize>,
+    /// The X button of `pressed` (1, or 3 on the mode chip).
+    pressed_button: u8,
     /// The image must be drawn again.
     dirty: bool,
 }
@@ -271,6 +297,7 @@ impl Toolbar {
             hide_at: None,
             hover: None,
             pressed: None,
+            pressed_button: 1,
             dirty: true,
         };
         bar.layout();
@@ -365,6 +392,7 @@ impl Toolbar {
                 match self.item_at(x, y) {
                     Some(i) if self.items[i].action().is_some() => {
                         self.pressed = Some(i);
+                        self.pressed_button = 1;
                         self.dirty = true;
                         None
                     }
@@ -374,11 +402,39 @@ impl Toolbar {
                     _ => None,
                 }
             }
-            PointerEvent::Release { button: 1, x, y } => {
+            // The mode chip: right click, and the wheel (4 up, 5 down).
+            PointerEvent::Press {
+                button: button @ 3..=5,
+                x,
+                y,
+            } => {
+                if !self.shown {
+                    return None;
+                }
+                let i = self
+                    .item_at(x, y)
+                    .filter(|&i| matches!(self.items[i].kind, ItemKind::Mode { .. }))?;
+                match button {
+                    3 => {
+                        self.pressed = Some(i);
+                        self.pressed_button = 3;
+                        self.dirty = true;
+                        None
+                    }
+                    4 => Some(ToolbarAction::ModePrev),
+                    _ => Some(ToolbarAction::ModeNext),
+                }
+            }
+            PointerEvent::Release { button, x, y }
+                if self.pressed.is_some() && button == self.pressed_button =>
+            {
                 let pressed = self.pressed.take()?;
                 self.dirty = true;
                 if self.item_at(x, y) != Some(pressed) {
                     return None;
+                }
+                if button == 3 {
+                    return Some(ToolbarAction::ModePrev);
                 }
                 let action = self.items[pressed].action()?;
                 match action {
@@ -424,6 +480,8 @@ impl Toolbar {
     pub fn update(&mut self, state: &ToolbarState, now: Instant) -> Result<bool> {
         if *state != self.state {
             let relayout = state.multiplier_label != self.state.multiplier_label
+                || state.mode_label != self.state.mode_label
+                || state.mode_temporary != self.state.mode_temporary
                 || readout(state) != readout(&self.state)
                 || state.windowed != self.state.windowed;
             self.state = state.clone();
@@ -491,6 +549,16 @@ impl Toolbar {
         );
         let divider = (1.0 + 2.0 * DIVIDER_MARGIN) * s;
         push(ItemKind::Divider, divider, DIVIDER_H * s);
+        if let Some(label) = &self.state.mode_label {
+            let label = self.fit_text(label, CHIP_TEXT * s, UiFont::TextStrong, MODE_TEXT_MAX * s);
+            let w = (2.0 * CHIP_PAD + CHIP_ICON + CHIP_GAP) * s
+                + self.draw.measure(&label, CHIP_TEXT * s, UiFont::TextStrong);
+            let temporary = self.state.mode_temporary;
+            push(ItemKind::Mode { label, temporary }, w, CHIP_H * s);
+            if temporary {
+                push(button(ToolbarAction::SaveMode, "save"), BTN * s, BTN * s);
+            }
+        }
         if let Some(label) = &self.state.multiplier_label {
             let w = (2.0 * CHIP_PAD + CHIP_ICON + CHIP_GAP) * s
                 + self.draw.measure(label, CHIP_TEXT * s, UiFont::TextStrong);
@@ -636,38 +704,36 @@ impl Toolbar {
                     radius: 0.0,
                     color: tint("glass-content", 0.18),
                 }),
+                ItemKind::Mode { label, temporary } => {
+                    // The secondary at 18 %; a temporary mode in the primary.
+                    let (bg, fg) = if *temporary {
+                        (tint("primary", 0.24), c("primary"))
+                    } else {
+                        (tint("secondary", 0.18), c("on-secondary-container"))
+                    };
+                    let chip = Chip {
+                        rect,
+                        bg,
+                        fg,
+                        layer: state_layer.map(c),
+                        icon: "tune",
+                        filled: *temporary,
+                        label,
+                    };
+                    self.chip(&mut shapes, &chip);
+                }
                 ItemKind::Multiplier(label) => {
                     // `.btn.btn-xs` with the tertiary at 18 %.
-                    shapes.push(Shape::RoundRect {
+                    let chip = Chip {
                         rect,
-                        radius: ih / 2.0,
-                        color: tint("tertiary", 0.18),
-                    });
-                    if let Some(layer) = state_layer {
-                        shapes.push(Shape::RoundRect {
-                            rect,
-                            radius: ih / 2.0,
-                            color: c(layer),
-                        });
-                    }
-                    let fg = c("on-tertiary-container");
-                    let icon_x = rect[0] + CHIP_PAD * s + CHIP_ICON * s / 2.0;
-                    if let Some(codepoint) = tokens::icon("animation") {
-                        shapes.push(Shape::Icon {
-                            center: [icon_x, center[1]],
-                            size: CHIP_ICON * s,
-                            codepoint,
-                            filled: false,
-                            color: fg,
-                        });
-                    }
-                    shapes.push(self.text_shape(
-                        [rect[0] + (CHIP_PAD + CHIP_ICON + CHIP_GAP) * s, center[1]],
-                        CHIP_TEXT * s,
-                        UiFont::TextStrong,
+                        bg: tint("tertiary", 0.18),
+                        fg: c("on-tertiary-container"),
+                        layer: state_layer.map(c),
+                        icon: "animation",
+                        filled: false,
                         label,
-                        fg,
-                    ));
+                    };
+                    self.chip(&mut shapes, &chip);
                 }
                 ItemKind::Readout(text) => {
                     let size = READOUT_TEXT * s;
@@ -683,6 +749,53 @@ impl Toolbar {
             }
         }
         shapes
+    }
+
+    /// A `.btn.btn-xs` chip: its background, the state layer, the icon and
+    /// the label.
+    fn chip(&self, shapes: &mut Vec<Shape>, chip: &Chip<'_>) {
+        let s = self.scale;
+        let [x, y, _, h] = chip.rect;
+        let center_y = y + h / 2.0;
+        for color in std::iter::once(chip.bg).chain(chip.layer) {
+            shapes.push(Shape::RoundRect {
+                rect: chip.rect,
+                radius: h / 2.0,
+                color,
+            });
+        }
+        if let Some(codepoint) = tokens::icon(chip.icon) {
+            shapes.push(Shape::Icon {
+                center: [x + CHIP_PAD * s + CHIP_ICON * s / 2.0, center_y],
+                size: CHIP_ICON * s,
+                codepoint,
+                filled: chip.filled,
+                color: chip.fg,
+            });
+        }
+        shapes.push(self.text_shape(
+            [x + (CHIP_PAD + CHIP_ICON + CHIP_GAP) * s, center_y],
+            CHIP_TEXT * s,
+            UiFont::TextStrong,
+            chip.label,
+            chip.fg,
+        ));
+    }
+
+    /// `text` cut with «…» to at most `max` px wide.
+    fn fit_text(&self, text: &str, size: f32, font: UiFont, max: f32) -> String {
+        if self.draw.measure(text, size, font) <= max {
+            return text.to_owned();
+        }
+        let mut chars: Vec<char> = text.chars().collect();
+        while !chars.is_empty() {
+            chars.pop();
+            let cut: String = chars.iter().collect::<String>().trim_end().to_owned() + "…";
+            if self.draw.measure(&cut, size, font) <= max {
+                return cut;
+            }
+        }
+        "…".to_owned()
     }
 
     /// Text whose line box is centered on `left_center[1]`.
@@ -705,6 +818,18 @@ impl Toolbar {
             color,
         }
     }
+}
+
+/// What [`Toolbar::chip`] draws.
+struct Chip<'a> {
+    rect: [f32; 4],
+    bg: [f32; 4],
+    fg: [f32; 4],
+    /// Hover or pressed.
+    layer: Option<[f32; 4]>,
+    icon: &'static str,
+    filled: bool,
+    label: &'a str,
 }
 
 /// The readout: «60 → 120 fps» while frames are generated, «60 fps»
@@ -770,10 +895,9 @@ mod tests {
     /// `toolbar-4k.png` in `$LIRTUP_TEST_OUT` or the temp folder (to look
     /// at), checks a few
     /// pixels and times its pass with Vulkan timestamps (5.8: ≤ 0.1 ms).
-    #[test]
-    #[ignore = "needs a Vulkan GPU"]
-    fn bar_on_a_4k_screen() {
-        use lirtup_gpu::{Format, Instance, InstanceOptions, SubmitOptions};
+    /// A device and a mid gray screen texture (BGRA bytes, as the capture).
+    fn gpu_screen(w: u32, h: u32) -> (Arc<Device>, Texture, Vec<u8>) {
+        use lirtup_gpu::{Format, Instance, InstanceOptions};
 
         let instance = Instance::new(&InstanceOptions {
             app_name: "lirtup-toolbar-test".into(),
@@ -783,12 +907,80 @@ mod tests {
         let gpu = std::env::var("LIRTUP_GPU").ok();
         let index = instance.select_adapter(gpu.as_deref()).expect("a Vulkan adapter");
         let device = instance.create_device(index).expect("Vulkan device");
-        let (w, h) = (3840u32, 2160u32);
         let screen =
             lirtup_effects::util::texture(&device, w, h, Format::R8G8B8A8Unorm, "screen").expect("screen");
-        // A mid gray game (BGRA bytes, as the capture).
         let gray: Vec<u8> = [96u8, 96, 96, 255].repeat((w * h) as usize);
         lirtup_effects::util::upload_texture(&device, &screen, &gray).expect("upload");
+        (device, screen, gray)
+    }
+
+    #[test]
+    #[ignore = "needs a Vulkan GPU"]
+    fn the_mode_chip_steps_and_saves() {
+        use lirtup_x11::overlay_input::PointerEvent::{Press, Release};
+
+        let (device, screen, _) = gpu_screen(1920, 1080);
+        let mut bar = Toolbar::new(&device, &screen).expect("toolbar");
+        let now = Instant::now();
+        bar.set_pinned(true, now);
+        let mut state = ToolbarState {
+            mode_label: Some("Un modo con un nombre larguísimo para la barra".to_owned()),
+            ..ToolbarState::default()
+        };
+        bar.update(&state, now).expect("update");
+        let find = |bar: &Toolbar, f: &dyn Fn(&Item) -> bool| bar.items.iter().position(f);
+        let chip = find(&bar, &|i| matches!(i.kind, ItemKind::Mode { .. })).expect("the mode chip");
+        let ItemKind::Mode { label, temporary } = &bar.items[chip].kind else {
+            unreachable!()
+        };
+        assert!(label.ends_with('…') && !temporary, "{label}");
+        assert!(find(&bar, &|i| i.action() == Some(ToolbarAction::SaveMode)).is_none());
+
+        let center = |bar: &Toolbar, i: usize| {
+            let [bx, by, ..] = bar.rect_at(1.0);
+            let [ix, iy, iw, ih] = bar.items[i].rect;
+            ((bx + ix + iw / 2.0) as i32, (by + iy + ih / 2.0) as i32)
+        };
+        let click = |bar: &mut Toolbar, button: u8, (x, y): (i32, i32)| {
+            assert_eq!(bar.pointer(Press { button, x, y }, now), None);
+            bar.pointer(Release { button, x, y }, now)
+        };
+        let at = center(&bar, chip);
+        assert_eq!(click(&mut bar, 1, at), Some(ToolbarAction::ModeNext));
+        assert_eq!(click(&mut bar, 3, at), Some(ToolbarAction::ModePrev));
+        let (x, y) = at;
+        assert_eq!(
+            bar.pointer(Press { button: 4, x, y }, now),
+            Some(ToolbarAction::ModePrev)
+        );
+        assert_eq!(bar.pointer(Release { button: 4, x, y }, now), None);
+        assert_eq!(
+            bar.pointer(Press { button: 5, x, y }, now),
+            Some(ToolbarAction::ModeNext)
+        );
+        assert_eq!(bar.pointer(Release { button: 5, x, y }, now), None);
+
+        // A temporary mode: «save» shows next to the chip.
+        state.mode_label = Some("CRT".to_owned());
+        state.mode_temporary = true;
+        bar.update(&state, now).expect("update");
+        let save = find(&bar, &|i| i.action() == Some(ToolbarAction::SaveMode)).expect("save");
+        let at = center(&bar, save);
+        assert_eq!(click(&mut bar, 1, at), Some(ToolbarAction::SaveMode));
+        // The right click and the wheel only step the mode chip.
+        let (x, y) = at;
+        assert_eq!(bar.pointer(Press { button: 3, x, y }, now), None);
+        assert_eq!(bar.pointer(Release { button: 3, x, y }, now), None);
+        assert_eq!(bar.pointer(Press { button: 5, x, y }, now), None);
+    }
+
+    #[test]
+    #[ignore = "needs a Vulkan GPU"]
+    fn bar_on_a_4k_screen() {
+        use lirtup_gpu::SubmitOptions;
+
+        let (w, h) = (3840u32, 2160u32);
+        let (device, screen, gray) = gpu_screen(w, h);
 
         let mut bar = Toolbar::new(&device, &screen).expect("toolbar");
         let start = Instant::now();
@@ -799,6 +991,8 @@ mod tests {
             multiplier: Some(2),
             auto: true,
             multiplier_label: Some("×2 Auto".to_owned()),
+            mode_label: Some("Anime nítido".to_owned()),
+            mode_temporary: true,
             stats: true,
             ..ToolbarState::default()
         };

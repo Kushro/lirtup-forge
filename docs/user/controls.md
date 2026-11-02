@@ -56,6 +56,8 @@ hides it at any time). From left to right:
 | Stats | Show or hide the stats panel |
 | Crop | Detect the menu bar again, or apply the profile's crop |
 | Screenshot | Same as `Alt`+`Shift`+`P` |
+| Mode | The scaling mode: a click or the wheel down picks the next one, a right click or the wheel up the previous one. See [trying modes](#trying-modes-in-the-game) |
+| Save | Shown next to *Mode* while it is not the profile's: saves it in the profile |
 | Multiplier | Next frame generation multiplier (off, ×2, ×3, ×4, *Auto*), saved in the configuration |
 | Hide | Hide the toolbar until the cursor comes back to the edge |
 | To window / fullscreen | Switch between the two |
@@ -66,6 +68,26 @@ The toolbar also shows the frame rate on screen.
 In window mode, drag the toolbar to move the window. Settings changed from the
 toolbar are saved by the GUI when it is open; otherwise they last until the
 session ends.
+
+### Trying modes in the game
+
+The *Mode* chip goes through your [scaling modes](modes.md) without leaving
+the game, which helps to compare them on the same scene. The change applies a
+moment after the last click, so you can skip several modes quickly.
+
+- **It is temporary.** The mode you pick lasts until the session ends. It is
+  not written anywhere: the next session uses the profile's mode again. The
+  chip turns blue while the mode is not the profile's, and Inicio shows it as
+  *(temporary)*.
+- **Save** (next to the chip, or *Save in …* on Inicio) writes `mode: <id>` in
+  the session's profile, or in *Default* when the session has no profile. The
+  GUI does the writing, so it has to be open; the on-screen message confirms
+  when the profile has it.
+- The profile's own settings still apply on top of the mode you pick, as they
+  do for the profile's mode, so what you see is what saving gives.
+- A mode with Magpie effects that were never compiled can freeze the image for
+  a few seconds the first time; the on-screen message says *preparing
+  effects*. After that they are cached ([Magpie effects](magpiefx.md)).
 
 ## Stats panel
 
