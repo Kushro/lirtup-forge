@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.1 (2026-11-01)
+
+### Fixed
+
+- `lirtup-gui` starts `lirtup serve` as soon as it opens. In 2.0.0 it
+  waited for the first command: until then Inicio showed «El escalador no
+  responde», no open windows, and the shortcuts did nothing.
+- If `lirtup serve` goes away while the GUI is open (a crash), the GUI
+  starts it again after 10 s, without leaving zombie processes.
+- The notifications with «Detener» close when the session stops, when
+  another session replaces them and when `lirtup serve` exits. Plasma never
+  expires a notification with an action, so each session left a
+  `notify-send` waiting (orphaned once `serve` exited) or a thread of the
+  GUI blocked, and a dead «Detener» in the history.
+
 ## 2.0.0 (2026-11-01)
 
 LirtUp Forge is rewritten in Rust, with a new GUI in Dioxus. 2.0 replaces

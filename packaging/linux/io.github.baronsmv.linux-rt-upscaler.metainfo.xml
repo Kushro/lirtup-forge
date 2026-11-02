@@ -56,7 +56,11 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
-    <!-- The reviewer sets the date when 2.0.0 is tagged. -->
+    <release version="2.0.1" date="2026-11-01">
+      <description>
+        <p>The window list and the shortcuts work as soon as the interface opens, and the notifications with «Detener» close when scaling stops.</p>
+      </description>
+    </release>
     <release version="2.0.0" date="2026-11-01">
       <description>
         <p>Rewrite in Rust with a new interface. It reads the 1.x configuration and offers to move it to scaling modes.</p>
