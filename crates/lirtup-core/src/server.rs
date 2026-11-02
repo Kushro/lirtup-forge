@@ -12,7 +12,10 @@
 //! counts the connections and asks it every second. With no client
 //! connected (the GUI closed, the daemon scaling on its own), a session
 //! that starts or fails is announced with a desktop notification
-//! (`notify-send`, «Detener» stops the session).
+//! (`notify-send`, «Detener» stops the session). Some notification servers
+//! (Plasma) never expire a notification with an action, so `notify-send`
+//! would wait forever: the server closes it when the session stops, when
+//! another one replaces it and on the way out ([`Notice`]).
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -53,6 +56,7 @@ pub async fn serve(engine: Arc<Engine>, socket: &Path, lifecycle: Lifecycle) -> 
     let mut tick = tokio::time::interval(LIFECYCLE_TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut events = engine.subscribe();
+    let notice = Notice::default();
 
     let result = loop {
         tokio::select! {
@@ -92,8 +96,11 @@ pub async fn serve(engine: Arc<Engine>, socket: &Path, lifecycle: Lifecycle) -> 
             }
             event = events.recv() => match event {
                 Ok(event) => {
+                    if matches!(event, Event::SessionStopped { .. }) {
+                        notice.close();
+                    }
                     if lock(&lifecycle).clients() == 0 {
-                        notify_headless(&engine, &event);
+                        notify_headless(&engine, &event, &notice);
                     }
                 }
                 Err(RecvError::Lagged(_)) => {}
@@ -102,6 +109,7 @@ pub async fn serve(engine: Arc<Engine>, socket: &Path, lifecycle: Lifecycle) -> 
         }
     };
 
+    notice.close();
     drop(listener);
     let _ = std::fs::remove_file(socket);
     let engine_for_shutdown = Arc::clone(&engine);
@@ -134,10 +142,40 @@ pub fn ensure_not_running(socket: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The `notify-send` waiting on «Detener», if any (its pid).
+#[derive(Clone, Default)]
+struct Notice(Arc<Mutex<Option<u32>>>);
+
+impl Notice {
+    fn set(&self, pid: Option<u32>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = pid;
+    }
+
+    /// Forget `pid` if it is still the one waiting (it exited by itself).
+    fn exited(&self, pid: u32) {
+        let mut current = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if *current == Some(pid) {
+            *current = None;
+        }
+    }
+
+    /// SIGINT to the waiting `notify-send`: it closes its notification and
+    /// exits.
+    #[allow(unsafe_code)]
+    fn close(&self) {
+        let pid = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(pid) = pid.and_then(|p| libc::pid_t::try_from(p).ok()) {
+            // SAFETY: `kill` takes plain integers; the pid is our own child,
+            // forgotten (`exited`) right after it is reaped.
+            unsafe { libc::kill(pid, libc::SIGINT) };
+        }
+    }
+}
+
 /// A desktop notification for `event` while no client is connected: the
 /// daemon started a session (with «Detener»), or one failed. The GUI shows
 /// its own when it is connected (`lirtup-ui/src/notify.rs`).
-fn notify_headless(engine: &Arc<Engine>, event: &Event) {
+fn notify_headless(engine: &Arc<Engine>, event: &Event, notice: &Notice) {
     let spanish = ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .find_map(|v| std::env::var(v).ok().filter(|v| !v.is_empty()))
@@ -162,17 +200,36 @@ fn notify_headless(engine: &Arc<Engine>, event: &Event) {
         _ => return,
     };
     let engine = Arc::clone(engine);
+    let notice = notice.clone();
     let label = if spanish { "Detener" } else { "Stop" };
     let spawned = std::thread::Builder::new()
         .name("lirtup-notify".into())
         .spawn(move || {
+            use std::process::Stdio;
+
             let mut command = std::process::Command::new("notify-send");
             command.arg("--app-name=LirtUp Forge").arg("--icon=lirtup-forge");
             if stop {
                 command.arg(format!("--action=stop={label}"));
             }
             command.arg("LirtUp Forge").arg(body);
-            match command.stdin(std::process::Stdio::null()).output() {
+            let child = command
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn();
+            let output = child.and_then(|child| {
+                let pid = child.id();
+                if stop {
+                    // One «Detener» at a time: the new session's replaces it.
+                    notice.close();
+                    notice.set(Some(pid));
+                }
+                let output = child.wait_with_output();
+                notice.exited(pid);
+                output
+            });
+            match output {
                 Ok(out) if String::from_utf8_lossy(&out.stdout).trim() == "stop" => {
                     tracing::info!("notification: Detener");
                     if let Err(e) = engine.handle(Command::Stop) {
