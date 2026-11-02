@@ -3,11 +3,13 @@
 //!
 //! One task owns the connection. It connects, sends `Hello`, turns every
 //! line into [`Action::Core`] and writes the commands it is given. When
-//! there is no socket at startup it starts `lirtup serve` (the binary next
-//! to this one, else `lirtup` in `PATH`): the window list and the shortcuts
-//! of Inicio need it. Later, with no socket it reports [`LinkState::Down`]
-//! and keeps the commands that arrive; the first one starts `lirtup serve`
-//! again and they are sent once it answers.
+//! there is no socket it starts `lirtup serve` (the binary next to this
+//! one, else `lirtup` in `PATH`): the window list and the shortcuts of
+//! Inicio need it. At startup at once; after a dropped connection only
+//! once the socket has been gone for [`RELAUNCH_AFTER`] (the scaler
+//! `exec`s itself on `Restart`, and a second serve would race it) or when
+//! a command arrives. Meanwhile it reports [`LinkState::Down`] and keeps
+//! the commands, sent once the scaler answers.
 //! A dropped connection (the scaler `exec`s itself on `Restart` with the
 //! lsfg-vk layer, or crashed) reconnects by itself.
 //!
@@ -31,6 +33,9 @@ const QUEUE: usize = 32;
 const RETRY: Duration = Duration::from_secs(2);
 /// How long a launched `lirtup serve` has to answer.
 const LAUNCH_WAIT: Duration = Duration::from_secs(5);
+/// How long the socket has to be gone after a dropped connection before
+/// the link starts `lirtup serve` by itself.
+const RELAUNCH_AFTER: Duration = Duration::from_secs(10);
 
 /// Sends commands to `lirtup serve`. Cheap to clone; provided as a context
 /// by `app.rs` (`use_context::<CoreLink>()`).
@@ -80,27 +85,27 @@ fn client_name() -> String {
 async fn run(socket: PathBuf, mut rx: UnboundedReceiver<Command>, mut dispatch: impl FnMut(Action)) {
     let mut queue: VecDeque<Command> = VecDeque::new();
     let mut launched = false;
-    let mut connected_once = false;
+    // Started at once without a socket: at startup, and once it has been
+    // gone for RELAUNCH_AFTER after a session.
+    let mut launch_at = Some(tokio::time::Instant::now());
     loop {
         dispatch(Action::Link(LinkState::Connecting));
         match UnixStream::connect(&socket).await {
             Ok(stream) => {
                 launched = false;
-                connected_once = true;
                 let reason = session(stream, &mut rx, &mut queue, &mut dispatch).await;
                 match reason {
                     End::AppClosed => return,
                     End::Dropped(reason) => {
+                        launch_at = Some(tokio::time::Instant::now() + RELAUNCH_AFTER);
                         tracing::info!("lirtup serve: {reason}");
                         dispatch(Action::Link(LinkState::Down { reason }));
                     }
                 }
             }
-            // At startup, without waiting for a command. Only then: after a
-            // session the socket is also briefly gone while the scaler
-            // `exec`s itself on `Restart`, and a second serve would race it.
-            Err(_) if !connected_once && !launched => {
+            Err(_) if !launched && launch_at.is_some_and(|t| tokio::time::Instant::now() >= t) => {
                 launched = true;
+                launch_at = None;
                 launch_server();
                 wait_for_socket(&socket, LAUNCH_WAIT).await;
             }
@@ -211,8 +216,18 @@ fn launch_server() {
         .stdout(std::process::Stdio::null())
         .spawn()
     {
-        // Not waited for: it is reaped when the GUI exits (or by init).
-        Ok(child) => drop(child),
+        // Reaped on a thread of its own: the link may start several (one
+        // after each crash) and none should stay a zombie.
+        Ok(mut child) => {
+            let reaper = std::thread::Builder::new()
+                .name("lirtup-serve-reaper".into())
+                .spawn(move || {
+                    let _ = child.wait();
+                });
+            if let Err(e) = reaper {
+                tracing::debug!("lirtup serve reaper: {e}");
+            }
+        }
         Err(e) => tracing::error!("cannot start {}: {e}", exe.display()),
     }
 }
