@@ -3,9 +3,11 @@
 //!
 //! One task owns the connection. It connects, sends `Hello`, turns every
 //! line into [`Action::Core`] and writes the commands it is given. When
-//! there is no socket it reports [`LinkState::Down`] and keeps the commands
-//! that arrive; the first one starts `lirtup serve` (the binary next to
-//! this one, else `lirtup` in `PATH`) and they are sent once it answers.
+//! there is no socket at startup it starts `lirtup serve` (the binary next
+//! to this one, else `lirtup` in `PATH`): the window list and the shortcuts
+//! of Inicio need it. Later, with no socket it reports [`LinkState::Down`]
+//! and keeps the commands that arrive; the first one starts `lirtup serve`
+//! again and they are sent once it answers.
 //! A dropped connection (the scaler `exec`s itself on `Restart` with the
 //! lsfg-vk layer, or crashed) reconnects by itself.
 //!
@@ -78,11 +80,13 @@ fn client_name() -> String {
 async fn run(socket: PathBuf, mut rx: UnboundedReceiver<Command>, mut dispatch: impl FnMut(Action)) {
     let mut queue: VecDeque<Command> = VecDeque::new();
     let mut launched = false;
+    let mut connected_once = false;
     loop {
         dispatch(Action::Link(LinkState::Connecting));
         match UnixStream::connect(&socket).await {
             Ok(stream) => {
                 launched = false;
+                connected_once = true;
                 let reason = session(stream, &mut rx, &mut queue, &mut dispatch).await;
                 match reason {
                     End::AppClosed => return,
@@ -91,6 +95,14 @@ async fn run(socket: PathBuf, mut rx: UnboundedReceiver<Command>, mut dispatch: 
                         dispatch(Action::Link(LinkState::Down { reason }));
                     }
                 }
+            }
+            // At startup, without waiting for a command. Only then: after a
+            // session the socket is also briefly gone while the scaler
+            // `exec`s itself on `Restart`, and a second serve would race it.
+            Err(_) if !connected_once && !launched => {
+                launched = true;
+                launch_server();
+                wait_for_socket(&socket, LAUNCH_WAIT).await;
             }
             Err(e) => {
                 dispatch(Action::Link(LinkState::Down {
