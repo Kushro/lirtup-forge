@@ -56,6 +56,11 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.1.0" date="2026-11-02">
+      <description>
+        <p>A mode chip in the toolbar over the game goes through the scaling modes live; Save writes the chosen one in the profile.</p>
+      </description>
+    </release>
     <release version="2.0.1" date="2026-11-01">
       <description>
         <p>The window list and the shortcuts work as soon as the interface opens, and the notifications with «Detener» close when scaling stops.</p>
