@@ -1127,6 +1127,10 @@ fn compare_layout(layout: &Layout, other: &Config) -> Layout {
     }
 }
 
+/// The passes before scaling, and the MagpieFX effects actually bound
+/// (`None` without MagpieFX).
+type PreChain = (Vec<Box<dyn Pass>>, Option<Vec<EffectSpec>>);
+
 /// The passes before scaling for `plan` on `source`: deband, then the
 /// MagpieFX chain, then the native effects. Also the MagpieFX effects
 /// actually bound (`None` without MagpieFX); the ones that failed are
@@ -1138,7 +1142,7 @@ fn build_pre_chain(
     plan: &EffectPlan,
     source: &Texture,
     disabled: &mut Vec<(String, String)>,
-) -> Result<(Vec<Box<dyn Pass>>, Option<Vec<EffectSpec>>)> {
+) -> Result<PreChain> {
     let content_rect = |layout: &Layout, src: (u32, u32)| {
         let (content, mode) = layout.content();
         let (_, _, w, h) = scaling_rect(src, content, mode);
@@ -1534,8 +1538,10 @@ mod tests {
             zoom: 1.25,
             offset: (10, -4),
         };
-        let mut other = Config::default();
-        other.output_geometry = lirtup_config::OutputGeometry("50%".into());
+        let mut other = Config {
+            output_geometry: lirtup_config::OutputGeometry("50%".into()),
+            ..Default::default()
+        };
         let a = compare_layout(&layout, &other);
         assert_eq!(
             a.geometry,
