@@ -24,8 +24,10 @@ session only, and *Save* keeps it in the profile.
 While a session is scaling with a mode, open that mode in the editor: the save
 bar at the bottom shows *Try live*. Turn it on and every change you make in
 the editor shows in the game at once, about 150 ms after you stop moving a
-slider, without writing anything to disk. The toolbar's *Mode* chip and the
-session card on *Home* say *preview* while it is on.
+slider, without writing anything to disk. While it is on, the toolbar's
+*Mode* chip over the game turns amber with a dot, the session card on *Home*
+shows a *preview* badge, and the on-screen message says *Preview: unsaved
+changes* (then *Preview ended*).
 
 - *Save* writes the mode and ends the preview; the session keeps the saved
   settings.

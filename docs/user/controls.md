@@ -118,6 +118,9 @@ What the *Multiplier* button does depends on the frame generation engine:
   1.2 seconds after the last click the value is saved and the session
   restarts with it, so you can click several times to skip values. The GUI
   does the saving and the restart: with the GUI closed nothing changes.
+  Going back to the value the session already runs with saves nothing. With
+  the layer the button only shows when frame generation was on when the
+  session started.
 
 ## Comparing settings
 
@@ -151,7 +154,12 @@ line. The message says *Compare: ← previous · current →*.
 - Press the button or the hotkey again to end it (*Compare ended*). It also
   ends by itself when the settings change, when you pick another mode, swap
   A/B, switch window, switch between window and fullscreen, or the window
-  changes size.
+  changes size, and when you zoom, move the image, or change the model, the
+  geometry or the built-in engine's multiplier.
+- The stats panel's fps drop towards 0 while the image is frozen: no new
+  frames are presented.
+- If the previous settings cannot be prepared, the message says *Cannot
+  compare* and the session goes on as before.
 
 ## Stats panel
 
