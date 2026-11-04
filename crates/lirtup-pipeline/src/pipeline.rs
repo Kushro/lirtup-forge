@@ -89,7 +89,20 @@
 //!   one (B) right of it, and a press or drag anywhere outside the bar
 //!   moves the line (the bar's zone takes the whole overlay,
 //!   `ToolbarZone::whole`). Any change of configuration, mode, window,
-//!   size or kind ends it.
+//!   size or kind ends it. A is rendered over the same upscaler output as
+//!   B, so the model, `double_upscale` and the chain before the model are
+//!   not compared: the OSD says so when they differ (`compare_misses`).
+//!
+//! # The two MagpieFX chains (fx-unify)
+//!
+//! `magpie_effects_before_model` runs in the upscaler, `magpie_effects` in
+//! the presenter. Another list before the model (names or order,
+//! `pre_chain_changed`) rebuilds the upscaler, as another model does; other
+//! values for the same effects go live
+//! ([`crate::upscale::Upscaler::update_pre_params`]). Effects that fail in
+//! either chain are reported as `Event::EffectCompile { session: true }`,
+//! the upscaler's first. The mode chip's «preparando efectos…» covers both
+//! lists (`rebuilds_effects`).
 //!
 //! As in 1.x `controller.py`: zoom steps through `50 %` to `800 %` of the
 //! monitor in `fit` (25 % steps, starting at the configured geometry);
@@ -550,14 +563,48 @@ impl SplitPointer {
     }
 }
 
-/// Whether going from `old` to `new` builds another MagpieFX chain (it may
-/// compile, which stalls the session: the OSD says so first).
+/// Whether going from `old` to `new` builds another MagpieFX chain, before
+/// or after the model (it may compile, which stalls the session: the OSD
+/// says so first). An empty list builds nothing.
 fn rebuilds_effects(old: &Config, new: &Config) -> bool {
-    use lirtup_config::EffectsEngine;
-    fn effects(c: &Config) -> Option<&[lirtup_config::MagpieEffectSpec]> {
-        (c.scaling.effects_engine == EffectsEngine::Magpiefx).then_some(&c.scaling.magpie_effects)
+    fn another(old: &[lirtup_config::MagpieEffectSpec], new: &[lirtup_config::MagpieEffectSpec]) -> bool {
+        !new.is_empty() && old != new
     }
-    effects(new).is_some_and(|e| !e.is_empty()) && effects(old) != effects(new)
+    another(&old.scaling.magpie_effects, &new.scaling.magpie_effects)
+        || another(
+            &old.scaling.magpie_effects_before_model,
+            &new.scaling.magpie_effects_before_model,
+        )
+}
+
+/// Whether the chain before the model holds other effects (names or order)
+/// in `new`: the upscaler is rebuilt. Same effects with other values go live
+/// ([`Upscaler::update_pre_params`]).
+fn pre_chain_changed(old: &Config, new: &Config) -> bool {
+    crate::magpie::chain_names(&old.scaling.magpie_effects_before_model)
+        != crate::magpie::chain_names(&new.scaling.magpie_effects_before_model)
+}
+
+/// The OSD when the comparison starts, Spanish and English: the sides, and
+/// what it cannot show when [`compare_misses`] says so.
+fn compare_osd(misses: bool) -> (String, String) {
+    let mut es = "Comparación: ← anterior · actual →".to_owned();
+    let mut en = "Compare: ← previous · current →".to_owned();
+    if misses {
+        es.push_str(" · el modelo y los efectos antes del modelo no se comparan");
+        en.push_str(" · the model and the effects before it are not compared");
+    }
+    (es, en)
+}
+
+/// Whether the split comparison of `a` (the previous configuration) against
+/// `b` misses part of the difference: A is rendered over the same upscaler
+/// output as B, so the model, `double_upscale` and the chain before the
+/// model are B's on both sides.
+fn compare_misses(a: &Config, b: &Config) -> bool {
+    a.scaling.model != b.scaling.model
+        || a.scaling.double_upscale != b.scaling.double_upscale
+        || a.scaling.magpie_effects_before_model != b.scaling.magpie_effects_before_model
 }
 
 /// `hide_cursor` (ms) as the overlay takes it: a timer, or with `0` the
@@ -1536,7 +1583,8 @@ impl Runner {
             || old.use_tile_processing != self.config.use_tile_processing
             || old.tile_context_margin != self.config.tile_context_margin
             || old.max_tile_layers != self.config.max_tile_layers
-            || old.area_threshold != self.config.area_threshold;
+            || old.area_threshold != self.config.area_threshold
+            || pre_chain_changed(&old, &self.config);
         if old.overlay_mode != self.config.overlay_mode
             || old.monitor != self.config.monitor
             || old.vulkan_present_mode != self.config.vulkan_present_mode
@@ -1557,6 +1605,16 @@ impl Runner {
             self.rebuild_capture()?;
         } else if needs_upscaler {
             self.recreate_upscaler()?;
+        } else if old.scaling.magpie_effects_before_model != self.config.scaling.magpie_effects_before_model {
+            // Same effects before the model, other values: live, unless the
+            // upscaler says otherwise (an effect of the list had failed).
+            let live = match self.parts.as_mut() {
+                Some(parts) => parts.upscaler.update_pre_params(&self.config)?,
+                None => true,
+            };
+            if !live {
+                self.recreate_upscaler()?;
+            }
         }
         let Some(parts) = self.parts.as_mut() else {
             return Ok(());
@@ -2054,15 +2112,16 @@ impl Runner {
             self.osd(&tr("No se pudo comparar", "Cannot compare"));
             return;
         }
+        let misses = compare_misses(&previous.config, &self.config);
         parts.presenter.set_split(0.5);
         self.comparing = true;
         self.frozen = true;
         self.split_pointer = SplitPointer::default();
         self.stale = true;
-        self.osd(&tr(
-            "Comparación: ← anterior · actual →",
-            "Compare: ← previous · current →",
-        ));
+        // One message (the OSD shows one at a time): the limitation goes
+        // with the start.
+        let (es, en) = compare_osd(misses);
+        self.osd(&tr(&es, &en));
     }
 
     /// End the comparison (a no-op without one): back to the live frames.
@@ -2528,10 +2587,15 @@ impl Runner {
             }
             let _ = self.events.send(Event::Stats(sample));
         }
+        // Both chains: before the model (the upscaler's), after it.
         let disabled = self
             .parts
             .as_mut()
-            .map(|p| p.presenter.take_disabled())
+            .map(|p| {
+                let mut all = p.upscaler.take_disabled();
+                all.extend(p.presenter.take_disabled());
+                all
+            })
             .unwrap_or_default();
         for (name, error) in disabled {
             let _ = self.events.send(Event::EffectCompile {
@@ -2658,10 +2722,6 @@ impl Runner {
                 serde_name(&m.downsampler)
             ),
             chain: self.chain(),
-            engine: match m.effects_engine {
-                lirtup_config::EffectsEngine::Magpiefx => "MagpieFX".to_owned(),
-                _ => "Native".to_owned(),
-            },
             post,
             present,
             framegen,
@@ -2991,22 +3051,80 @@ mod tests {
 
     #[test]
     fn only_another_magpie_chain_rebuilds_effects() {
-        use lirtup_config::{EffectsEngine, MagpieEffectSpec};
+        use lirtup_config::MagpieEffectSpec;
 
         let mut old = Config::default();
         let mut new = old.clone();
         assert!(!rebuilds_effects(&old, &new));
-        new.scaling.effects_engine = EffectsEngine::Magpiefx;
-        assert!(!rebuilds_effects(&old, &new), "an empty chain builds nothing");
         new.scaling.magpie_effects = vec![MagpieEffectSpec::Short("FSR_EASU".into())];
         assert!(rebuilds_effects(&old, &new));
         old = new.clone();
         assert!(!rebuilds_effects(&old, &new), "the same chain");
-        new.scaling.effects_engine = EffectsEngine::Native;
-        assert!(
-            !rebuilds_effects(&old, &new),
-            "the native engine compiles nothing"
-        );
+        new.scaling.magpie_effects.clear();
+        assert!(!rebuilds_effects(&old, &new), "an empty chain builds nothing");
+
+        // The chain before the model counts the same.
+        let old = Config::default();
+        let mut new = old.clone();
+        new.scaling.magpie_effects_before_model = vec![MagpieEffectSpec::Short("CAS".into())];
+        assert!(rebuilds_effects(&old, &new));
+        assert!(!rebuilds_effects(&new, &new), "the same chain before the model");
+        assert!(!rebuilds_effects(&new, &old), "an empty chain before the model builds nothing");
+    }
+
+    #[test]
+    fn the_chain_before_the_model_rebuilds_the_upscaler_only_for_other_effects() {
+        use lirtup_config::MagpieEffectSpec;
+
+        let mut old = Config::default();
+        old.scaling.magpie_effects_before_model = vec![
+            MagpieEffectSpec::Short("CAS".into()),
+            MagpieEffectSpec::Short("Sharpen/LumaSharpen:sharpStrength=0.5".into()),
+        ];
+        let mut values = old.clone();
+        values.scaling.magpie_effects_before_model[1] =
+            MagpieEffectSpec::Short("Sharpen/LumaSharpen:sharpStrength=1.5".into());
+        assert!(!pre_chain_changed(&old, &values), "other values go live");
+        let mut order = old.clone();
+        order.scaling.magpie_effects_before_model.reverse();
+        assert!(pre_chain_changed(&old, &order));
+        let mut fewer = old.clone();
+        fewer.scaling.magpie_effects_before_model.pop();
+        assert!(pre_chain_changed(&old, &fewer));
+        let mut invalid = old.clone();
+        invalid.scaling.magpie_effects_before_model[0] = MagpieEffectSpec::Short("CAS:x=big".into());
+        assert!(pre_chain_changed(&old, &invalid), "an invalid list empties the chain");
+        // The list after the model is the presenter's.
+        let mut after = old.clone();
+        after.scaling.magpie_effects = vec![MagpieEffectSpec::Short("CAS".into())];
+        assert!(!pre_chain_changed(&old, &after));
+    }
+
+    #[test]
+    fn the_comparison_says_what_it_cannot_show() {
+        use lirtup_config::MagpieEffectSpec;
+
+        let b = Config::default();
+        let mut a = b.clone();
+        a.scaling.cas_enabled = !a.scaling.cas_enabled;
+        a.scaling.magpie_effects = vec![MagpieEffectSpec::Short("CAS".into())];
+        assert!(!compare_misses(&a, &b), "the presenter renders both sides");
+        let mut model = b.clone();
+        model.scaling.model = next_model(model.scaling.model);
+        assert!(compare_misses(&model, &b));
+        let mut double = b.clone();
+        double.scaling.double_upscale = !double.scaling.double_upscale;
+        assert!(compare_misses(&double, &b));
+        let mut pre = b.clone();
+        pre.scaling.magpie_effects_before_model = vec![MagpieEffectSpec::Short("CAS".into())];
+        assert!(compare_misses(&pre, &b));
+
+        let (es, en) = compare_osd(false);
+        assert_eq!(en, "Compare: ← previous · current →");
+        assert_eq!(es, "Comparación: ← anterior · actual →");
+        let (es, en) = compare_osd(true);
+        assert!(en.ends_with("the model and the effects before it are not compared"));
+        assert!(es.ends_with("el modelo y los efectos antes del modelo no se comparan"));
     }
 
     #[test]
@@ -3089,6 +3207,10 @@ mod tests {
         let mut effect = old.clone();
         effect.scaling.cas_enabled = !effect.scaling.cas_enabled;
         assert!(ab_relevant_changed(&old, &effect));
+        let mut pre = old.clone();
+        pre.scaling.magpie_effects_before_model =
+            vec![lirtup_config::MagpieEffectSpec::Short("CAS".into())];
+        assert!(ab_relevant_changed(&old, &pre), "the chain before the model is shown");
         let mut geometry = old.clone();
         geometry.output_geometry = OutputGeometry("stretch".into());
         assert!(ab_relevant_changed(&old, &geometry));
