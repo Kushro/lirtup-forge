@@ -115,8 +115,9 @@ enum CliCommand {
         /// What to list.
         what: String,
     },
-    /// Move the loose 1.x mode fields of config.yaml into scaling modes
-    /// (backup in config.yaml.1x.bak).
+    /// Move the loose 1.x mode fields of config.yaml into scaling modes and
+    /// rewrite the settings of the retired native effects engine as MagpieFX
+    /// effects (backups in config.yaml.1x.bak and modes/<id>.yaml.bak).
     Migrate {
         /// Only print what would change.
         #[arg(long)]
@@ -483,7 +484,10 @@ fn migrate(dry_run: bool, config: Option<PathBuf>) -> anyhow::Result<ExitCode> {
     let (mut modes, _) = ModeStore::load(&modes_dir)?;
     let plan = migrate::plan(&file, &modes);
     if plan.is_empty() {
-        println!("nothing to migrate: {} has no loose mode fields", path.display());
+        println!(
+            "nothing to migrate: {} has no loose mode fields and no native-engine settings",
+            path.display()
+        );
         return Ok(ExitCode::SUCCESS);
     }
     for (id, raw) in &plan.modes {
@@ -495,16 +499,39 @@ fn migrate(dry_run: bool, config: Option<PathBuf>) -> anyhow::Result<ExitCode> {
     for (profile, mode) in &plan.profiles {
         println!("profile {profile}: {}", mode.as_deref().unwrap_or("(inherits)"));
     }
+    for (id, raw) in &plan.rewritten {
+        println!("{}", rewritten_line(id, raw));
+    }
     if dry_run {
         return Ok(ExitCode::SUCCESS);
     }
     let backup = migrate::apply(&mut file, &mut modes, &plan)?;
-    println!(
-        "{} fields moved; backup in {}",
-        plan.moved_fields,
-        backup.display()
-    );
+    if plan.moved_fields > 0 {
+        println!("{} fields moved", plan.moved_fields);
+    }
+    if !plan.rewritten.is_empty() {
+        println!(
+            "{} mode files rewritten; old copies in {}",
+            plan.rewritten.len(),
+            modes
+                .dir
+                .join(format!("<id>.yaml{}", migrate::MODE_BACKUP_SUFFIX))
+                .display()
+        );
+    }
+    println!("backup of the configuration in {}", backup.display());
     Ok(ExitCode::SUCCESS)
+}
+
+/// The `lirtup migrate` line of a mode file rewritten without the native
+/// engine: `mode crt: native effects → magpie_effects (1 effect)`.
+fn rewritten_line(id: &str, raw: &lirtup_config::Mapping) -> String {
+    let effects = raw
+        .get("magpie_effects")
+        .and_then(lirtup_config::Value::as_sequence)
+        .map_or(0, Vec::len);
+    let unit = if effects == 1 { "effect" } else { "effects" };
+    format!("mode {id}: native effects → magpie_effects ({effects} {unit})")
 }
 
 // ---- ctl -------------------------------------------------------------------
@@ -1064,5 +1091,25 @@ mod tests {
         assert!(!answers(&compile, &progress("a", false)));
         assert!(!answers(&compile, &progress("b", true)));
         assert!(answers(&compile, &progress("a", true)));
+    }
+
+    #[test]
+    fn rewritten_mode_lines() {
+        use lirtup_config::{Mapping, Value};
+        let mut raw = Mapping::new();
+        raw.insert("name".into(), "CRT".into());
+        raw.insert(
+            "magpie_effects".into(),
+            Value::Sequence(vec!["CRT/CRT_Easymode".into()]),
+        );
+        assert_eq!(
+            rewritten_line("crt", &raw),
+            "mode crt: native effects → magpie_effects (1 effect)"
+        );
+        let _ = raw.remove("magpie_effects");
+        assert_eq!(
+            rewritten_line("crt", &raw),
+            "mode crt: native effects → magpie_effects (0 effects)"
+        );
     }
 }
