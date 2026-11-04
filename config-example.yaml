@@ -742,6 +742,19 @@ hotkeys:
   # Exit the application
   exit_app: "Alt+Shift+Escape"
 
+  # Next / previous scaling mode, like the mode chip of the bar. Temporary: it
+  # lasts until the session ends (save it from the bar or from Home)
+  mode_next: "Alt+Shift+N"
+  mode_prev: "Alt+Shift+B"
+
+  # A/B: swap between the current settings and the ones before the last change
+  # (a mode, a saved edit, a live preview). Press again to go back
+  swap_ab: "Alt+Shift+X"
+
+  # Split comparison on a frozen frame: previous settings on the left, current
+  # on the right; drag with the mouse to move the line. Press again to end it
+  toggle_compare: "Alt+Shift+C"
+
 # ------------------------------------------------------------------------------
 # Profiles
 # ------------------------------------------------------------------------------
