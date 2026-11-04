@@ -23,5 +23,12 @@ migrate-backup = The current configuration is copied to { $file } first. Scaling
 migrate-legacy-gui = The 1.x tray and palette settings move to Settings too.
 migrate-later = Not now
 migrate-confirm = Migrate
-migrate-done = Configuration moved to modes. Copy of the old one in { $backup }
+migrate-done = Configuration migrated. Copy of the old one in { $backup }
 migrate-failed = Could not migrate: { $error }
+# fx-unify: modes that still use the native effects engine.
+migrate-native-title = Update the effects
+migrate-native-body = { $count ->
+    [one] One mode uses
+   *[other] { $count } modes use
+} the retired native effects engine: its effects move to the MagpieFX chain, with the same result.
+migrate-native-backup = Each mode file that changes is copied to { $file } first.
