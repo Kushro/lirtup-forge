@@ -143,7 +143,7 @@ Read, not compiled; places to look first:
 - `crates/lirtup-effects/src/effects.rs`: `output_size`/`create` keep the
   now-unused parameters with `let _ = …;` — fine for rustc and clippy, but
   check `-D warnings`.
-- `crates/lirtup-pipeline/src/upscale.rs:142`:
+- `crates/lirtup-pipeline/src/upscale.rs:144`:
   `pre.last().map(|p| p.output()).unwrap_or(&input).clone()` borrows
   through a closure; should infer, but it is the one non-trivial borrow of
   the new code.
