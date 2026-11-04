@@ -69,6 +69,7 @@ settings-hotkeys-activation = Activación
 settings-hotkeys-session = Sesión
 settings-hotkeys-view = Vista
 settings-hotkeys-zoom = Zoom y desplazamiento
+settings-hotkeys-tuning = Comparar
 settings-hotkey-default = Predeterminado: { $keys }
 settings-hotkey-conflict = También lo usa: { $actions }
 settings-hotkey-start_fullscreen = Escalar en pantalla completa
@@ -87,6 +88,10 @@ settings-hotkey-offset_up = Mover el contenido hacia arriba
 settings-hotkey-offset_down = Mover el contenido hacia abajo
 settings-hotkey-offset_left = Mover el contenido a la izquierda
 settings-hotkey-offset_right = Mover el contenido a la derecha
+settings-hotkey-mode_next = Modo siguiente
+settings-hotkey-mode_prev = Modo anterior
+settings-hotkey-swap_ab = Alternar A/B
+settings-hotkey-toggle_compare = Comparar partido
 
 ## Estilo
 settings-zoom = Zoom

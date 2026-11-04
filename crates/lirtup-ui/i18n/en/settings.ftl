@@ -69,6 +69,7 @@ settings-hotkeys-activation = Activation
 settings-hotkeys-session = Session
 settings-hotkeys-view = View
 settings-hotkeys-zoom = Zoom and offset
+settings-hotkeys-tuning = Compare
 settings-hotkey-default = Default: { $keys }
 settings-hotkey-conflict = Also used by: { $actions }
 settings-hotkey-start_fullscreen = Scale fullscreen
@@ -87,6 +88,10 @@ settings-hotkey-offset_up = Move the content up
 settings-hotkey-offset_down = Move the content down
 settings-hotkey-offset_left = Move the content left
 settings-hotkey-offset_right = Move the content right
+settings-hotkey-mode_next = Next mode
+settings-hotkey-mode_prev = Previous mode
+settings-hotkey-swap_ab = Swap A/B
+settings-hotkey-toggle_compare = Split compare
 
 ## Style
 settings-zoom = Zoom

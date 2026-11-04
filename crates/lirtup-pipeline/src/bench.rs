@@ -530,12 +530,9 @@ impl Backend<'_> {
                 SpirvCache::new(paths::magpiefx_cache_dir()),
             )
         });
-        if compilers.is_empty() {
-            return Err(PipelineError::other(
-                Stage::Effects,
-                "no HLSL compiler found (dxc or glslang)",
-            ));
-        }
+        // No early «no compiler» error: the precompiled seed serves the
+        // builtin effects without one; `compile_effect_with` says
+        // `NoCompiler` when nothing hits.
         let entry = catalog.resolve(name)?;
         // As the presenter runs it: BGRA input, the swap folded in.
         let options = CompileOptions {

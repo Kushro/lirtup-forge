@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Builds the Linux release of LirtUp Forge:
 #   - lirtup (cargo) and lirtup-gui (dx, with the Tailwind of package.json);
+#   - the precompiled MagpieFX seed (build/magpiefx-seed, by the
+#     magpiefx-seed binary of lirtup-magpiefx), installed in
+#     share/lirtup/magpiefx-seed;
 #   - lirtup-forge-<version>-linux-x86_64.tar.gz: the /usr tree of
 #     packaging/linux/install-tree.sh (bin/, lib/lirtup/, share/);
 #   - LirtUp_Forge-<version>-x86_64.AppImage: the same tree in an AppDir.
@@ -8,13 +11,19 @@
 # Usage: scripts/build-release-linux.sh [options]
 #   --out DIR        where the artifacts go (default: $CARGO_TARGET_DIR/release-linux,
 #                    or target/release-linux)
-#   --skip-build     package what is already built
+#   --skip-build     package what is already built (and the seed already in
+#                    build/magpiefx-seed, if any)
+#   --no-seed        do not generate nor ship the MagpieFX seed
+#   --require-seed   fail when the seed cannot be generated (by default a
+#                    failure is a warning: the release ships what compiled,
+#                    and users compile the rest on first use)
 #   --no-appimage    only the tarball
 #   --fetch-tools    download appimagetool 1.9.1 (checked against its sha256)
 #                    when it is not installed
 #
-# Needs: cargo, dx (the version of dioxus in Cargo.lock), npm, and for the
-# AppImage appimagetool (or --fetch-tools) and patchelf (to bundle libxdo).
+# Needs: cargo, dx (the version of dioxus in Cargo.lock), npm, dxc and
+# glslangValidator for the seed (directx-shader-compiler and glslang), and for
+# the AppImage appimagetool (or --fetch-tools) and patchelf (to bundle libxdo).
 # Environment: CARGO_TARGET_DIR, APPIMAGETOOL (path to appimagetool).
 # The source tree is not modified: node_modules/ is ignored by git, and
 # packaging/tools/tailwindcss makes dx write the committed tailwind.css.
@@ -25,12 +34,16 @@ cd "$root"
 
 out=
 skip_build=0
+seed_build=1
+require_seed=0
 appimage=1
 fetch_tools=0
 while [[ $# -gt 0 ]]; do
     case $1 in
         --out) out=$2; shift 2 ;;
         --skip-build) skip_build=1; shift ;;
+        --no-seed) seed_build=0; shift ;;
+        --require-seed) require_seed=1; shift ;;
         --no-appimage) appimage=0; shift ;;
         --fetch-tools) fetch_tools=1; shift ;;
         -h|--help) sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "$0"; exit 0 ;;
@@ -65,12 +78,28 @@ if [[ $skip_build == 0 ]]; then
     NO_DOWNLOADS=1 PATH="$root/packaging/tools:$PATH" dx build --release -p lirtup-ui --desktop
 fi
 
+# The precompiled MagpieFX seed: SPIR-V of every built-in effect, so the
+# first load of an effect needs no compiler (docs/user/magpiefx.md).
+seed=$root/build/magpiefx-seed
+if [[ $seed_build == 0 ]]; then
+    seed=
+elif [[ $skip_build == 0 ]]; then
+    step "MagpieFX seed (magpiefx-seed)"
+    rm -rf "$seed"
+    if ! cargo run --locked --release -p lirtup-magpiefx --bin magpiefx-seed -- \
+        --out "$seed" --effects-dir crates/lirtup-magpiefx/effects; then
+        [[ $require_seed == 0 ]] || die "the MagpieFX seed failed (see above)"
+        # What compiled is still useful: ship it.
+        echo "warning: the MagpieFX seed is incomplete or missing (see above); continuing" >&2
+    fi
+fi
+
 gui_app=$CARGO_TARGET_DIR/dx/lirtup-gui/release/linux/app
 
 step "Tarball"
 tree=$work/tree
 rm -rf "$tree"
-LIRTUP_GUI_APP=$gui_app sh packaging/linux/install-tree.sh "$tree" /usr
+LIRTUP_SEED=$seed LIRTUP_GUI_APP=$gui_app sh packaging/linux/install-tree.sh "$tree" /usr
 install -Dm644 LICENSE "$tree/usr/share/licenses/lirtup-forge/LICENSE"
 tarball=$out/lirtup-forge-$version-linux-$arch.tar.gz
 tar -C "$tree" -czf "$tarball" --owner=0 --group=0 usr

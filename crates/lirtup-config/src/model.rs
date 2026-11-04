@@ -1321,6 +1321,10 @@ mod tests {
         assert!(warnings.is_empty());
         assert_eq!(bindings.len(), crate::HotkeyAction::ALL.len() - 1);
         assert_eq!(bindings[0].0, crate::HotkeyAction::StartFullscreen);
+        // The live-tuning actions get their defaults too and sort last.
+        assert_eq!(c.hotkeys["mode_next"], "Alt+Shift+N");
+        assert_eq!(c.hotkeys["toggle_compare"], "Alt+Shift+C");
+        assert_eq!(bindings.last().unwrap().0, crate::HotkeyAction::ToggleCompare);
     }
 
     #[test]

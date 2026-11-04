@@ -35,7 +35,10 @@ The rest of this page is about the MagpieFX engine.
 
 ## Compilers
 
-One of these compilers must be installed:
+The package ships the bundled effects already compiled (see
+[Precompiled seed](#precompiled-seed)), so they load without a compiler.
+A compiler is needed for your own effects, for edited ones, and for any
+variant the seed does not have:
 
 - `dxc` (DirectX Shader Compiler), preferred. On Arch/CachyOS:
   `sudo pacman -S directx-shader-compiler`.
@@ -49,6 +52,27 @@ pays the compile time.
 
 `UPSCALER_MAGPIEFX_FP16=auto|0` controls FP16 (see [FP16](#fp16)); `auto`
 is the default.
+
+## Precompiled seed
+
+The AUR package, the tarball and the AppImage include the SPIR-V of all the
+bundled effects, in `/usr/share/lirtup/magpiefx-seed` (inside the AppImage, in
+its own tree). It covers FP32 and, for the effects that declare it, FP16, and
+every red/blue swap a chain can ask for. When an effect loads, the app looks
+in your cache (`~/.cache/linux-rt-upscaler/magpiefx`) first, then in the seed,
+and only compiles when neither has it. The seed is read-only: its shaders are
+used in place, not copied to your cache.
+
+- It does not depend on which dxc or glslang you have, or whether you have
+  one: the bundled effects, including the 3 `Anime4K_Denoise_Bilateral_*`
+  that need glslang, load on a machine with neither.
+- Your own effects, and bundled effects you edit, are not in the seed and
+  still need a compiler.
+- `LIRTUP_MAGPIEFX_SEED_DIR=/path` uses another seed folder. By default it is
+  `magpiefx-seed` next to the effects folder (`LIRTUP_EFFECTS_DIR`).
+- To build one yourself (needs dxc and glslang):
+  `cargo run --release -p lirtup-magpiefx --bin magpiefx-seed -- --out DIR`
+  (`--help` lists the options).
 
 ## Choosing effects
 
@@ -158,7 +182,8 @@ store to `OUTPUT`), at no measurable cost. Effects that pass `INPUT` or
 - `NIS`, `NVSharpen`, `FineSharp` and the 4 `SMAA` effects need dxc:
   glslang crashes or rejects them.
 - `Anime4K_Denoise_Bilateral_*` do not compile with dxc (it rejects their
-  array sizes); they need `glslangValidator` installed as the fallback.
+  array sizes); they need `glslangValidator` installed as the fallback,
+  unless they come from the [precompiled seed](#precompiled-seed).
 - The 4 SMAA effects pass `INPUT` to a function, so, like FXAA, they use a
   separate red/blue swap pass for their input.
 - With the glslang backend, storage image formats are inferred from the

@@ -20,5 +20,9 @@ tracing.workspace = true
 serde.workspace = true
 tempfile.workspace = true
 
+[[bin]]
+name = "magpiefx-seed"
+path = "src/bin/magpiefx-seed.rs"
+
 [lints]
 workspace = true

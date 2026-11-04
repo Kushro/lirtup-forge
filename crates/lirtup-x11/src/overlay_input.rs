@@ -6,6 +6,8 @@
 //! edge goes to both (the game keeps its hover). A press on the bar keeps
 //! the pointer until its release, wherever that happens. In windowed mode a
 //! press on the bar can start moving the window with `_NET_WM_MOVERESIZE`.
+//! While the split comparison runs ([`ToolbarZone::whole`]) every pointer
+//! event of the overlay is the session's.
 //!
 //! [`ToolbarRouter`] keeps that state per overlay; it works on the
 //! translated [`OverlayEvent`]s the overlay thread already reads, not on
@@ -24,6 +26,11 @@ pub struct ToolbarZone {
     pub bar: Option<Rect>,
     /// Height of the band at the top edge that reveals the bar, px.
     pub reveal: u32,
+    /// Take every pointer event of the overlay, not only the bar's (the
+    /// split comparison drags its line anywhere): the router sends them all
+    /// as [`Routed::Toolbar`], and in `top-transparent` the input region is
+    /// the whole overlay. `false` = the bar and its band only.
+    pub whole: bool,
 }
 
 /// A pointer event for the bar, in overlay coordinates.
@@ -114,6 +121,9 @@ impl ToolbarRouter {
                 _ => Routed::Forward,
             };
         };
+        if zone.whole {
+            return self.route_whole(event);
+        }
         match *event {
             OverlayEvent::Pointer { kind, x, y, .. } => {
                 let on_bar = zone.bar.is_some_and(|r| contains(r, x, y));
@@ -154,6 +164,35 @@ impl ToolbarRouter {
             OverlayEvent::Leave if self.captured.is_none() && std::mem::take(&mut self.inside) => {
                 Routed::Both(PointerEvent::Leave)
             }
+            _ => Routed::Forward,
+        }
+    }
+
+    /// [`ToolbarZone::whole`]: every pointer event is the session's (the
+    /// split comparison); nothing goes to the game. A press is still
+    /// tracked until its release, so that a zone that stops being whole in
+    /// between does not hand the game a lone release.
+    fn route_whole(&mut self, event: &OverlayEvent) -> Routed {
+        match *event {
+            OverlayEvent::Pointer { kind, x, y, .. } => {
+                self.inside = true;
+                Routed::Toolbar(match kind {
+                    PointerKind::Motion => PointerEvent::Motion { x, y },
+                    PointerKind::Press(button) => {
+                        if self.captured.is_none() {
+                            self.captured = Some(button);
+                        }
+                        PointerEvent::Press { button, x, y }
+                    }
+                    PointerKind::Release(button) => {
+                        if self.captured == Some(button) {
+                            self.captured = None;
+                        }
+                        PointerEvent::Release { button, x, y }
+                    }
+                })
+            }
+            OverlayEvent::Leave if std::mem::take(&mut self.inside) => Routed::Both(PointerEvent::Leave),
             _ => Routed::Forward,
         }
     }
@@ -234,7 +273,11 @@ mod tests {
 
     fn router(bar: Option<Rect>) -> ToolbarRouter {
         let mut r = ToolbarRouter::new();
-        r.set_zone(Some(ToolbarZone { bar, reveal: 8 }));
+        r.set_zone(Some(ToolbarZone {
+            bar,
+            reveal: 8,
+            whole: false,
+        }));
         r
     }
 
@@ -310,6 +353,73 @@ mod tests {
         r.route(&pointer(PointerKind::Motion, 120, 30));
         assert_eq!(r.route(&OverlayEvent::Leave), Routed::Both(PointerEvent::Leave));
         assert_eq!(r.route(&OverlayEvent::Leave), Routed::Forward);
+    }
+
+    #[test]
+    fn a_whole_zone_takes_every_event() {
+        let mut r = ToolbarRouter::new();
+        r.set_zone(Some(ToolbarZone {
+            bar: None,
+            reveal: 8,
+            whole: true,
+        }));
+        assert_eq!(
+            r.route(&pointer(PointerKind::Motion, 900, 500)),
+            Routed::Toolbar(PointerEvent::Motion { x: 900, y: 500 })
+        );
+        assert_eq!(
+            r.route(&pointer(PointerKind::Press(1), 900, 500)),
+            Routed::Toolbar(PointerEvent::Press {
+                button: 1,
+                x: 900,
+                y: 500
+            })
+        );
+        // The wheel and other buttons too.
+        assert_eq!(
+            r.route(&pointer(PointerKind::Press(5), 10, 10)),
+            Routed::Toolbar(PointerEvent::Press {
+                button: 5,
+                x: 10,
+                y: 10
+            })
+        );
+        assert_eq!(
+            r.route(&pointer(PointerKind::Release(1), 950, 500)),
+            Routed::Toolbar(PointerEvent::Release {
+                button: 1,
+                x: 950,
+                y: 500
+            })
+        );
+        assert_eq!(r.route(&OverlayEvent::Leave), Routed::Both(PointerEvent::Leave));
+        assert_eq!(r.route(&OverlayEvent::Leave), Routed::Forward);
+    }
+
+    #[test]
+    fn a_press_held_when_the_zone_stops_being_whole_keeps_its_release() {
+        let mut r = ToolbarRouter::new();
+        let mut zone = ToolbarZone {
+            bar: Some(BAR),
+            reveal: 8,
+            whole: true,
+        };
+        r.set_zone(Some(zone));
+        r.route(&pointer(PointerKind::Press(1), 900, 500));
+        zone.whole = false;
+        r.set_zone(Some(zone));
+        assert_eq!(
+            r.route(&pointer(PointerKind::Release(1), 900, 500)),
+            Routed::Toolbar(PointerEvent::Release {
+                button: 1,
+                x: 900,
+                y: 500
+            })
+        );
+        assert_eq!(
+            r.route(&pointer(PointerKind::Press(1), 900, 501)),
+            Routed::Forward
+        );
     }
 
     #[test]

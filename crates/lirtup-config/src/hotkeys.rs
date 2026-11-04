@@ -48,12 +48,23 @@ pub enum HotkeyAction {
     OffsetRight,
     /// Show or hide the bar over the game (new in 2.0, round 4 front T).
     ToggleToolbar,
+    /// Next scaling mode, as the bar's mode chip (live tuning, after 2.1.0).
+    ModeNext,
+    /// Previous scaling mode, as the bar's mode chip (live tuning).
+    ModePrev,
+    /// A/B by blinking: swap the current settings and the ones before the
+    /// last change (live tuning).
+    SwapAb,
+    /// Split comparison on a frozen frame: previous settings on the left,
+    /// current on the right (live tuning).
+    ToggleCompare,
 }
 
 impl HotkeyAction {
     /// All actions: activation (2.0), then the 1.x groups (session, view,
-    /// zooming, panning).
-    pub const ALL: [HotkeyAction; 16] = [
+    /// zooming, panning), the bar toggle (2.0) and the live-tuning actions
+    /// (mode next/previous, A/B, split compare), in that order.
+    pub const ALL: [HotkeyAction; 20] = [
         HotkeyAction::StartFullscreen,
         HotkeyAction::StartWindowed,
         HotkeyAction::ToggleScaling,
@@ -70,6 +81,10 @@ impl HotkeyAction {
         HotkeyAction::OffsetUp,
         HotkeyAction::OffsetDown,
         HotkeyAction::ToggleToolbar,
+        HotkeyAction::ModeNext,
+        HotkeyAction::ModePrev,
+        HotkeyAction::SwapAb,
+        HotkeyAction::ToggleCompare,
     ];
 
     /// The YAML key (`toggle_scaling`, ...).
@@ -91,10 +106,15 @@ impl HotkeyAction {
             HotkeyAction::OffsetLeft => "offset_left",
             HotkeyAction::OffsetRight => "offset_right",
             HotkeyAction::ToggleToolbar => "toggle_toolbar",
+            HotkeyAction::ModeNext => "mode_next",
+            HotkeyAction::ModePrev => "mode_prev",
+            HotkeyAction::SwapAb => "swap_ab",
+            HotkeyAction::ToggleCompare => "toggle_compare",
         }
     }
 
-    /// The 1.x default binding.
+    /// The default binding: the 1.x one, or the one chosen when the action
+    /// was added (every default is `Alt+Shift+<key>` and none repeats).
     pub fn default_binding(self) -> &'static str {
         match self {
             HotkeyAction::StartFullscreen => "Alt+Shift+A",
@@ -113,6 +133,10 @@ impl HotkeyAction {
             HotkeyAction::OffsetLeft => "Alt+Shift+Left",
             HotkeyAction::OffsetRight => "Alt+Shift+Right",
             HotkeyAction::ToggleToolbar => "Alt+Shift+D",
+            HotkeyAction::ModeNext => "Alt+Shift+N",
+            HotkeyAction::ModePrev => "Alt+Shift+B",
+            HotkeyAction::SwapAb => "Alt+Shift+X",
+            HotkeyAction::ToggleCompare => "Alt+Shift+C",
         }
     }
 }
@@ -307,6 +331,41 @@ mod tests {
             let h: Hotkey = action.default_binding().parse().unwrap();
             assert_eq!(h.to_string(), action.default_binding());
             assert_eq!(action.as_str().parse::<HotkeyAction>().unwrap(), action);
+        }
+    }
+
+    #[test]
+    fn live_tuning_actions() {
+        let tuning = [
+            (HotkeyAction::ModeNext, "mode_next", "Alt+Shift+N"),
+            (HotkeyAction::ModePrev, "mode_prev", "Alt+Shift+B"),
+            (HotkeyAction::SwapAb, "swap_ab", "Alt+Shift+X"),
+            (HotkeyAction::ToggleCompare, "toggle_compare", "Alt+Shift+C"),
+        ];
+        // They close `ALL`, in this order.
+        assert_eq!(
+            HotkeyAction::ALL[HotkeyAction::ALL.len() - 4..].to_vec(),
+            tuning.map(|t| t.0).to_vec()
+        );
+        for (action, key, binding) in tuning {
+            assert_eq!(action.as_str(), key);
+            assert_eq!(action.default_binding(), binding);
+            assert_eq!(key.parse::<HotkeyAction>().unwrap(), action);
+            // serde uses the same snake_case name as the YAML key.
+            let yaml = serde_yaml_ng::to_string(&action).unwrap();
+            assert_eq!(yaml.trim(), key);
+            assert_eq!(default_hotkeys()[key], binding);
+        }
+        assert!("mode-next".parse::<HotkeyAction>().is_err());
+    }
+
+    #[test]
+    fn default_bindings_are_unique() {
+        let mut seen: Vec<Hotkey> = Vec::new();
+        for action in HotkeyAction::ALL {
+            let h: Hotkey = action.default_binding().parse().unwrap();
+            assert!(!seen.contains(&h), "{action:?} repeats {h}");
+            seen.push(h);
         }
     }
 

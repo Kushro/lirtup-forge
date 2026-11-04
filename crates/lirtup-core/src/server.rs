@@ -16,6 +16,11 @@
 //! (Plasma) never expire a notification with an action, so `notify-send`
 //! would wait forever: the server closes it when the session stops, when
 //! another one replaces it and on the way out ([`Notice`]).
+//!
+//! A `Preview` («Probar en vivo») belongs to the connection that sent it:
+//! when that connection closes with the preview still on (the GUI crashed
+//! or quit in the mode editor), the server ends it ([`PreviewOwner`],
+//! [`Engine::end_preview`]).
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -348,6 +353,10 @@ async fn client(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
         on: false,
         apply: Engine::pause_hotkeys,
     };
+    let mut preview = PreviewOwner {
+        engine: Arc::clone(&engine),
+        on: false,
+    };
 
     loop {
         tokio::select! {
@@ -367,6 +376,11 @@ async fn client(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
                     Line::Command(Command::WatchGpuTimes { on }) => gpu_watch.set(on),
                     Line::Command(Command::PauseHotkeys { on }) => hotkey_pause.set(on),
                     Line::Command(command) => {
+                        match &command {
+                            Command::Preview { .. } => preview.on = true,
+                            Command::PreviewEnd => preview.on = false,
+                            _ => {}
+                        }
                         let engine = Arc::clone(&engine);
                         let name = format!("{command:?}");
                         // Some commands wait for the session thread.
@@ -425,6 +439,34 @@ impl Counted {
 impl Drop for Counted {
     fn drop(&mut self) {
         self.set(false);
+    }
+}
+
+/// Whether this connection sent the preview that is on (`Preview` without
+/// a `PreviewEnd` after it): closing the connection ends it.
+///
+/// Another client's `PreviewEnd` (or the session stopping) does not clear
+/// the flag; [`Engine::end_preview`] is then a no-op. A preview another
+/// connection sent later is ended too (the engine keeps one preview, not
+/// its sender): only one GUI edits modes at a time.
+struct PreviewOwner {
+    engine: Arc<Engine>,
+    on: bool,
+}
+
+impl Drop for PreviewOwner {
+    fn drop(&mut self) {
+        if !self.on {
+            return;
+        }
+        tracing::debug!("the client of the preview left: ending it");
+        let engine = Arc::clone(&self.engine);
+        // It reads the files again: off the async threads when a runtime
+        // is there (it is not while the runtime itself shuts down).
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => drop(handle.spawn_blocking(move || engine.end_preview())),
+            Err(_) => engine.end_preview(),
+        }
     }
 }
 

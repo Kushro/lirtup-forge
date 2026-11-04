@@ -43,8 +43,9 @@
 //! and the panel: it sends its zone to the overlay
 //! (`OverlayCommand::SetToolbarZone`), gives it the overlay's
 //! `OverlayNotice::Pointer`s, and runs its actions. `ToggleToolbar` shows
-//! or hides it. The multiplier and «pin» apply live and go to the GUI as
-//! `Event::SaveSetting`; in windowed mode the bar drags the window, and the
+//! or hides it. The multiplier (live with the built-in engine; with the
+//! lsfg-vk layer through a restart, see «Live tuning») and «pin» go to the
+//! GUI as `Event::SaveSetting`; in windowed mode the bar drags the window, and the
 //! position it is left at is saved too ([`WINDOWED_POSITION_KEY`]) and used
 //! by the next windowed session. A minimized target pauses the session with
 //! the overlay hidden (1.x).
@@ -62,6 +63,33 @@
 //! `mode` in the session's profile) or when `follow_focus` resolves another
 //! window. `SessionView::mode_temporary` tells the GUI; `SessionStarted` is
 //! sent again after every change of configuration so the GUI's card follows.
+//!
+//! With one mode (or none) the chip and the `ModeNext`/`ModePrev` hotkeys
+//! only say so on the OSD.
+//!
+//! # Live tuning (2.2)
+//!
+//! - **Multiplier with the lsfg-vk layer.** The layer reads the multiplier
+//!   when the game starts, so the bar's button steps Off → ×2 → ×3 → ×4 →
+//!   Off (`next_multiplier_layer`, no Auto) on its label only and sends
+//!   `Event::SaveSetting` ([`MULTIPLIER_APPLY_AFTER`] after the last click);
+//!   the GUI saves it and restarts the session. The built-in engine still
+//!   applies it live.
+//! - **A/B (`SwapAb`).** Every change of configuration keeps the working
+//!   configuration before the last change that the presenter or the
+//!   upscaler cares about (`ab_relevant_changed`); `SwapAb` swaps it with
+//!   the current one (profile and mode chip included). Nothing is written.
+//! - **Preview.** [`PipelineCommand::UpdateConfig::preview`] marks a
+//!   configuration with the mode editor's unsaved changes: the OSD tells
+//!   when it turns on or off, the mode chip and `SessionView::preview` show
+//!   it.
+//! - **Split comparison (`ToggleCompare`, the bar's compare button).** The
+//!   frame freezes (no capture, the overlays stay alive), the presenter
+//!   shows the previous configuration (A) left of a line and the current
+//!   one (B) right of it, and a press or drag anywhere outside the bar
+//!   moves the line (the bar's zone takes the whole overlay,
+//!   `ToolbarZone::whole`). Any change of configuration, mode, window,
+//!   size or kind ends it.
 //!
 //! As in 1.x `controller.py`: zoom steps through `50 %` to `800 %` of the
 //! monitor in `fit` (25 % steps, starting at the configured geometry);
@@ -95,7 +123,7 @@ use lirtup_effects::Pass;
 use lirtup_fg::layer::LayerSetup;
 use lirtup_gpu::{Device, Format, PresentMode, Timestamps};
 use lirtup_proto::{Event, SessionKind, SessionView, Size, Stage, StopReason, WindowRef};
-use lirtup_x11::overlay_input::ToolbarZone;
+use lirtup_x11::overlay_input::{PointerEvent, ToolbarZone};
 use lirtup_x11::{
     Capture, CaptureOptions, CoordinateMapper, DamageRect, OverlayOptions, Rect, RgbaImage, WindowInfo, X11,
     X11Error,
@@ -173,6 +201,10 @@ pub enum PipelineCommand {
         profile: Option<String>,
         /// Mode name.
         mode: Option<String>,
+        /// The configuration includes the unsaved edits of a mode
+        /// (`Command::Preview`); `SessionView::preview` and the mode chip
+        /// show it, and the OSD tells when it turns on or off.
+        preview: bool,
     },
     /// A session hotkey (see the module docs for which).
     Hotkey(HotkeyAction),
@@ -359,10 +391,163 @@ const SAVE_POSITION_AFTER: Duration = Duration::from_millis(800);
 /// stepping through several modes rebuilds the chain once.
 pub const MODE_APPLY_AFTER: Duration = Duration::from_millis(300);
 
+/// The multiplier chip with the lsfg-vk layer: the value is saved (and the
+/// session restarted by the GUI) this long after the last click, so stepping
+/// through several values restarts once.
+pub const MULTIPLIER_APPLY_AFTER: Duration = Duration::from_millis(1200);
+
+/// The next multiplier of the bar's button with the lsfg-vk layer, which
+/// has no Auto: off (`None` or `Some(1)`) → ×2 → ×3 → ×4 → off (`None`).
+pub(crate) fn next_multiplier_layer(cur: Option<u8>) -> Option<u8> {
+    match cur {
+        None | Some(0 | 1) => Some(2),
+        Some(n @ 2..=3) => Some(n + 1),
+        Some(_) => None,
+    }
+}
+
+/// Whether the bar shows the multiplier chip with the lsfg-vk layer while
+/// frame generation is off: the layer only runs from the next launch, so
+/// without the chip «No → ×2» could never be chosen on the bar. Only when
+/// the layer is the engine, it is off by configuration (not missing, not
+/// set from outside with `LSFGVK_*`) and its manifest is installed.
+pub(crate) fn show_layer_chip_when_off(
+    engine: lirtup_config::FrameGenEngine,
+    state: lirtup_fg::FrameGenState,
+    installed: bool,
+) -> bool {
+    engine == lirtup_config::FrameGenEngine::Layer && state == lirtup_fg::FrameGenState::Off && installed
+}
+
+/// The configured multiplier as the layer's button steps it: `Fixed(n)` is
+/// `n`, Auto (the built-in engine only) counts as off.
+fn layer_multiplier(m: lirtup_config::FrameGenMultiplier) -> Option<u8> {
+    match m {
+        lirtup_config::FrameGenMultiplier::Fixed(n) => Some(n),
+        lirtup_config::FrameGenMultiplier::Auto => None,
+    }
+}
+
+/// What the layer's button saves: `n`, or `1` for off.
+fn layer_multiplier_value(m: Option<u8>) -> u8 {
+    m.filter(|n| *n > 1).unwrap_or(1)
+}
+
+/// The label of a multiplier on the layer's button («×3», «No»).
+fn layer_multiplier_text(m: Option<u8>) -> String {
+    match m {
+        Some(n) if n > 1 => format!("×{n}"),
+        _ => tr("No", "Off"),
+    }
+}
+
 /// A mode chosen in the bar, waiting for [`MODE_APPLY_AFTER`].
 struct PendingMode {
     id: String,
     at: Instant,
+}
+
+/// A multiplier chosen on the bar with the lsfg-vk layer, saved after
+/// [`MULTIPLIER_APPLY_AFTER`].
+struct PendingMultiplier {
+    value: Option<u8>,
+    at: Instant,
+}
+
+/// Which profile and mode a configuration belongs to (the mode chip after
+/// `SwapAb`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct AbIdentity {
+    profile: Option<String>,
+    mode: Option<String>,
+    named_mode: Option<String>,
+    mode_override: Option<String>,
+}
+
+/// One side of the A/B: a working configuration and whose it is.
+#[derive(Debug, Clone)]
+struct AbSide {
+    config: Config,
+    id: AbIdentity,
+}
+
+/// Whether going from `old` to `new` changes what the presenter or the
+/// upscaler shows, so that A/B and the split comparison have something to
+/// compare: the mode keys (model, scalers, effects), the geometry and the
+/// background. The bar's own keys (`toolbar_pinned`, the windowed
+/// position), hotkeys, the overlay and the frame generation do not count.
+fn ab_relevant_changed(old: &Config, new: &Config) -> bool {
+    old.scaling != new.scaling
+        || old.output_geometry != new.output_geometry
+        || old.background_color != new.background_color
+}
+
+/// The split position for a pointer at `x` in an overlay `width` wide.
+fn split_fraction(x: i32, width: u32) -> f32 {
+    if width == 0 {
+        return 0.5;
+    }
+    (x as f32 / width as f32).clamp(0.0, 1.0)
+}
+
+/// What one pointer event does during the split comparison.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SplitRouted {
+    /// Hand this to the bar ([`Toolbar::pointer`]).
+    bar: Option<PointerEvent>,
+    /// Move the split to this overlay x.
+    split_x: Option<i32>,
+}
+
+/// The pointer during the split comparison, when the bar's zone takes the
+/// whole overlay: the bar keeps what [`Toolbar::hit`] says is its own, a
+/// press of button 1 anywhere else starts dragging the split.
+#[derive(Debug, Clone, Copy, Default)]
+struct SplitPointer {
+    dragging: bool,
+    /// The bar got motion last (a `Leave` is due when the pointer goes).
+    over_bar: bool,
+}
+
+impl SplitPointer {
+    /// Route `event`; `bar_takes` = [`Toolbar::hit`] at its position
+    /// (ignored for `Leave`).
+    fn route(&mut self, event: PointerEvent, bar_takes: bool) -> SplitRouted {
+        let mut out = SplitRouted::default();
+        match event {
+            PointerEvent::Press { button: 1, x, .. } if !bar_takes && !self.dragging => {
+                self.dragging = true;
+                out.split_x = Some(x);
+                if std::mem::take(&mut self.over_bar) {
+                    out.bar = Some(PointerEvent::Leave);
+                }
+            }
+            PointerEvent::Motion { x, .. } if self.dragging => out.split_x = Some(x),
+            PointerEvent::Release { button: 1, x, .. } if self.dragging => {
+                self.dragging = false;
+                out.split_x = Some(x);
+            }
+            PointerEvent::Leave => {
+                if std::mem::take(&mut self.over_bar) {
+                    out.bar = Some(PointerEvent::Leave);
+                }
+            }
+            PointerEvent::Motion { .. } => {
+                if bar_takes {
+                    self.over_bar = true;
+                    out.bar = Some(event);
+                } else if std::mem::take(&mut self.over_bar) {
+                    out.bar = Some(PointerEvent::Leave);
+                }
+            }
+            PointerEvent::Press { .. } | PointerEvent::Release { .. } => {
+                if bar_takes {
+                    out.bar = Some(event);
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Whether going from `old` to `new` builds another MagpieFX chain (it may
@@ -589,6 +774,27 @@ struct Runner {
     windowed_position: Option<(i32, i32)>,
     /// Screenshots saved (or not) on their thread: the OSD tells after.
     screenshots: (Sender<bool>, Receiver<bool>),
+    /// The configuration includes a mode editor preview
+    /// ([`PipelineCommand::UpdateConfig::preview`]).
+    preview: bool,
+    /// A/B: the working configuration before the last change that the
+    /// presenter or the upscaler cares about (`SwapAb`, the comparison's A).
+    ab_previous: Option<AbSide>,
+    /// Whose [`Runner::config`] is (kept by `update_config` for A/B).
+    ab_applied: AbIdentity,
+    /// `SwapAb` shows the previous configuration (the OSD's «A»).
+    ab_showing_previous: bool,
+    /// No new frames are pulled (the comparison): the last one is presented
+    /// again with the overlays alive.
+    frozen: bool,
+    /// The split comparison is on.
+    comparing: bool,
+    /// The pointer during the comparison.
+    split_pointer: SplitPointer,
+    /// A multiplier chosen with the lsfg-vk layer, not saved yet.
+    pending_multiplier: Option<PendingMultiplier>,
+    /// The lsfg-vk layer manifest is installed (read once per session).
+    layer_installed: bool,
 }
 
 impl Runner {
@@ -647,7 +853,17 @@ impl Runner {
             moved: None,
             windowed_position: None,
             screenshots: crossbeam_channel::unbounded(),
+            preview: false,
+            ab_previous: None,
+            ab_applied: AbIdentity::default(),
+            ab_showing_previous: false,
+            frozen: false,
+            comparing: false,
+            split_pointer: SplitPointer::default(),
+            pending_multiplier: None,
+            layer_installed: lirtup_fg::layer::find_layer().is_some(),
         };
+        runner.ab_applied = runner.ab_identity();
         runner.windowed_position = saved_position(&runner.config);
         runner.parts = Some(runner.build(setup.window)?);
         Ok(runner)
@@ -813,9 +1029,16 @@ impl Runner {
             }
             self.screenshot_results();
             self.apply_pending_mode()?;
+            self.apply_pending_multiplier();
 
             if self.user_paused || self.focus_paused || self.minimized || self.orphaned {
                 self.wait_paused(rx);
+                continue;
+            }
+            if self.frozen {
+                if !self.frozen_frame()? {
+                    self.wait_idle(rx);
+                }
                 continue;
             }
             match self.frame()? {
@@ -866,7 +1089,22 @@ impl Runner {
                 config,
                 profile,
                 mode,
-            } => self.reload_config(&config, profile, mode)?,
+                preview,
+            } => {
+                // `update_config` ends the comparison.
+                let was = std::mem::replace(&mut self.preview, preview);
+                self.reload_config(&config, profile, mode)?;
+                if preview != was {
+                    if preview {
+                        self.osd(&tr(
+                            "Vista previa: cambios sin guardar",
+                            "Preview: unsaved changes",
+                        ));
+                    } else {
+                        self.osd(&tr("Vista previa terminada", "Preview ended"));
+                    }
+                }
+            }
         }
         Ok(None)
     }
@@ -928,6 +1166,11 @@ impl Runner {
                 OverlayNotice::Failed => {
                     return Err(PipelineError::other(Stage::Overlay, "the overlay window failed"));
                 }
+                OverlayNotice::Pointer(event) if self.comparing => {
+                    if let Some(reason) = self.compare_pointer(event)? {
+                        return Ok(Some(reason));
+                    }
+                }
                 OverlayNotice::Pointer(event) => {
                     let action = self
                         .parts
@@ -963,6 +1206,8 @@ impl Runner {
 
     /// The overlay (swapchain) has a new size.
     fn resize(&mut self, width: u32, height: u32) -> Result<()> {
+        // The presenter ends it too.
+        self.end_compare(false);
         let Some(parts) = self.parts.as_mut() else {
             return Ok(());
         };
@@ -1149,6 +1394,7 @@ impl Runner {
             return Ok(());
         }
         tracing::info!("switching to window 0x{:x} ({})", window.xid, window.title);
+        self.end_compare(false);
         self.menu_crop = Crop::default();
         self.menubar = self
             .config
@@ -1252,6 +1498,8 @@ impl Runner {
     }
 
     fn recreate_upscaler(&mut self) -> Result<()> {
+        // A new upscaler has no frame: the comparison cannot go on.
+        self.end_compare(false);
         let Some(parts) = self.parts.as_mut() else {
             return Ok(());
         };
@@ -1265,7 +1513,19 @@ impl Runner {
     }
 
     fn update_config(&mut self, config: Config) -> Result<()> {
+        self.end_compare(false);
         let old = std::mem::replace(&mut self.config, config);
+        // A/B: the working configuration before this change, when it
+        // changes what is shown (`SwapAb` and the comparison's A).
+        let id = self.ab_identity();
+        let previous_id = std::mem::replace(&mut self.ab_applied, id);
+        if ab_relevant_changed(&old, &self.config) {
+            self.ab_previous = Some(AbSide {
+                config: old.clone(),
+                id: previous_id,
+            });
+            self.ab_showing_previous = false;
+        }
         // The view the hotkeys changed is kept.
         self.initial_geometry = self.config.output_geometry.clone();
         let needs_capture = old.crop() != self.config.crop()
@@ -1382,6 +1642,11 @@ impl Runner {
             HotkeyAction::OffsetRight => self.move_view(-OFFSET_STEP, 0),
             HotkeyAction::OffsetUp => self.move_view(0, OFFSET_STEP),
             HotkeyAction::OffsetDown => self.move_view(0, -OFFSET_STEP),
+            // Live tuning: the mode chip's steps, A/B and the comparison.
+            HotkeyAction::ModeNext => self.cycle_mode(true),
+            HotkeyAction::ModePrev => self.cycle_mode(false),
+            HotkeyAction::SwapAb => self.swap_ab()?,
+            HotkeyAction::ToggleCompare => self.toggle_compare(),
             HotkeyAction::StartFullscreen | HotkeyAction::StartWindowed | HotkeyAction::ExitApp => {
                 tracing::debug!("{action:?} is handled by the engine");
             }
@@ -1390,6 +1655,7 @@ impl Runner {
     }
 
     fn move_view(&mut self, dx: i32, dy: i32) {
+        self.end_compare(false);
         self.view_offset.0 += dx;
         self.view_offset.1 += dy;
         if let Some(mut parts) = self.parts.take() {
@@ -1401,6 +1667,8 @@ impl Runner {
 
     /// The geometry or the zoom changed: tell the presenter.
     fn apply_config_view(&mut self) -> Result<()> {
+        // The presenter ends it too.
+        self.end_compare(false);
         if let Some(mut parts) = self.parts.take() {
             let result = parts.presenter.update_config(&self.config);
             self.apply_view(&mut parts);
@@ -1466,6 +1734,7 @@ impl Runner {
             ToolbarAction::ModePrev => self.cycle_mode(false),
             ToolbarAction::SaveMode => self.save_mode()?,
             ToolbarAction::Hide => {}
+            ToolbarAction::Compare => self.toggle_compare(),
             ToolbarAction::ToWindow => self.toggle_windowed()?,
             ToolbarAction::Stop => return Ok(Some(StopReason::User)),
             ToolbarAction::Move { button, x, y } => {
@@ -1500,17 +1769,32 @@ impl Runner {
         Ok(())
     }
 
-    /// The multiplier button: the next value, applied live, saved by the
-    /// GUI (a global key: *Predeterminado*). Only the built-in engine
-    /// changes it live; the layer reads it when the program starts.
+    /// The multiplier button: the next value, saved by the GUI (a global
+    /// key: *Predeterminado*). The built-in engine applies it live; the
+    /// layer reads it when the program starts, so with the layer the value
+    /// is saved [`MULTIPLIER_APPLY_AFTER`] after the last click and the GUI
+    /// restarts the session.
     fn cycle_multiplier(&mut self) -> Result<()> {
         if self.config.frame_gen_engine != lirtup_config::FrameGenEngine::Native {
+            let current = match &self.pending_multiplier {
+                Some(p) => p.value,
+                None => layer_multiplier(self.config.frame_gen_multiplier),
+            };
+            let next = next_multiplier_layer(current);
+            let text = layer_multiplier_text(next);
             self.osd(&tr(
-                "La capa lee el multiplicador al lanzar el juego",
-                "The layer reads the multiplier when the game starts",
+                &format!("Generación: {text} (reinicia la sesión…)"),
+                &format!("Frame generation: {text} (restarts the session…)"),
             ));
+            self.pending_multiplier = Some(PendingMultiplier {
+                value: next,
+                at: Instant::now() + MULTIPLIER_APPLY_AFTER,
+            });
+            self.stale = true;
             return Ok(());
         }
+        // `update_config` of the presenter ends it.
+        self.end_compare(false);
         let next = next_multiplier(self.config.frame_gen_multiplier);
         self.config.frame_gen_multiplier = next;
         if let Some(p) = self.parts.as_mut() {
@@ -1535,7 +1819,11 @@ impl Runner {
     /// The mode chip: the next (or previous) mode of `modes/`, applied
     /// [`MODE_APPLY_AFTER`] after the last click.
     fn cycle_mode(&mut self, forward: bool) {
-        if self.modes.is_empty() {
+        if self.modes.len() <= 1 {
+            self.osd(&tr(
+                "Solo hay un modo: creá otro en LirtUp Forge",
+                "Only one mode: create another in LirtUp Forge",
+            ));
             return;
         }
         let current = self
@@ -1556,9 +1844,11 @@ impl Runner {
         let entry = self.modes[next].clone();
         let name = mode_name(&entry);
         let temporary = Some(&entry.id) != self.named_mode.as_ref();
-        let effects = self
-            .resolve_mode(Some(&entry.id))
+        let resolved = self.resolve_mode(Some(&entry.id));
+        let effects = resolved
+            .as_ref()
             .is_some_and(|r| rebuilds_effects(&self.config, &r.config));
+        let shadowed = resolved.is_some_and(|r| !r.shadowed.is_empty());
         let mut es = format!("Modo: {name}");
         let mut en = format!("Mode: {name}");
         if temporary {
@@ -1568,6 +1858,12 @@ impl Runner {
         if effects {
             es.push_str(" · preparando efectos…");
             en.push_str(" · preparing effects…");
+        }
+        if shadowed {
+            // Loose mode keys in config.yaml beat the mode (resolve.rs): the
+            // chip would look broken without saying why.
+            es.push_str(" · ajustes sueltos de config.yaml lo tapan (lirtup migrate)");
+            en.push_str(" · loose settings in config.yaml shadow it (lirtup migrate)");
         }
         self.osd(&tr(&es, &en));
         self.pending_mode = Some(PendingMode {
@@ -1679,6 +1975,7 @@ impl Runner {
     /// The to-window button: the same target, fullscreen ↔ windowed, with a
     /// new overlay.
     fn toggle_windowed(&mut self) -> Result<()> {
+        self.end_compare(false);
         self.kind = match self.kind {
             SessionKind::Windowed => SessionKind::Fullscreen,
             SessionKind::Fullscreen => SessionKind::Windowed,
@@ -1693,6 +1990,187 @@ impl Runner {
         }
         self.publish_view();
         Ok(())
+    }
+
+    /// Whose the working configuration is (A/B).
+    fn ab_identity(&self) -> AbIdentity {
+        AbIdentity {
+            profile: self.profile.clone(),
+            mode: self.mode.clone(),
+            named_mode: self.named_mode.clone(),
+            mode_override: self.mode_override.clone(),
+        }
+    }
+
+    /// `SwapAb`: the previous configuration becomes the working one (with
+    /// its profile and mode chip), the current one the previous. Nothing is
+    /// written; it lasts the session.
+    fn swap_ab(&mut self) -> Result<()> {
+        let Some(previous) = self.ab_previous.take() else {
+            self.osd(&tr("Nada que comparar todavía", "Nothing to compare yet"));
+            return Ok(());
+        };
+        let current = AbSide {
+            config: self.config.clone(),
+            id: self.ab_applied.clone(),
+        };
+        let showing_previous = !self.ab_showing_previous;
+        let AbSide { config, id } = previous;
+        self.pending_mode = None;
+        self.profile = id.profile;
+        self.mode = id.mode;
+        self.named_mode = id.named_mode;
+        self.mode_override = id.mode_override;
+        self.update_config(config)?;
+        // Whatever `update_config` kept, the other side is the previous now.
+        self.ab_previous = Some(current);
+        self.ab_showing_previous = showing_previous;
+        self.announce_view();
+        if showing_previous {
+            self.osd(&tr("A: configuración anterior", "A: previous settings"));
+        } else {
+            self.osd(&tr("B: configuración actual", "B: current settings"));
+        }
+        Ok(())
+    }
+
+    /// `ToggleCompare` and the bar's compare button: freeze the frame and
+    /// show the previous configuration (A) left of the split and the
+    /// current one (B) right of it, or end it.
+    fn toggle_compare(&mut self) {
+        if self.comparing {
+            self.end_compare(true);
+            return;
+        }
+        if self.ab_previous.is_none() {
+            self.osd(&tr("Nada que comparar todavía", "Nothing to compare yet"));
+            return;
+        }
+        let (Some(previous), Some(parts)) = (self.ab_previous.as_ref(), self.parts.as_mut()) else {
+            return;
+        };
+        if let Err(e) = parts.presenter.begin_compare(&previous.config) {
+            tracing::warn!("cannot start the comparison: {e}");
+            self.osd(&tr("No se pudo comparar", "Cannot compare"));
+            return;
+        }
+        parts.presenter.set_split(0.5);
+        self.comparing = true;
+        self.frozen = true;
+        self.split_pointer = SplitPointer::default();
+        self.stale = true;
+        self.osd(&tr(
+            "Comparación: ← anterior · actual →",
+            "Compare: ← previous · current →",
+        ));
+    }
+
+    /// End the comparison (a no-op without one): back to the live frames.
+    /// `announce` tells on the OSD (the toggle; a change of configuration
+    /// that ends it has its own message, or none).
+    fn end_compare(&mut self, announce: bool) {
+        if !self.comparing {
+            return;
+        }
+        self.comparing = false;
+        self.frozen = false;
+        self.split_pointer = SplitPointer::default();
+        if let Some(p) = self.parts.as_mut() {
+            p.presenter.end_compare();
+        }
+        self.stale = true;
+        if announce {
+            self.osd(&tr("Comparación terminada", "Compare ended"));
+        }
+    }
+
+    /// A pointer event while comparing (the zone takes the whole overlay):
+    /// the bar's own events go to it, a press and drag elsewhere moves the
+    /// split.
+    fn compare_pointer(&mut self, event: PointerEvent) -> Result<Option<StopReason>> {
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(None);
+        };
+        let bar_takes = match event {
+            PointerEvent::Motion { x, y }
+            | PointerEvent::Press { x, y, .. }
+            | PointerEvent::Release { x, y, .. } => parts.toolbar.hit(x, y),
+            PointerEvent::Leave => false,
+        };
+        let routed = self.split_pointer.route(event, bar_takes);
+        if let Some(x) = routed.split_x {
+            let width = parts.overlay.rect().width;
+            parts.presenter.set_split(split_fraction(x, width));
+            self.stale = true;
+        }
+        let action = routed.bar.and_then(|e| parts.toolbar.pointer(e, Instant::now()));
+        match action {
+            Some(action) => self.toolbar_action(action),
+            None => Ok(None),
+        }
+    }
+
+    /// One turn of the loop while the frame is frozen (the comparison): no
+    /// capture or upscale; present again (the presenter composes the two
+    /// sides) only when the split, the OSD, the panel or the bar changed.
+    /// `false` when nothing was presented.
+    fn frozen_frame(&mut self) -> Result<bool> {
+        let now = Instant::now();
+        let sample = self.stats.latest().cloned();
+        let context = self.panel_context();
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(false);
+        };
+        let mut redraw = parts.osd.update(now)?;
+        if let Some(sample) = &sample {
+            redraw |= parts.panel.update(sample, &context)?;
+        }
+        redraw |= self.update_toolbar(sample.as_ref(), now)?;
+        if !redraw && !self.stale {
+            self.poll_stats();
+            return Ok(false);
+        }
+        self.stale = false;
+        let Some(parts) = self.parts.as_mut() else {
+            return Ok(false);
+        };
+        let overlays: Vec<&dyn Pass> = parts
+            .osd
+            .pass()
+            .into_iter()
+            .chain(parts.panel.pass())
+            .chain(parts.toolbar.pass())
+            .collect();
+        let outcome = parts.presenter.present(&overlays, false)?;
+        if outcome.recreate || self.recreate_pending {
+            self.recreate_swapchain()?;
+        }
+        self.poll_stats();
+        Ok(true)
+    }
+
+    /// With the lsfg-vk layer: save the multiplier chosen on the bar once
+    /// [`MULTIPLIER_APPLY_AFTER`] passed (the GUI saves it and restarts the
+    /// session). `self.config` keeps the running value: the layer only
+    /// reads it when the game starts.
+    fn apply_pending_multiplier(&mut self) {
+        if self
+            .pending_multiplier
+            .as_ref()
+            .is_none_or(|p| Instant::now() < p.at)
+        {
+            return;
+        }
+        let Some(PendingMultiplier { value, .. }) = self.pending_multiplier.take() else {
+            return;
+        };
+        let saved = layer_multiplier_value(value);
+        if self.config.frame_gen_multiplier == lirtup_config::FrameGenMultiplier::Fixed(saved) {
+            // Stepped back to the running value: nothing to restart.
+            return;
+        }
+        tracing::info!("multiplier (layer): saving {saved}; the GUI restarts the session");
+        self.save_setting("frame_gen_multiplier", lirtup_config::Value::from(saved));
     }
 
     /// Ask the GUI to keep a value the bar changed (top level).
@@ -1734,6 +2212,8 @@ impl Runner {
             multiplier_label,
             mode_label,
             mode_temporary,
+            preview: self.preview,
+            comparing: self.comparing,
             stats: parts.panel.visible(),
             windowed,
             scheme: crate::tokens::Scheme::Dark,
@@ -1754,8 +2234,21 @@ impl Runner {
         let active = match parts.presenter.framegen() {
             Some(fg) => fg.active_multiplier(),
             None if self.layer.state == lirtup_fg::FrameGenState::Active => Some(self.layer.multiplier),
+            // Off with the layer: the chip still steps to ×2 (save + restart).
+            None if show_layer_chip_when_off(
+                self.config.frame_gen_engine,
+                self.layer.state,
+                self.layer_installed,
+            ) =>
+            {
+                None
+            }
             None => return None,
         };
+        // With the layer, a value chosen on the bar and not saved yet.
+        if let Some(p) = &self.pending_multiplier {
+            return Some(layer_multiplier_text(p.value));
+        }
         let active = active.filter(|m| *m > 1);
         Some(match (self.config.frame_gen_multiplier, active) {
             (lirtup_config::FrameGenMultiplier::Auto, Some(m)) => format!("×{m} Auto"),
@@ -2072,6 +2565,7 @@ impl Runner {
             profile: self.profile.clone(),
             mode: self.mode.clone(),
             mode_temporary: self.mode_override.is_some(),
+            preview: self.preview,
             kind: self.kind,
             src: Size {
                 width: sw,
@@ -2526,6 +3020,162 @@ mod tests {
         }
         assert_eq!(seen, vec![Fixed(2), Fixed(3), Fixed(4), Auto, Fixed(1)]);
         assert_eq!(next_multiplier(Fixed(5)), Auto);
+    }
+
+    #[test]
+    fn the_layer_multiplier_has_no_auto() {
+        let mut m = None;
+        let mut seen = Vec::new();
+        for _ in 0..4 {
+            m = next_multiplier_layer(m);
+            seen.push(m);
+        }
+        assert_eq!(seen, vec![Some(2), Some(3), Some(4), None]);
+        assert_eq!(next_multiplier_layer(Some(0)), Some(2));
+        assert_eq!(next_multiplier_layer(Some(1)), Some(2));
+        assert_eq!(next_multiplier_layer(Some(5)), None);
+    }
+
+    #[test]
+    fn the_layer_chip_shows_while_off_only_when_it_can_turn_on() {
+        use lirtup_config::FrameGenEngine::{Layer, Native};
+        use lirtup_fg::FrameGenState::{Active, External, NoDll, NoLayer, Off};
+        assert!(show_layer_chip_when_off(Layer, Off, true));
+        // Not installed, or the built-in engine (its own path), or a state
+        // the bar cannot change.
+        assert!(!show_layer_chip_when_off(Layer, Off, false));
+        assert!(!show_layer_chip_when_off(Native, Off, true));
+        for state in [Active, NoLayer, NoDll, External] {
+            assert!(!show_layer_chip_when_off(Layer, state, true), "{state:?}");
+        }
+    }
+
+    #[test]
+    fn the_layer_multiplier_starts_from_the_configured_one() {
+        use lirtup_config::FrameGenMultiplier::{Auto, Fixed};
+        assert_eq!(layer_multiplier(Fixed(3)), Some(3));
+        assert_eq!(layer_multiplier(Fixed(1)), Some(1));
+        // Auto needs the built-in engine: the next is ×2.
+        assert_eq!(layer_multiplier(Auto), None);
+        assert_eq!(next_multiplier_layer(layer_multiplier(Auto)), Some(2));
+        // Off is saved as 1.
+        assert_eq!(layer_multiplier_value(None), 1);
+        assert_eq!(layer_multiplier_value(Some(1)), 1);
+        assert_eq!(layer_multiplier_value(Some(4)), 4);
+        assert_eq!(layer_multiplier_text(Some(3)), "×3");
+    }
+
+    #[test]
+    fn only_what_is_shown_counts_for_a_b() {
+        let old = Config::default();
+        let mut new = old.clone();
+        assert!(!ab_relevant_changed(&old, &new));
+        // The bar's own keys, the overlay, the multiplier: not shown.
+        new.extra
+            .insert(PINNED_KEY.into(), lirtup_config::Value::Bool(true));
+        new.extra.insert(
+            WINDOWED_POSITION_KEY.into(),
+            lirtup_config::Value::Sequence(vec![10.into(), 20.into()]),
+        );
+        new.overlay_opacity_max = 0.5;
+        new.show_stats = !old.show_stats;
+        new.frame_gen_multiplier = lirtup_config::FrameGenMultiplier::Fixed(3);
+        new.hotkeys.insert("swap_ab".into(), "Alt+Shift+Z".into());
+        assert!(!ab_relevant_changed(&old, &new));
+        // The model, an effect, the geometry: shown.
+        let mut model = old.clone();
+        model.scaling.model = next_model(model.scaling.model);
+        assert!(ab_relevant_changed(&old, &model));
+        let mut effect = old.clone();
+        effect.scaling.cas_enabled = !effect.scaling.cas_enabled;
+        assert!(ab_relevant_changed(&old, &effect));
+        let mut geometry = old.clone();
+        geometry.output_geometry = OutputGeometry("stretch".into());
+        assert!(ab_relevant_changed(&old, &geometry));
+    }
+
+    #[test]
+    fn the_split_follows_the_pointer() {
+        assert_eq!(split_fraction(960, 1920), 0.5);
+        assert_eq!(split_fraction(0, 1920), 0.0);
+        assert_eq!(split_fraction(-40, 1920), 0.0);
+        assert_eq!(split_fraction(5000, 1920), 1.0);
+        assert_eq!(split_fraction(10, 0), 0.5);
+    }
+
+    #[test]
+    fn a_drag_outside_the_bar_moves_the_split() {
+        use PointerEvent::{Motion, Press, Release};
+        let mut p = SplitPointer::default();
+        // Motion outside the bar: nothing for anyone.
+        assert_eq!(p.route(Motion { x: 500, y: 500 }, false), SplitRouted::default());
+        // A press outside the bar starts the drag.
+        let r = p.route(
+            Press {
+                button: 1,
+                x: 500,
+                y: 500,
+            },
+            false,
+        );
+        assert_eq!(r.split_x, Some(500));
+        assert_eq!(r.bar, None);
+        // Dragging over the bar still moves the split.
+        let r = p.route(Motion { x: 900, y: 20 }, true);
+        assert_eq!((r.split_x, r.bar), (Some(900), None));
+        let r = p.route(
+            Release {
+                button: 1,
+                x: 950,
+                y: 20,
+            },
+            true,
+        );
+        assert_eq!((r.split_x, r.bar), (Some(950), None));
+        // The wheel and the right button outside the bar do nothing.
+        assert_eq!(
+            p.route(
+                Press {
+                    button: 3,
+                    x: 500,
+                    y: 500
+                },
+                false
+            ),
+            SplitRouted::default()
+        );
+    }
+
+    #[test]
+    fn the_bar_keeps_its_own_events_while_comparing() {
+        use PointerEvent::{Leave, Motion, Press, Release};
+        let mut p = SplitPointer::default();
+        let over = Motion { x: 900, y: 20 };
+        assert_eq!(p.route(over, true).bar, Some(over));
+        let press = Press {
+            button: 1,
+            x: 900,
+            y: 20,
+        };
+        assert_eq!(
+            p.route(press, true),
+            SplitRouted {
+                bar: Some(press),
+                split_x: None
+            }
+        );
+        let release = Release {
+            button: 1,
+            x: 900,
+            y: 20,
+        };
+        assert_eq!(p.route(release, true).bar, Some(release));
+        // Leaving the bar tells it once.
+        assert_eq!(p.route(Motion { x: 900, y: 600 }, false).bar, Some(Leave));
+        assert_eq!(p.route(Motion { x: 900, y: 610 }, false).bar, None);
+        p.route(over, true);
+        assert_eq!(p.route(Leave, false).bar, Some(Leave));
+        assert_eq!(p.route(Leave, false).bar, None);
     }
 
     #[test]

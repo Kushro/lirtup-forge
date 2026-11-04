@@ -1,5 +1,82 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **«Probar en vivo» / «Try live» in the mode editor.** While a session runs a
+  mode, its editor's save bar shows a toggle that puts the unsaved edits on
+  screen without writing any file (about 150 ms after the last change). It
+  applies whether the session uses the profile's mode or a temporary mode
+  picked on the bar. *Save*, *Reset*, leaving the editor, stopping the
+  session, the session switching to another mode, or closing the GUI end it.
+  The OSD says *Preview: unsaved changes* / *Preview ended*, the bar's mode
+  chip turns tertiary with a dot, and Inicio's session card shows a
+  «vista previa» / «preview» badge.
+- New protocol commands `Preview { profile, mode, raw }` and `PreviewEnd`;
+  `SessionView` gains `preview` (the protocol stays at version 1).
+  `ReloadConfig` keeps a preview; it ends on `PreviewEnd`, when the session
+  stops or when the client that sent it disconnects. `lirtup ctl preview
+  mode=<id> raw={...}` and `lirtup ctl preview_end` send them (use
+  `ctl --follow` to keep a preview alive).
+- **A/B swap** (`Alt+Shift+X`): blink between the current settings and the
+  ones before the last visible change («A: configuración anterior» /
+  «B: configuración actual»). Nothing is saved; it lasts the session.
+- **Split comparison** (the bar's new *Compare* button, or `Alt+Shift+C`):
+  the frame freezes and shows the previous settings left of a draggable white
+  line and the current ones right of it; drag anywhere outside the bar to move
+  the line. The OSD, the stats panel and the bar stay alive, and the built-in
+  frame generation receives the composed image. Any change of settings, mode,
+  window, size or view ends it. New compute shader `misc/split_compose`
+  (`lirtup_effects::compose::SplitCompose`).
+- New session hotkeys: next mode (`Alt+Shift+N`), previous mode
+  (`Alt+Shift+B`), A/B swap (`Alt+Shift+X`) and compare (`Alt+Shift+C`). In
+  Ajustes ▸ Atajos the two mode hotkeys are under *Vista* and the other two in
+  a new *Comparar* group; `config-example.yaml` lists them.
+- **Precompiled MagpieFX seed.** The bundled effects ship precompiled
+  (`/usr/share/lirtup/magpiefx-seed`, inside the AppImage too), so they load
+  on first use without dxc or glslang, including the three
+  Anime4K_Denoise_Bilateral effects. Your own and edited effects still compile
+  locally. `LIRTUP_MAGPIEFX_SEED_DIR` points to another seed.
+- New `magpiefx-seed` binary (`cargo run --release -p lirtup-magpiefx --bin
+  magpiefx-seed -- --out DIR`) builds the seed. The release script, the AUR
+  package (new makedepends `directx-shader-compiler` and `glslang`) and the
+  release workflow build and install it.
+- Docs: *Controls* covers the new hotkeys, the multiplier with the lsfg-vk
+  layer, the single-mode message, the *Compare* button, A/B swap and the split
+  comparison; *Modes* has a «Try live» section; *MagpieFX* explains the
+  precompiled seed.
+
+### Changed
+
+- **The bar's frame generation button works with the lsfg-vk layer.** It
+  steps Off → ×2 → ×3 → ×4 (no Auto), saves the value 1.2 s after the last
+  click and the session restarts once after the reload (LirtUp Forge must be
+  open). It also shows while frame generation is off, so it can turn it on. The tray's ×N does the same with the layer. The built-in engine still
+  changes it live.
+- The mode chip (and the new mode hotkeys) say «Solo hay un modo: creá otro en
+  LirtUp Forge» / «Only one mode: create another in LirtUp Forge» when there
+  is only one mode.
+- Loose mode settings in `config.yaml` (1.x leftovers such as a top-level
+  `magpie_effects`) win over the mode they sit next to, so a mode picked on
+  the bar could change nothing. The resolver now reports which keys shadow
+  the mode (`Resolved::shadowed`, a config warning in the log) and the chip's
+  message adds «ajustes sueltos de config.yaml lo tapan (lirtup migrate)» /
+  «loose settings in config.yaml shadow it (lirtup migrate)».
+- MagpieFX: the shader cache key no longer contains the effects folder's path,
+  so the AppImage no longer recompiles every effect on each launch. The cache
+  format moves to `rs2`: effects compile once more after updating, unless they
+  come from the seed.
+- «Medir en mi GPU» (bench) no longer refuses MagpieFX effects when no HLSL
+  compiler is installed: the seed serves the bundled ones.
+
+### Fixed
+
+- On a mode page, the save bar's «Restablecer» now discards that mode's
+  unsaved edits; it did nothing there before.
+- The save bar no longer overflows a narrow window: «N cambios sin guardar»
+  shortens with «…», and below 860 px «Probar en vivo» keeps only its icon.
+
 ## 2.1.0 (2026-11-02)
 
 ### Added

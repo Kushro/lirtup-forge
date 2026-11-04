@@ -25,6 +25,14 @@ jobs:
             gtk3 webkit2gtk-4.1 xdotool libayatana-appindicator \
             dioxus-cli
 
+      # dxc and glslang compile the precompiled MagpieFX seed. If they cannot
+      # be installed, the build script warns and the release ships without
+      # (or with part of) the seed: effects then compile on the user's
+      # machine on first use, as before.
+      - name: MagpieFX compilers (for the seed)
+        continue-on-error: true
+        run: pacman -S --noconfirm --needed directx-shader-compiler glslang
+
       - uses: actions/checkout@v5
 
       - name: Toolchain of rust-toolchain.toml

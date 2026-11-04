@@ -6,8 +6,8 @@
 //!   reveal band of [`ToolbarZone`]) or with `ToggleToolbar`, and hides
 //!   [`HIDE_AFTER`] after the pointer leaves it, unless pinned.
 //! - Buttons: pin, stats, crop, screenshot, scaling mode (2.1), save the
-//!   mode, frame generation multiplier, fps (a readout), hide, to window /
-//!   fullscreen, stop.
+//!   mode, compare (live tuning), frame generation multiplier, fps (a
+//!   readout), hide, to window / fullscreen, stop.
 //! - While it is shown, the pointer over it is not forwarded to the game
 //!   (`OverlayCommand::SetToolbarZone`); its events come back as
 //!   `OverlayNotice::Pointer`.
@@ -20,7 +20,12 @@
 //! - The mode chip steps through the modes: a click or the wheel down goes
 //!   to the next, a right click or the wheel up to the previous. A mode
 //!   that is not the profile's shows in the primary color, with «save»
-//!   next to it.
+//!   next to it; a mode with the editor's unsaved changes («Probar en
+//!   vivo») shows in the tertiary color with a dot.
+//! - The compare button starts or ends the split comparison; while it runs
+//!   the button is highlighted and the zone takes the whole overlay
+//!   ([`ToolbarZone::whole`]): the session gives the bar only the events
+//!   [`Toolbar::hit`] says are its own, and drags the split with the rest.
 //!
 //! Layout, in CSS pixels of the design (`lf.css`: `.ftb.glass`, `.ibtn`,
 //! `.btn-xs`), times [`Toolbar::scale`]: 64 high, fully rounded, 16 from
@@ -58,7 +63,7 @@ pub const PINNED_KEY: &str = "toolbar_pinned";
 /// The Material Symbols the bar uses. `scripts/gen-tokens-icons.py` reads
 /// the string literals of this file for the bar's font instances, so every
 /// icon is named here.
-pub const ICON_NAMES: [&str; 11] = [
+pub const ICON_NAMES: [&str; 12] = [
     "push_pin",
     "monitoring",
     "crop",
@@ -66,6 +71,7 @@ pub const ICON_NAMES: [&str; 11] = [
     "tune",
     "save",
     "animation",
+    "compare",
     "visibility_off",
     "close_fullscreen",
     "open_in_full",
@@ -91,8 +97,13 @@ pub enum ToolbarAction {
     ModePrev,
     /// Save the chosen mode in the session's profile.
     SaveMode,
-    /// Next frame generation multiplier (Off, ×2, ×3, ×4, Auto).
+    /// Next frame generation multiplier (Off, ×2, ×3, ×4, Auto; with the
+    /// lsfg-vk layer Off, ×2, ×3, ×4, applied by a restart).
     Multiplier,
+    /// Start or end the split comparison on a frozen frame (live tuning:
+    /// previous settings on the left, current on the right). Icon
+    /// `"compare"`, highlighted while [`ToolbarState::comparing`].
+    Compare,
     /// Hide the bar (until the pointer comes back to the edge). The bar
     /// already hid itself.
     Hide,
@@ -131,6 +142,11 @@ pub struct ToolbarState {
     pub mode_label: Option<String>,
     /// The mode is not the profile's (temporary; «save» shows).
     pub mode_temporary: bool,
+    /// The session shows the unsaved edits of the mode editor («Probar en
+    /// vivo», `Command::Preview`): the mode chip marks it.
+    pub preview: bool,
+    /// The split comparison is on: the compare button is highlighted.
+    pub comparing: bool,
     /// The stats panel is visible.
     pub stats: bool,
     /// The session is windowed (the to-window button shows «fullscreen»).
@@ -194,6 +210,9 @@ const REVEAL: f32 = 6.0;
 const MAX_W: f32 = 900.0;
 /// The widest mode name on the mode chip (longer names end in «…»).
 const MODE_TEXT_MAX: f32 = 160.0;
+/// The dot of the mode chip during a preview, and its gap after the label.
+const CHIP_DOT: f32 = 6.0;
+const CHIP_DOT_GAP: f32 = 6.0;
 
 /// One element of the bar, its box relative to the bar's top-left.
 #[derive(Debug, Clone, PartialEq)]
@@ -212,6 +231,8 @@ enum ItemKind {
     Mode {
         label: String,
         temporary: bool,
+        /// The editor's unsaved changes («Probar en vivo»).
+        preview: bool,
     },
     Multiplier(String),
     Readout(String),
@@ -356,7 +377,23 @@ impl Toolbar {
         Some(ToolbarZone {
             bar,
             reveal: (REVEAL * self.scale).ceil() as u32,
+            whole: self.state.comparing,
         })
+    }
+
+    /// The bar takes this overlay point: over the bar while it shows, the
+    /// reveal band while it is hidden, and anywhere while a press on it is
+    /// held (its release must come back). With a whole zone the session
+    /// gives [`Toolbar::pointer`] only these events.
+    pub fn hit(&self, x: i32, y: i32) -> bool {
+        if self.pressed.is_some() {
+            return true;
+        }
+        if self.shown {
+            self.contains(x, y)
+        } else {
+            y >= 0 && y < (REVEAL * self.scale).ceil() as i32
+        }
     }
 
     /// A pointer event over the bar or its reveal band; returns the action
@@ -482,6 +519,7 @@ impl Toolbar {
             let relayout = state.multiplier_label != self.state.multiplier_label
                 || state.mode_label != self.state.mode_label
                 || state.mode_temporary != self.state.mode_temporary
+                || state.preview != self.state.preview
                 || readout(state) != readout(&self.state)
                 || state.windowed != self.state.windowed;
             self.state = state.clone();
@@ -551,14 +589,30 @@ impl Toolbar {
         push(ItemKind::Divider, divider, DIVIDER_H * s);
         if let Some(label) = &self.state.mode_label {
             let label = self.fit_text(label, CHIP_TEXT * s, UiFont::TextStrong, MODE_TEXT_MAX * s);
+            let preview = self.state.preview;
+            let dot = if preview {
+                (CHIP_DOT_GAP + CHIP_DOT) * s
+            } else {
+                0.0
+            };
             let w = (2.0 * CHIP_PAD + CHIP_ICON + CHIP_GAP) * s
-                + self.draw.measure(&label, CHIP_TEXT * s, UiFont::TextStrong);
+                + self.draw.measure(&label, CHIP_TEXT * s, UiFont::TextStrong)
+                + dot;
             let temporary = self.state.mode_temporary;
-            push(ItemKind::Mode { label, temporary }, w, CHIP_H * s);
+            push(
+                ItemKind::Mode {
+                    label,
+                    temporary,
+                    preview,
+                },
+                w,
+                CHIP_H * s,
+            );
             if temporary {
                 push(button(ToolbarAction::SaveMode, "save"), BTN * s, BTN * s);
             }
         }
+        push(button(ToolbarAction::Compare, "compare"), BTN * s, BTN * s);
         if let Some(label) = &self.state.multiplier_label {
             let w = (2.0 * CHIP_PAD + CHIP_ICON + CHIP_GAP) * s
                 + self.draw.measure(label, CHIP_TEXT * s, UiFont::TextStrong);
@@ -655,7 +709,8 @@ impl Toolbar {
             match &item.kind {
                 ItemKind::Button { action, icon } => {
                     let selected = *action == ToolbarAction::Pin && self.pinned;
-                    let active = *action == ToolbarAction::Stats && self.state.stats;
+                    let active = (*action == ToolbarAction::Stats && self.state.stats)
+                        || (*action == ToolbarAction::Compare && self.state.comparing);
                     // `.ibtn.sel`: primary, `shape-md`; pressed squares too.
                     let radius = if selected || self.pressed == Some(i) {
                         tokens::SHAPE_MD * s
@@ -704,9 +759,16 @@ impl Toolbar {
                     radius: 0.0,
                     color: tint("glass-content", 0.18),
                 }),
-                ItemKind::Mode { label, temporary } => {
-                    // The secondary at 18 %; a temporary mode in the primary.
-                    let (bg, fg) = if *temporary {
+                ItemKind::Mode {
+                    label,
+                    temporary,
+                    preview,
+                } => {
+                    // The secondary at 18 %; a temporary mode in the primary;
+                    // a preview in the tertiary, with a dot.
+                    let (bg, fg) = if *preview {
+                        (tint("tertiary", 0.24), c("tertiary"))
+                    } else if *temporary {
                         (tint("primary", 0.24), c("primary"))
                     } else {
                         (tint("secondary", 0.18), c("on-secondary-container"))
@@ -717,10 +779,18 @@ impl Toolbar {
                         fg,
                         layer: state_layer.map(c),
                         icon: "tune",
-                        filled: *temporary,
+                        filled: *temporary || *preview,
                         label,
                     };
                     self.chip(&mut shapes, &chip);
+                    if *preview {
+                        let d = CHIP_DOT * s;
+                        shapes.push(Shape::RoundRect {
+                            rect: [rect[0] + iw - CHIP_PAD * s - d, center[1] - d / 2.0, d, d],
+                            radius: d / 2.0,
+                            color: fg,
+                        });
+                    }
                 }
                 ItemKind::Multiplier(label) => {
                     // `.btn.btn-xs` with the tertiary at 18 %.
@@ -930,7 +1000,7 @@ mod tests {
         bar.update(&state, now).expect("update");
         let find = |bar: &Toolbar, f: &dyn Fn(&Item) -> bool| bar.items.iter().position(f);
         let chip = find(&bar, &|i| matches!(i.kind, ItemKind::Mode { .. })).expect("the mode chip");
-        let ItemKind::Mode { label, temporary } = &bar.items[chip].kind else {
+        let ItemKind::Mode { label, temporary, .. } = &bar.items[chip].kind else {
             unreachable!()
         };
         assert!(label.ends_with('…') && !temporary, "{label}");
@@ -972,6 +1042,69 @@ mod tests {
         assert_eq!(bar.pointer(Press { button: 3, x, y }, now), None);
         assert_eq!(bar.pointer(Release { button: 3, x, y }, now), None);
         assert_eq!(bar.pointer(Press { button: 5, x, y }, now), None);
+    }
+
+    #[test]
+    #[ignore = "needs a Vulkan GPU"]
+    fn the_compare_button_takes_the_whole_overlay() {
+        use lirtup_x11::overlay_input::PointerEvent::{Press, Release};
+
+        let (device, screen, _) = gpu_screen(1920, 1080);
+        let mut bar = Toolbar::new(&device, &screen).expect("toolbar");
+        let now = Instant::now();
+        let overlay = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        // Hidden: only the reveal band is the bar's.
+        assert!(bar.hit(900, 2));
+        assert!(!bar.hit(900, 500));
+        bar.set_pinned(true, now);
+        let mut state = ToolbarState {
+            mode_label: Some("Calidad".to_owned()),
+            ..ToolbarState::default()
+        };
+        bar.update(&state, now).expect("update");
+        assert!(!bar.zone(overlay).expect("zone").whole);
+        let compare = bar
+            .items
+            .iter()
+            .position(|i| i.action() == Some(ToolbarAction::Compare))
+            .expect("the compare button");
+        let [bx, by, ..] = bar.rect_at(1.0);
+        let [ix, iy, iw, ih] = bar.items[compare].rect;
+        let (x, y) = ((bx + ix + iw / 2.0) as i32, (by + iy + ih / 2.0) as i32);
+        assert!(bar.hit(x, y));
+        assert!(!bar.hit(x, 900));
+        assert_eq!(bar.pointer(Press { button: 1, x, y }, now), None);
+        // A press on the bar is held: its release anywhere is the bar's.
+        assert!(bar.hit(x, 900));
+        assert_eq!(
+            bar.pointer(Release { button: 1, x, y }, now),
+            Some(ToolbarAction::Compare)
+        );
+        assert!(!bar.hit(x, 900));
+
+        state.comparing = true;
+        bar.update(&state, now).expect("update");
+        assert!(bar.zone(overlay).expect("zone").whole);
+
+        // A preview marks the chip and widens it for the dot.
+        let chip = |bar: &Toolbar| {
+            bar.items
+                .iter()
+                .find(|i| matches!(i.kind, ItemKind::Mode { .. }))
+                .cloned()
+                .expect("the mode chip")
+        };
+        let before = chip(&bar);
+        state.preview = true;
+        bar.update(&state, now).expect("update");
+        let after = chip(&bar);
+        assert!(matches!(after.kind, ItemKind::Mode { preview: true, .. }));
+        assert!(after.rect[2] > before.rect[2]);
     }
 
     #[test]

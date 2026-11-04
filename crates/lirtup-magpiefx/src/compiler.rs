@@ -9,11 +9,15 @@
 //!
 //! `UPSCALER_MAGPIEFX_COMPILER` (`dxc`, `glslang` or `auto`, the default)
 //! picks the backends, `DXC` and `GLSLANG` override the binaries. The cache
-//! key covers the source, the `.hlsli`/`.h` files next to the effect, the
-//! compiler and its command line, and the swap rewrite.
+//! key covers the source, the `.hlsli`/`.h` files next to the effect (their
+//! names and contents, not the folder's path), the compiler kind and its
+//! command line, and the swap rewrite. It does not cover the compiler's
+//! version, so the precompiled seed (`magpiefx-seed`, see
+//! [`SpirvCache::seed`]) hits whatever dxc or glslang is installed, or none.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use xxhash_rust::xxh64::Xxh64;
 
@@ -59,9 +63,39 @@ pub trait HlslCompiler: Send + Sync {
     }
 
     /// What identifies the compiler and its flags in the cache key (the
-    /// command line without the file names).
+    /// command line without the file names nor the include folder's path):
+    /// [`kind_cache_key`] of [`HlslCompiler::name`].
     fn cache_key(&self, request: &CompileRequest<'_>) -> String {
-        format!("{} fp16={}", self.name(), request.fp16)
+        kind_cache_key(self.name(), request)
+    }
+}
+
+/// Stands for the effect's folder in cache keys: the `-I` path changes
+/// between installs (`/usr/share/lirtup/effects`, the AppImage's
+/// `/tmp/.mount_*`, a source tree) while the include files, which the key
+/// covers by contents, stay the same.
+const INCLUDE_MARKER: &str = "<effect-dir>";
+
+/// The compiler kinds the cache knows without an instance, in the default
+/// preference order (the names of [`Dxc`] and [`Glslang`]).
+const KNOWN_KINDS: [&str; 2] = ["dxc", "glslangValidator"];
+
+/// The cache key of a compiler kind's command line for `request`, computed
+/// without the compiler (it may not be installed: seed lookups). `dxc` and
+/// `glslangValidator` get their real arguments with the include folder
+/// replaced by a marker; any other name gets `<name> fp16=<bool>`.
+pub fn kind_cache_key(name: &str, request: &CompileRequest<'_>) -> String {
+    let include = request.include_dir.map(|_| Path::new(INCLUDE_MARKER));
+    match name {
+        "dxc" => format!(
+            "dxc {}",
+            Dxc::args("SRC", "OUT", request.entry, include, request.fp16).join(" ")
+        ),
+        "glslangValidator" => format!(
+            "glslang {}",
+            Glslang::args("SRC", "OUT", request.entry, include, request.fp16).join(" ")
+        ),
+        other => format!("{other} fp16={}", request.fp16),
     }
 }
 
@@ -297,13 +331,6 @@ impl HlslCompiler for Dxc {
             true,
         )
     }
-
-    fn cache_key(&self, request: &CompileRequest<'_>) -> String {
-        format!(
-            "dxc {}",
-            Dxc::args("SRC", "OUT", request.entry, request.include_dir, request.fp16).join(" ")
-        )
-    }
 }
 
 impl HlslCompiler for Glslang {
@@ -333,13 +360,6 @@ impl HlslCompiler for Glslang {
                 )
             },
             false,
-        )
-    }
-
-    fn cache_key(&self, request: &CompileRequest<'_>) -> String {
-        format!(
-            "glslang {}",
-            Glslang::args("SRC", "OUT", request.entry, request.include_dir, request.fp16).join(" ")
         )
     }
 }
@@ -405,14 +425,23 @@ pub fn detect_compilers() -> Vec<Box<dyn HlslCompiler>> {
     found
 }
 
-/// Bumped when the cache layout or the compile flags change.
-const CACHE_VERSION: &str = "rs1";
+/// Bumped when the cache layout or the compile flags change. `rs2`: the
+/// include folder's path left the key.
+const CACHE_VERSION: &str = "rs2";
+
+/// Makes the temporary file names of [`SpirvCache::store`] unique between
+/// threads of one process (the seed generator writes in parallel).
+static NEXT_TMP: AtomicU64 = AtomicU64::new(0);
 
 /// SPIR-V cache on disk, keyed by a digest of source, includes, compiler and
 /// flags (`lirtup_config::paths::magpiefx_cache_dir`).
 pub struct SpirvCache {
     /// Folder.
     pub dir: PathBuf,
+    /// Read-only folder of precompiled SPIR-V with the same file names
+    /// (`lirtup_config::paths::magpiefx_seed_dir`), looked up after `dir`;
+    /// its hits are used as they are (not copied).
+    pub seed: Option<PathBuf>,
 }
 
 /// A rewrite of the preprocessed source (the red/blue swap): its cache key
@@ -425,9 +454,16 @@ pub struct Transform<'a> {
 }
 
 impl SpirvCache {
-    /// Cache in `dir`.
+    /// Cache in `dir`, with the package's precompiled seed
+    /// (`lirtup_config::paths::magpiefx_seed_dir`) as the read-only fallback.
     pub fn new(dir: PathBuf) -> SpirvCache {
-        SpirvCache { dir }
+        SpirvCache::with_seed(dir, lirtup_config::paths::magpiefx_seed_dir())
+    }
+
+    /// Cache in `dir` with an explicit seed folder (`None`: no seed). Does
+    /// not read the environment.
+    pub fn with_seed(dir: PathBuf, seed: Option<PathBuf>) -> SpirvCache {
+        SpirvCache { dir, seed }
     }
 
     /// Compile with the first compiler that succeeds, reading and writing the
@@ -444,21 +480,29 @@ impl SpirvCache {
 
     /// [`SpirvCache::compile`] with a rewrite of the preprocessed source.
     /// `Ok(None)` when the rewrite declined the source.
+    ///
+    /// Lookups come first and need no compiler: for each compiler kind (the
+    /// given compilers in order, then the other known kinds), the cache
+    /// folder and then the seed. Only when nothing hits does it compile;
+    /// [`MagpieError::NoCompiler`] when there is nothing to compile with.
     pub fn compile_with(
         &self,
         compilers: &[Box<dyn HlslCompiler>],
         request: &CompileRequest<'_>,
         transform: Option<&Transform<'_>>,
     ) -> Result<Option<Vec<u8>>> {
+        let transform_key = transform.map(|t| t.key);
+        let includes = include_digest(request.include_dir);
+        if let Some(spirv) = self.lookup(compilers, request, &includes, transform_key) {
+            return Ok(Some(spirv));
+        }
         if compilers.is_empty() {
             return Err(MagpieError::NoCompiler);
         }
         let mut errors: Vec<(String, String)> = Vec::new();
         for compiler in compilers {
-            let path = self.entry_path(compiler.as_ref(), request, transform.map(|t| t.key));
-            if let Ok(spirv) = std::fs::read(&path) {
-                return Ok(Some(spirv));
-            }
+            let name = entry_name(&compiler.cache_key(request), &includes, transform_key, request);
+            let path = self.dir.join(name);
             let result = match transform {
                 None => compiler.compile(request),
                 Some(t) => {
@@ -513,27 +557,46 @@ impl SpirvCache {
         })
     }
 
-    /// Cache file of a request.
-    fn entry_path(
+    /// The cached SPIR-V of `request`, from the cache folder or the seed,
+    /// for any compiler kind (see [`SpirvCache::compile_with`]).
+    fn lookup(
         &self,
-        compiler: &dyn HlslCompiler,
+        compilers: &[Box<dyn HlslCompiler>],
         request: &CompileRequest<'_>,
+        includes: &str,
         transform: Option<&str>,
-    ) -> PathBuf {
-        let mut parts: Vec<&[u8]> = Vec::new();
-        let key = compiler.cache_key(request);
-        let includes = include_digest(request.include_dir);
-        parts.push(CACHE_VERSION.as_bytes());
-        parts.push(key.as_bytes());
-        parts.push(includes.as_bytes());
-        parts.push(transform.unwrap_or("").as_bytes());
-        parts.push(request.source.as_bytes());
-        self.dir.join(format!("{}.spv", digest(&parts)))
+    ) -> Option<Vec<u8>> {
+        let dirs: Vec<&Path> = std::iter::once(self.dir.as_path())
+            .chain(self.seed.as_deref())
+            .collect();
+        for key in lookup_keys(compilers, request) {
+            let name = entry_name(&key, includes, transform, request);
+            for dir in &dirs {
+                if let Ok(spirv) = std::fs::read(dir.join(&name))
+                    && !spirv.is_empty()
+                {
+                    if *dir != self.dir.as_path() {
+                        tracing::debug!(
+                            "{} pass {}: precompiled SPIR-V from {}",
+                            request.effect,
+                            request.pass,
+                            dir.display()
+                        );
+                    }
+                    return Some(spirv);
+                }
+            }
+        }
+        None
     }
 
     /// Write atomically (temporary file and rename); failures only log.
     fn store(&self, path: &Path, spirv: &[u8]) {
-        let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+        let tmp = path.with_extension(format!(
+            "{}.{}.tmp",
+            std::process::id(),
+            NEXT_TMP.fetch_add(1, Ordering::Relaxed)
+        ));
         let result = std::fs::create_dir_all(&self.dir)
             .and_then(|()| std::fs::write(&tmp, spirv))
             .and_then(|()| std::fs::rename(&tmp, path));
@@ -542,6 +605,43 @@ impl SpirvCache {
             let _ = std::fs::remove_file(&tmp);
         }
     }
+}
+
+/// The compiler keys to look up, in order: the given compilers', then the
+/// known kinds that are not among them (a seed entry compiled with glslang
+/// serves a machine that only has dxc, and the other way round). No
+/// duplicates.
+fn lookup_keys(compilers: &[Box<dyn HlslCompiler>], request: &CompileRequest<'_>) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    let given = compilers.iter().map(|c| c.cache_key(request));
+    let others = KNOWN_KINDS
+        .iter()
+        .filter(|kind| !compilers.iter().any(|c| c.name() == **kind))
+        .map(|kind| kind_cache_key(kind, request));
+    for key in given.chain(others) {
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
+/// File name (in the cache folder and in the seed) of a request compiled
+/// with the compiler whose key is `compiler_key`.
+fn entry_name(
+    compiler_key: &str,
+    includes: &str,
+    transform: Option<&str>,
+    request: &CompileRequest<'_>,
+) -> String {
+    let parts: [&[u8]; 5] = [
+        CACHE_VERSION.as_bytes(),
+        compiler_key.as_bytes(),
+        includes.as_bytes(),
+        transform.unwrap_or("").as_bytes(),
+        request.source.as_bytes(),
+    ];
+    format!("{}.spv", digest(&parts))
 }
 
 fn compile_log(e: MagpieError) -> String {
@@ -595,7 +695,8 @@ fn include_digest(dir: Option<&Path>) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::sync::Mutex;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -689,7 +790,7 @@ pub(crate) mod tests {
     #[test]
     fn cache_hits_skip_the_compiler() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = SpirvCache::new(dir.path().join("cache"));
+        let cache = SpirvCache::with_seed(dir.path().join("cache"), None);
         let fake: Vec<Box<dyn HlslCompiler>> = vec![Box::new(Fake::new("dxc", |_| Ok(b"SPIRV".to_vec())))];
         assert_eq!(cache.compile(&fake, &request("a", false)).unwrap(), b"SPIRV");
         assert_eq!(cache.compile(&fake, &request("a", false)).unwrap(), b"SPIRV");
@@ -702,7 +803,7 @@ pub(crate) mod tests {
     #[test]
     fn falls_back_to_the_next_compiler() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = SpirvCache::new(dir.path().to_path_buf());
+        let cache = SpirvCache::with_seed(dir.path().to_path_buf(), None);
         let compilers: Vec<Box<dyn HlslCompiler>> = vec![
             Box::new(Fake::new("dxc", |r| {
                 Err(Fake::failure(r, "variable length arrays"))
@@ -718,7 +819,7 @@ pub(crate) mod tests {
     #[test]
     fn errors_say_glslang_is_missing() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = SpirvCache::new(dir.path().to_path_buf());
+        let cache = SpirvCache::with_seed(dir.path().to_path_buf(), None);
         let compilers: Vec<Box<dyn HlslCompiler>> = vec![Box::new(Fake::new("dxc", |r| {
             Err(Fake::failure(r, "variable length arrays"))
         }))];
@@ -739,7 +840,7 @@ pub(crate) mod tests {
     #[test]
     fn transforms_rewrite_or_decline() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = SpirvCache::new(dir.path().to_path_buf());
+        let cache = SpirvCache::with_seed(dir.path().to_path_buf(), None);
         let compilers: Vec<Box<dyn HlslCompiler>> =
             vec![Box::new(Fake::new("dxc", |r| Ok(r.source.as_bytes().to_vec())))];
         let upper = |s: &str| Some(s.to_uppercase());
@@ -765,6 +866,180 @@ pub(crate) mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    /// A compiler named `name` that answers `answer` and counts its calls.
+    fn counting(name: &'static str, answer: &'static [u8]) -> (Vec<Box<dyn HlslCompiler>>, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let fake = Fake::new(name, move |_| {
+            seen.fetch_add(1, Ordering::SeqCst);
+            Ok(answer.to_vec())
+        });
+        let compilers: Vec<Box<dyn HlslCompiler>> = vec![Box::new(fake)];
+        (compilers, calls)
+    }
+
+    fn with_include<'a>(source: &'a str, dir: &'a Path) -> CompileRequest<'a> {
+        CompileRequest {
+            include_dir: Some(dir),
+            ..request(source, false)
+        }
+    }
+
+    #[test]
+    fn key_does_not_depend_on_the_include_path() {
+        let root = tempfile::tempdir().unwrap();
+        let (a, b) = (root.path().join("a"), root.path().join("b"));
+        for dir in [&a, &b] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("common.hlsli"), "#define X 1").unwrap();
+        }
+        for name in KNOWN_KINDS {
+            let key = kind_cache_key(name, &with_include("s", &a));
+            assert!(key.contains("-I<effect-dir>"), "{key}");
+            assert!(!key.contains(&*a.to_string_lossy()), "{key}");
+            assert_eq!(key, kind_cache_key(name, &with_include("s", &b)));
+        }
+
+        let cache = SpirvCache::with_seed(root.path().join("cache"), None);
+        let (dxc, calls) = counting("dxc", b"SPIRV");
+        cache.compile(&dxc, &with_include("s", &a)).unwrap();
+        // same source and include contents in another folder: a hit
+        cache.compile(&dxc, &with_include("s", &b)).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // the include contents still count
+        std::fs::write(b.join("common.hlsli"), "#define X 2").unwrap();
+        cache.compile(&dxc, &with_include("s", &b)).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn dxc_and_glslang_keys_differ() {
+        let r = request("s", false);
+        assert_ne!(kind_cache_key("dxc", &r), kind_cache_key("glslangValidator", &r));
+        assert_ne!(
+            kind_cache_key("dxc", &r),
+            kind_cache_key("dxc", &request("s", true))
+        );
+        assert_eq!(kind_cache_key("other", &r), "other fp16=false");
+    }
+
+    #[test]
+    fn cache_version_is_bumped() {
+        // rs1 keys had the include folder's path in them
+        assert_eq!(CACHE_VERSION, "rs2");
+    }
+
+    /// A seed folder with `source` compiled by a compiler named `name`.
+    fn seed_with(root: &Path, name: &'static str, source: &str) -> PathBuf {
+        let seed = root.join("seed");
+        let (compilers, _) = counting(name, b"SEED");
+        SpirvCache::with_seed(seed.clone(), None)
+            .compile(&compilers, &request(source, false))
+            .unwrap();
+        seed
+    }
+
+    #[test]
+    fn seed_hits_without_any_compiler() {
+        let root = tempfile::tempdir().unwrap();
+        let seed = seed_with(root.path(), "dxc", "a");
+        let user = root.path().join("user");
+        let cache = SpirvCache::with_seed(user.clone(), Some(seed));
+        assert_eq!(cache.compile(&[], &request("a", false)).unwrap(), b"SEED");
+        // a compiler that is installed is not run either
+        let (dxc, calls) = counting("dxc", b"NEW");
+        assert_eq!(cache.compile(&dxc, &request("a", false)).unwrap(), b"SEED");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        // seed hits are not copied
+        assert!(!user.exists());
+    }
+
+    #[test]
+    fn seed_entries_of_the_other_compiler_hit() {
+        let root = tempfile::tempdir().unwrap();
+        // the seed compiled it with glslang (a Bilateral effect), the user
+        // only has dxc
+        let seed = seed_with(root.path(), "glslangValidator", "a");
+        let cache = SpirvCache::with_seed(root.path().join("user"), Some(seed));
+        let (dxc, calls) = counting("dxc", b"NEW");
+        assert_eq!(cache.compile(&dxc, &request("a", false)).unwrap(), b"SEED");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn user_cache_comes_before_the_seed() {
+        let root = tempfile::tempdir().unwrap();
+        let seed = seed_with(root.path(), "dxc", "a");
+        let user = root.path().join("user");
+        let (dxc, _) = counting("dxc", b"USER");
+        SpirvCache::with_seed(user.clone(), None)
+            .compile(&dxc, &request("a", false))
+            .unwrap();
+        let cache = SpirvCache::with_seed(user, Some(seed));
+        assert_eq!(cache.compile(&[], &request("a", false)).unwrap(), b"USER");
+    }
+
+    #[test]
+    fn seed_covers_transforms() {
+        let root = tempfile::tempdir().unwrap();
+        let seed = root.path().join("seed");
+        let upper = |s: &str| Some(s.to_uppercase());
+        let t = Transform {
+            key: "upper",
+            apply: &upper,
+        };
+        let compilers: Vec<Box<dyn HlslCompiler>> =
+            vec![Box::new(Fake::new("dxc", |r| Ok(r.source.as_bytes().to_vec())))];
+        SpirvCache::with_seed(seed.clone(), None)
+            .compile_with(&compilers, &request("abc", false), Some(&t))
+            .unwrap();
+        let cache = SpirvCache::with_seed(root.path().join("user"), Some(seed));
+        assert_eq!(
+            cache
+                .compile_with(&[], &request("abc", false), Some(&t))
+                .unwrap()
+                .unwrap(),
+            b"ABC"
+        );
+        // another transform key is another entry
+        let other = Transform {
+            key: "other",
+            apply: &upper,
+        };
+        assert!(matches!(
+            cache.compile_with(&[], &request("abc", false), Some(&other)),
+            Err(MagpieError::NoCompiler)
+        ));
+    }
+
+    #[test]
+    fn misses_when_neither_cache_nor_seed_has_it() {
+        let root = tempfile::tempdir().unwrap();
+        let seed = seed_with(root.path(), "dxc", "a");
+        let user = root.path().join("user");
+        let cache = SpirvCache::with_seed(user.clone(), Some(seed.clone()));
+        assert!(matches!(
+            cache.compile(&[], &request("b", false)),
+            Err(MagpieError::NoCompiler)
+        ));
+        // compiled into the user cache, never into the seed
+        let (dxc, calls) = counting("dxc", b"NEW");
+        assert_eq!(cache.compile(&dxc, &request("b", false)).unwrap(), b"NEW");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(std::fs::read_dir(&user).unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir(&seed).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_missing_seed_folder_is_a_miss() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = SpirvCache::with_seed(root.path().join("user"), Some(root.path().join("nope")));
+        assert!(matches!(
+            cache.compile(&[], &request("a", false)),
+            Err(MagpieError::NoCompiler)
+        ));
     }
 
     #[test]

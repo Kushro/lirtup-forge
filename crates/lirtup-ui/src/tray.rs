@@ -682,7 +682,8 @@ pub fn use_tray(store: Signal<Store>, dispatch: Callback<Action>) {
 
 /// «Generación de cuadros ▸ ×N»: save the global multiplier (only that
 /// key, as the bar over the game does) and restart the session once
-/// `ReloadConfig` went out.
+/// `ReloadConfig` went out. With the lsfg-vk layer the store already
+/// restarts after the reload (`save_setting`, as for the bar's chip).
 fn set_multiplier(store: Signal<Store>, dispatch: Callback<Action>, m: FrameGenMultiplier) {
     let value = match m {
         FrameGenMultiplier::Auto => Value::String("auto".into()),
@@ -693,7 +694,9 @@ fn set_multiplier(store: Signal<Store>, dispatch: Callback<Action>, m: FrameGenM
         key: "frame_gen_multiplier".into(),
         value,
     }));
-    if !matches!(store.peek().session, SessionState::Running(_)) {
+    if !matches!(store.peek().session, SessionState::Running(_))
+        || store.peek().saving.as_ref().is_some_and(|s| s.restart)
+    {
         return;
     }
     spawn(async move {
@@ -1009,6 +1012,7 @@ mod tests {
             profile: None,
             mode: None,
             mode_temporary: false,
+            preview: false,
             kind: SessionKind::Fullscreen,
             src: Size::default(),
             dst: Size::default(),
