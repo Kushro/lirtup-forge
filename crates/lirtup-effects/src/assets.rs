@@ -37,34 +37,10 @@ static NATIVE: &[(&str, &[u8])] = &[
         "converters/linearize/linearize.spv",
         shader!("converters/linearize/linearize.spv"),
     ),
-    (
-        "effects/anime4k/anime4k_upscale_s_pass1.spv",
-        shader!("effects/anime4k/anime4k_upscale_s_pass1.spv"),
-    ),
-    (
-        "effects/anime4k/anime4k_upscale_s_pass2.spv",
-        shader!("effects/anime4k/anime4k_upscale_s_pass2.spv"),
-    ),
-    (
-        "effects/anime4k/anime4k_upscale_s_pass3.spv",
-        shader!("effects/anime4k/anime4k_upscale_s_pass3.spv"),
-    ),
-    (
-        "effects/anime4k/anime4k_upscale_s_pass4.spv",
-        shader!("effects/anime4k/anime4k_upscale_s_pass4.spv"),
-    ),
     ("effects/bloom/bloom.spv", shader!("effects/bloom/bloom.spv")),
     ("effects/cas/cas.spv", shader!("effects/cas/cas.spv")),
-    (
-        "effects/crt_easymode/crt_easymode.spv",
-        shader!("effects/crt_easymode/crt_easymode.spv"),
-    ),
     ("effects/deband/deband.spv", shader!("effects/deband/deband.spv")),
     ("effects/grain/grain.spv", shader!("effects/grain/grain.spv")),
-    (
-        "effects/luma_sharpen/luma_sharpen.spv",
-        shader!("effects/luma_sharpen/luma_sharpen.spv"),
-    ),
     ("effects/lut/lut.spv", shader!("effects/lut/lut.spv")),
     (
         "effects/vignette/vignette.spv",
@@ -96,15 +72,57 @@ static NATIVE: &[(&str, &[u8])] = &[
     ("scalers/nis/nis.spv", shader!("scalers/nis/nis.spv")),
 ];
 
+/// The `.spv` of the hand ports of the retired native effects engine
+/// (`crate::ports`): embedded only with the `ports` feature, which only the
+/// tests turn on, so the app binary carries none of them.
+#[cfg(feature = "ports")]
+static PORTS: &[(&str, &[u8])] = &[
+    (
+        "effects/anime4k/anime4k_upscale_s_pass1.spv",
+        shader!("effects/anime4k/anime4k_upscale_s_pass1.spv"),
+    ),
+    (
+        "effects/anime4k/anime4k_upscale_s_pass2.spv",
+        shader!("effects/anime4k/anime4k_upscale_s_pass2.spv"),
+    ),
+    (
+        "effects/anime4k/anime4k_upscale_s_pass3.spv",
+        shader!("effects/anime4k/anime4k_upscale_s_pass3.spv"),
+    ),
+    (
+        "effects/anime4k/anime4k_upscale_s_pass4.spv",
+        shader!("effects/anime4k/anime4k_upscale_s_pass4.spv"),
+    ),
+    (
+        "effects/crt_easymode/crt_easymode.spv",
+        shader!("effects/crt_easymode/crt_easymode.spv"),
+    ),
+    (
+        "effects/luma_sharpen/luma_sharpen.spv",
+        shader!("effects/luma_sharpen/luma_sharpen.spv"),
+    ),
+];
+
+/// Without the `ports` feature: no port shaders.
+#[cfg(not(feature = "ports"))]
+static PORTS: &[(&str, &[u8])] = &[];
+
 /// SPIR-V of a native shader by its 1.x relative path
 /// (`"scalers/lanczos/lanczos_fixed.spv"`, `"effects/cas/cas.spv"`, ...).
+/// The ports' shaders (`effects/{anime4k,luma_sharpen,crt_easymode}/`) are
+/// found only with the `ports` feature.
 pub fn native_spirv(path: &str) -> Option<&'static [u8]> {
-    NATIVE.iter().find(|(p, _)| *p == path).map(|(_, data)| *data)
+    NATIVE
+        .iter()
+        .chain(PORTS)
+        .find(|(p, _)| *p == path)
+        .map(|(_, data)| *data)
 }
 
-/// Every native shader path known to [`native_spirv`].
+/// Every native shader path known to [`native_spirv`] (the ports' only with
+/// the `ports` feature).
 pub fn native_paths() -> impl Iterator<Item = &'static str> {
-    NATIVE.iter().map(|(p, _)| *p)
+    NATIVE.iter().chain(PORTS).map(|(p, _)| *p)
 }
 
 static VERYFAST_PASSES: &[&[u8]] = &[
@@ -340,6 +358,22 @@ mod tests {
         assert_eq!(blue_noise().len(), 64 * 64 * 4);
         assert!(native_spirv("scalers/lanczos/lanczos_fixed.spv").is_some());
         assert!(native_spirv("nope.spv").is_none());
+        // The ports' shaders follow the feature (on for this crate's tests,
+        // through the self dev-dependency; off in the app).
+        let ports = [
+            "effects/anime4k/anime4k_upscale_s_pass1.spv",
+            "effects/anime4k/anime4k_upscale_s_pass2.spv",
+            "effects/anime4k/anime4k_upscale_s_pass3.spv",
+            "effects/anime4k/anime4k_upscale_s_pass4.spv",
+            "effects/luma_sharpen/luma_sharpen.spv",
+            "effects/crt_easymode/crt_easymode.spv",
+        ];
+        for path in ports {
+            assert_eq!(native_spirv(path).is_some(), cfg!(feature = "ports"), "{path}");
+            assert_eq!(native_paths().any(|p| p == path), cfg!(feature = "ports"), "{path}");
+        }
+        assert_eq!(native_paths().count(), NATIVE.len() + PORTS.len());
+        assert_eq!(PORTS.len(), if cfg!(feature = "ports") { 6 } else { 0 });
         for model in lirtup_config::Model::ALL {
             match cunny_model(model) {
                 None => assert_eq!(model, lirtup_config::Model::None),
