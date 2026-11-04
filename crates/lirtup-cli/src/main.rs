@@ -628,7 +628,8 @@ fn ctl(command: &str, follow: bool) -> anyhow::Result<ExitCode> {
 /// - or a name and `key=value` fields: `stop`, `reload_config`,
 ///   `start window=0x4200007 kind=windowed delay_s=3`, `start title=mpv`,
 ///   `hotkey toggle_stats`, `compile_effect FSR/FSR_EASU`,
-///   `set_daemon on=true keep_after_exit=false`. Names may be `CamelCase`,
+///   `set_daemon on=true keep_after_exit=false`,
+///   `preview mode=calidad raw={"model":"4x12"}`, `preview_end`. Names may be `CamelCase`,
 ///   `snake_case` or `kebab-case`; values are JSON when they parse, text
 ///   otherwise. `start` defaults to the focused window, fullscreen, now.
 fn parse_command(text: &str) -> anyhow::Result<Command> {
@@ -714,6 +715,12 @@ fn parse_command(text: &str) -> anyhow::Result<Command> {
         }
         "SetDaemon" => {
             fields.entry("keep_after_exit").or_insert(json!(false));
+        }
+        // `preview mode=calidad raw={"model":"4x12"}` (the raw mapping is
+        // JSON without spaces; no `raw` previews the mode as an empty file).
+        "Preview" => {
+            fields.entry("profile").or_insert(Value::Null);
+            fields.entry("raw").or_insert(json!({}));
         }
         _ => {}
     }
@@ -980,6 +987,35 @@ mod tests {
             }
         );
         assert!(parse_command("stop now").is_err());
+    }
+
+    #[test]
+    fn preview_commands() {
+        let mut raw = lirtup_config::Mapping::new();
+        raw.insert("cas_strength".into(), 0.5.into());
+        raw.insert("model".into(), "4x12".into());
+        assert_eq!(
+            parse_command(r#"preview mode=calidad raw={"model":"4x12","cas_strength":0.5}"#).unwrap(),
+            Command::Preview {
+                profile: None,
+                mode: "calidad".into(),
+                raw,
+            }
+        );
+        assert_eq!(
+            parse_command("preview mode=calidad profile=Ys").unwrap(),
+            Command::Preview {
+                profile: Some("Ys".into()),
+                mode: "calidad".into(),
+                raw: lirtup_config::Mapping::new(),
+            }
+        );
+        // `preview_end` is not mistaken for `preview`.
+        assert_eq!(parse_command("preview_end").unwrap(), Command::PreviewEnd);
+        assert_eq!(parse_command("PreviewEnd").unwrap(), Command::PreviewEnd);
+        // The mode id is required.
+        assert!(parse_command("preview").is_err());
+        assert_eq!(answer_timeout(&Command::PreviewEnd), Some(Duration::from_secs(1)));
     }
 
     #[test]

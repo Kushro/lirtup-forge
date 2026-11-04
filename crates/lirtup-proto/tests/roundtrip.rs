@@ -704,3 +704,73 @@ fn a_session_view_of_2_1_has_no_preview() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn preview_wire_format() {
+    // The lines of the live-tuning contract (§2.1), written by hand.
+    let line = r#"{"v":1,"type":"Preview","profile":"Ys VIII","mode":"calidad","raw":{"name":"Calidad","model":"4x12"}}"#;
+    let mut raw = lirtup_config::Mapping::new();
+    raw.insert("name".into(), "Calidad".into());
+    raw.insert("model".into(), "4x12".into());
+    let preview = Command::Preview {
+        profile: Some("Ys VIII".into()),
+        mode: "calidad".into(),
+        raw,
+    };
+    assert_eq!(decode_line::<Command>(line).unwrap(), preview);
+    assert_eq!(encode_line(&preview), format!("{line}\n"));
+    assert_eq!(
+        decode_line::<Command>(r#"{"v":1,"type":"PreviewEnd"}"#).unwrap(),
+        Command::PreviewEnd
+    );
+    assert_eq!(
+        encode_line(&Command::PreviewEnd),
+        "{\"v\":1,\"type\":\"PreviewEnd\"}\n"
+    );
+}
+
+#[test]
+fn a_preview_carries_any_yaml_value_json_can() {
+    // Lists, nested mappings, numbers and `null` (= inherit) survive the
+    // JSON codec, in order.
+    let mut nested = lirtup_config::Mapping::new();
+    nested.insert("strength".into(), 0.25.into());
+    let mut raw = lirtup_config::Mapping::new();
+    raw.insert("name".into(), "Nítido".into());
+    raw.insert("sharpen".into(), lirtup_config::Value::Null);
+    raw.insert("frame_gen_multiplier".into(), 3.into());
+    raw.insert(
+        "effects".into(),
+        lirtup_config::Value::Sequence(vec!["FSR/FSR_EASU".into(), "deband".into()]),
+    );
+    raw.insert("extra".into(), lirtup_config::Value::Mapping(nested));
+    let preview = Command::Preview {
+        profile: None,
+        mode: "nitido".into(),
+        raw: raw.clone(),
+    };
+    let line = encode_line(&preview);
+    assert_one_line(&line);
+    match decode_line::<Command>(&line).unwrap() {
+        Command::Preview {
+            profile,
+            mode,
+            raw: back,
+        } => {
+            assert_eq!(profile, None);
+            assert_eq!(mode, "nitido");
+            assert_eq!(back, raw);
+            let keys: Vec<_> = back.keys().filter_map(|k| k.as_str()).collect();
+            assert_eq!(
+                keys,
+                ["name", "sharpen", "frame_gen_multiplier", "effects", "extra"]
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    // A client that leaves `profile` out still decodes.
+    assert!(matches!(
+        decode_line::<Command>(r#"{"v":1,"type":"Preview","mode":"m","raw":{}}"#).unwrap(),
+        Command::Preview { profile: None, .. }
+    ));
+}
