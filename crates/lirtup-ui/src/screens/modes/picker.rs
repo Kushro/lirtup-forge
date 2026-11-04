@@ -1,7 +1,8 @@
 //! «Agregar efecto»: the MagpieFX catalog of `ListEffects` (the bundled
 //! effects and the person's own in `~/.config/linux-rt-upscaler/effects`),
 //! searchable, with «Sin probar» on the effects not checked against Magpie.
-//! Adding one appends it to the chain and compiles it ahead of time.
+//! Adding one appends it to its segment of the chain (before or after the
+//! model) and compiles it ahead of time.
 
 use dioxus::prelude::*;
 use lirtup_config::MagpieEffectSpec;
@@ -92,6 +93,11 @@ pub fn EffectPickerDialog(mode: ModeId, before_model: bool) -> Element {
         (Filter::Mine, t!("modes-picker-mine")),
     ];
     let shown = effects.len();
+    let segment = if before_model {
+        t!("modes-chain-before")
+    } else {
+        t!("modes-chain-after")
+    };
     rsx! {
         DialogBox {
             open,
@@ -103,6 +109,7 @@ pub fn EffectPickerDialog(mode: ModeId, before_model: bool) -> Element {
                 Button { label: t!("modes-close"), variant: ButtonVariant::Text, onclick: move |_| dispatch(Action::CloseDialog) }
             },
             div { class: "flex flex-col gap-3 min-h-0",
+                div { Badge { label: segment, icon: "layers" } }
                 TextField {
                     value: query,
                     label: t!("modes-picker-search"),
