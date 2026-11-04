@@ -39,8 +39,8 @@ Python 1.x under the same package name and reads its configuration; see
   place, shared by the profiles that use them.
 - **Profiles** that match windows by title and size, each with its mode and
   presentation settings.
-- **The 117 Magpie effects**, run unmodified by a MagpieFX loader, or three of
-  them ported by hand. *Measure on my GPU* times them on your hardware.
+- **The 117 Magpie effects**, run unmodified by a MagpieFX loader, before or
+  after the model. *Measure on my GPU* times them on your hardware.
 - **Frame generation** ×2 to ×5 or automatic, through the lsfg-vk layer or
   built in.
 - **A toolbar over the game** that appears at the top edge: stats, crop,
@@ -60,8 +60,9 @@ Python 1.x under the same package name and reads its configuration; see
 - GNU/Linux with X11, or Wayland with XWayland.
 - A Vulkan GPU (AMD, NVIDIA or Intel).
 - WebKitGTK 4.1 and GTK 3, for the interface.
-- Optional: `dxc` or `glslang` for the MagpieFX effects, lsfg-vk or Lossless
-  Scaling for frame generation.
+- Optional: `dxc` or `glslang` for MagpieFX effects you add or edit (the
+  bundled ones come precompiled), lsfg-vk or Lossless Scaling for frame
+  generation.
 
 ## Installation
 
@@ -136,23 +137,27 @@ The full list: [Migrating from 1.x](docs/user/migration.md#3-what-changed-on-pur
 ## Magpie effects
 
 The effects of [Magpie](https://github.com/Blinue/Magpie) (Windows) run through
-one of two engines, picked in the mode editor, with `effects_engine` or with
-`--effects-engine`:
+MagpieFX, a loader that runs Magpie's `.hlsl` files unmodified: all 117 of
+Magpie, plus any you add to `~/.config/linux-rt-upscaler/effects`. The
+bundled ones come precompiled; the ones you add or edit compile on first use
+(`dxc`, or `glslang`) and are then cached. Each mode has two chains: one
+before the model, on the captured image at the game's resolution
+(`magpie_effects_before_model`, `--magpie-effect-before-model`), and one after
+it, on the model's output (`magpie_effects`, `--magpie-effect`). The mode
+editor shows them as two segments, and an effect moves from one to the other
+with a button or by dragging it. The hand-written «native» engine of 2.1 is
+gone: its three effects (LumaSharpen, Anime4K_Upscale_S, CRT_Easymode) are
+MagpieFX effects like the rest, and old files keep working
+([Migrating](docs/user/migration.md)).
 
-| | Native | MagpieFX |
-| --- | --- | --- |
-| How | Each effect ported by hand | Magpie's `.hlsl` files run unmodified by a generic loader |
-| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | All 117 of Magpie, plus any you add to `~/.config/linux-rt-upscaler/effects` |
-| Loading | Instant | Compiled on first load (`dxc`, or `glslang`), then cached |
-| Settings | Tuned controls | Generated from each effect's parameters |
+Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, RADV,
+after the model):
 
-Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, RADV):
-
-| Effect | Native | MagpieFX |
-| --- | --- | --- |
-| LumaSharpen | 0.016 | 0.016 |
-| Anime4K_Upscale_S | 0.145 | 0.142 |
-| CRT_Easymode | 0.122 | 0.118 |
+| Effect | MagpieFX |
+| --- | --- |
+| LumaSharpen | 0.016 |
+| Anime4K_Upscale_S | 0.142 |
+| CRT_Easymode | 0.118 |
 
 The effects are bundled unmodified under GPLv3 (Magpie commit `241e0a44`).
 Details: [MagpieFX guide](docs/user/magpiefx.md) and
