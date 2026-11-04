@@ -518,7 +518,10 @@ mod tests {
             .find(|m| *m != Model::None)
             .expect("a model");
         assert!(tiles_allowed(model, true, 0));
-        assert!(!tiles_allowed(model, true, 3), "a chain before the model: full frame");
+        assert!(
+            !tiles_allowed(model, true, 3),
+            "a chain before the model: full frame"
+        );
         assert!(!tiles_allowed(model, false, 0));
         assert!(!tiles_allowed(Model::None, true, 0));
     }
@@ -529,7 +532,12 @@ mod tests {
             name: name.to_owned(),
             params: Default::default(),
         };
-        let specs = [spec("CAS"), spec("Broken"), spec("Sharpen/LumaSharpen"), spec("Broken")];
+        let specs = [
+            spec("CAS"),
+            spec("Broken"),
+            spec("Sharpen/LumaSharpen"),
+            spec("Broken"),
+        ];
         let disabled = [("Broken".to_owned(), "does not compile".to_owned())];
         let kept = without_disabled(&specs, &disabled);
         assert_eq!(kept, vec![spec("CAS"), spec("Sharpen/LumaSharpen")]);

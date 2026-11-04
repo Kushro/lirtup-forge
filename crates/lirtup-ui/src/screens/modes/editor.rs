@@ -20,8 +20,8 @@ use super::widgets::{
 };
 use crate::app::{use_dispatch, use_store};
 use crate::components::{
-    Button, ButtonVariant, IconButton, IconButtonVariant, Select, SettingGroup, SettingRow, Slider,
-    Switch, TextField,
+    Button, ButtonVariant, IconButton, IconButtonVariant, Select, SettingGroup, SettingRow, Slider, Switch,
+    TextField,
 };
 use crate::i18n::tr;
 use crate::route::{ModeId, ProfileRef, Route};
@@ -646,9 +646,8 @@ fn use_mode_settings(id: ModeId) -> Memo<ModeSettings> {
         settings.model = s.field::<Model>(&scope, "model").value();
         settings.double_upscale = s.field::<bool>(&scope, "double_upscale").value();
         settings.magpie_effects = s.field::<Vec<MagpieEffectSpec>>(&scope, CHAIN_KEY).value();
-        settings.magpie_effects_before_model = s
-            .field::<Vec<MagpieEffectSpec>>(&scope, PRE_CHAIN_KEY)
-            .value();
+        settings.magpie_effects_before_model =
+            s.field::<Vec<MagpieEffectSpec>>(&scope, PRE_CHAIN_KEY).value();
         for toggle in FINAL {
             let on = s.field::<bool>(&scope, toggle.key).value();
             match toggle.key {

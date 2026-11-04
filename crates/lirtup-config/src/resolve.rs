@@ -200,9 +200,7 @@ pub fn resolve_with_mode(
             mode_layer
                 .keys()
                 .filter_map(Value::as_str)
-                .filter(|k| {
-                    *k != "mode" && (crate::model::MODE_KEYS.contains(k) || LEGACY_KEYS.contains(k))
-                })
+                .filter(|k| *k != "mode" && (crate::model::MODE_KEYS.contains(k) || LEGACY_KEYS.contains(k)))
                 .filter(|k| above.iter().any(|m| m.get(*k).is_some_and(|v| !v.is_null())))
                 .map(str::to_owned)
                 .collect()

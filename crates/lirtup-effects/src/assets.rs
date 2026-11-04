@@ -370,7 +370,11 @@ mod tests {
         ];
         for path in ports {
             assert_eq!(native_spirv(path).is_some(), cfg!(feature = "ports"), "{path}");
-            assert_eq!(native_paths().any(|p| p == path), cfg!(feature = "ports"), "{path}");
+            assert_eq!(
+                native_paths().any(|p| p == path),
+                cfg!(feature = "ports"),
+                "{path}"
+            );
         }
         assert_eq!(native_paths().count(), NATIVE.len() + PORTS.len());
         assert_eq!(PORTS.len(), if cfg!(feature = "ports") { 6 } else { 0 });

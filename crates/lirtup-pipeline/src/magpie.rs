@@ -294,6 +294,9 @@ mod tests {
             Some(vec!["CAS".to_owned(), "LumaSharpen".to_owned()])
         );
         assert_eq!(chain_names(&[]), Some(Vec::new()));
-        assert_eq!(chain_names(&[MagpieEffectSpec::Short("Lanczos:x=big".into())]), None);
+        assert_eq!(
+            chain_names(&[MagpieEffectSpec::Short("Lanczos:x=big".into())]),
+            None
+        );
     }
 }

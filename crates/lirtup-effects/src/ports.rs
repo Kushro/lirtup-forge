@@ -17,7 +17,9 @@
 use std::sync::Arc;
 
 use lirtup_config::legacy::{ANIME4K_EFFECT, CRT_EFFECT, LUMA_SHARPEN_EFFECT};
-use lirtup_gpu::{Buffer, CommandRecorder, ComputePipeline, Device, Dispatch, Filter, Format, Sampler, Texture};
+use lirtup_gpu::{
+    Buffer, CommandRecorder, ComputePipeline, Device, Dispatch, Filter, Format, Sampler, Texture,
+};
 
 use crate::effects::spirv;
 use crate::util::{self, Bindings, CbWriter, clampf};
@@ -338,7 +340,9 @@ impl PortPass {
         let (output, steps) = match effect {
             PortEffect::LumaSharpen { .. } | PortEffect::CrtEasymode(_) => {
                 let (path, filter) = match effect {
-                    PortEffect::LumaSharpen { .. } => ("effects/luma_sharpen/luma_sharpen.spv", Filter::Linear),
+                    PortEffect::LumaSharpen { .. } => {
+                        ("effects/luma_sharpen/luma_sharpen.spv", Filter::Linear)
+                    }
                     _ => ("effects/crt_easymode/crt_easymode.spv", Filter::Point),
                 };
                 let out_size = effect.output_size(size, output_size);
@@ -421,7 +425,11 @@ impl PortPass {
     }
 
     fn upload(&self) -> Result<()> {
-        let cb = constants(&self.effect, self.input_size, (self.output.width(), self.output.height()));
+        let cb = constants(
+            &self.effect,
+            self.input_size,
+            (self.output.width(), self.output.height()),
+        );
         self.cb.write(0, &cb.finish())?;
         Ok(())
     }
@@ -492,7 +500,10 @@ mod tests {
     #[test]
     fn output_sizes() {
         let crt = PortEffect::CrtEasymode(CrtParams::default());
-        assert_eq!(PortEffect::Anime4kS.output_size((640, 360), (1920, 1080)), (1280, 720));
+        assert_eq!(
+            PortEffect::Anime4kS.output_size((640, 360), (1920, 1080)),
+            (1280, 720)
+        );
         assert_eq!(crt.output_size((640, 360), (1920, 1080)), (1920, 1080));
         assert_eq!(crt.output_size((640, 360), (0, 0)), (1, 1));
         assert_eq!(
@@ -512,7 +523,10 @@ mod tests {
         let crt = PortEffect::CrtEasymode(CrtParams::default());
         assert_eq!(constants(&crt, (160, 96), (320, 192)).len(), 112);
         assert_eq!(constants(&PortEffect::Anime4kS, (160, 96), (320, 192)).len(), 32);
-        assert_eq!(constants(&PortEffect::LUMA_SHARPEN_DEFAULT, (160, 96), (160, 96)).len(), 48);
+        assert_eq!(
+            constants(&PortEffect::LUMA_SHARPEN_DEFAULT, (160, 96), (160, 96)).len(),
+            48
+        );
     }
 
     #[test]
@@ -567,7 +581,10 @@ mod tests {
     #[test]
     fn names_and_defaults() {
         assert_eq!(PortEffect::Anime4kS.magpie_name(), "Anime4K/Anime4K_Upscale_S");
-        assert_eq!(PortEffect::LUMA_SHARPEN_DEFAULT.magpie_name(), "Sharpen/LumaSharpen");
+        assert_eq!(
+            PortEffect::LUMA_SHARPEN_DEFAULT.magpie_name(),
+            "Sharpen/LumaSharpen"
+        );
         assert_eq!(
             PortEffect::CrtEasymode(CrtParams::default()).magpie_name(),
             "CRT/CRT_Easymode"

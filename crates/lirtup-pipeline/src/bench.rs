@@ -216,7 +216,11 @@ fn mode_cases(mode: &ModeSettings, extra: &[String]) -> Vec<BenchCase> {
         })
         .collect();
     let mut names = Vec::new();
-    for item in mode.magpie_effects_before_model.iter().chain(&mode.magpie_effects) {
+    for item in mode
+        .magpie_effects_before_model
+        .iter()
+        .chain(&mode.magpie_effects)
+    {
         match parse_effect_spec(item) {
             Ok(spec) => names.push(spec.name),
             Err(e) => tracing::warn!("bench: {e}"),
@@ -982,7 +986,13 @@ mod tests {
         let names: Vec<&str> = cases.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             &names[..5],
-            ["Sharpen/LumaSharpen", "Anime4K/Anime4K_Upscale_S", "CRT/CRT_Easymode", "CAS", "FSR"]
+            [
+                "Sharpen/LumaSharpen",
+                "Anime4K/Anime4K_Upscale_S",
+                "CRT/CRT_Easymode",
+                "CAS",
+                "FSR"
+            ]
         );
         // The three effects of the retired native engine are MagpieFX cases.
         assert!(cases[..5].iter().all(|c| c.kind == BenchKind::Magpiefx));

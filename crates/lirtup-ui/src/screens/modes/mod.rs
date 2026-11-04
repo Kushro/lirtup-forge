@@ -148,7 +148,12 @@ fn ModeListItem(
 /// «fast · Anime4K + LumaSharpen · 3 perfiles»: the model, the effects of
 /// both lists (before the model first) and how many profiles use it.
 fn summary(mode: &Mode, pre: &[String], post: &[String], users: usize) -> String {
-    let effects: Vec<String> = pre.iter().chain(post).map(String::as_str).map(short_name).collect();
+    let effects: Vec<String> = pre
+        .iter()
+        .chain(post)
+        .map(String::as_str)
+        .map(short_name)
+        .collect();
     let effects = match effects.len() {
         0 => t!("modes-no-effects"),
         1 | 2 => effects.join(" + "),

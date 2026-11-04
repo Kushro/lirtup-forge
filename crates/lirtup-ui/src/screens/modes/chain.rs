@@ -874,11 +874,23 @@ mod tests {
     fn moving_between_the_lists() {
         let (pre, post) = (["a", "b"], ["x", "y", "z"]);
         // The card's button: to the end of the other list.
-        assert_eq!(move_between(&pre, &post, true, 0), (vec!["b"], vec!["x", "y", "z", "a"]));
-        assert_eq!(move_between(&pre, &post, false, 1), (vec!["a", "b", "y"], vec!["x", "z"]));
+        assert_eq!(
+            move_between(&pre, &post, true, 0),
+            (vec!["b"], vec!["x", "y", "z", "a"])
+        );
+        assert_eq!(
+            move_between(&pre, &post, false, 1),
+            (vec!["a", "b", "y"], vec!["x", "z"])
+        );
         // A drop on a card of the other list: before that card.
-        assert_eq!(move_between_at(&pre, &post, true, 1, 0), (vec!["a"], vec!["b", "x", "y", "z"]));
-        assert_eq!(move_between_at(&pre, &post, false, 2, 1), (vec!["a", "z", "b"], vec!["x", "y"]));
+        assert_eq!(
+            move_between_at(&pre, &post, true, 1, 0),
+            (vec!["a"], vec!["b", "x", "y", "z"])
+        );
+        assert_eq!(
+            move_between_at(&pre, &post, false, 2, 1),
+            (vec!["a", "z", "b"], vec!["x", "y"])
+        );
         // Out of range: nothing moves.
         assert_eq!(move_between(&pre, &post, true, 5), (pre.to_vec(), post.to_vec()));
         let empty: [&str; 0] = [];
@@ -902,23 +914,58 @@ mod tests {
         let got: Vec<(bool, Vec<&str>)> = writes.iter().map(|(b, i)| (*b, names(i))).collect();
         assert_eq!(got, vec![(false, vec!["X"]), (true, vec!["A", "Y"])]);
 
-        let writes = apply_edit(&pre, &post, ChainEdit::Drop { from: at(true, 0), to: at(false, 1) });
+        let writes = apply_edit(
+            &pre,
+            &post,
+            ChainEdit::Drop {
+                from: at(true, 0),
+                to: at(false, 1),
+            },
+        );
         let got: Vec<(bool, Vec<&str>)> = writes.iter().map(|(b, i)| (*b, names(i))).collect();
         assert_eq!(got, vec![(true, vec![]), (false, vec!["X", "A", "Y"])]);
 
         // Dropped on the other segment's title: last.
-        let writes = apply_edit(&pre, &post, ChainEdit::Drop { from: at(true, 0), to: at(false, END) });
+        let writes = apply_edit(
+            &pre,
+            &post,
+            ChainEdit::Drop {
+                from: at(true, 0),
+                to: at(false, END),
+            },
+        );
         assert_eq!(names(&writes[1].1), vec!["X", "Y", "A"]);
 
         // Inside one list: only that list.
-        let writes = apply_edit(&pre, &post, ChainEdit::Drop { from: at(false, 0), to: at(false, END) });
+        let writes = apply_edit(
+            &pre,
+            &post,
+            ChainEdit::Drop {
+                from: at(false, 0),
+                to: at(false, END),
+            },
+        );
         let got: Vec<(bool, Vec<&str>)> = writes.iter().map(|(b, i)| (*b, names(i))).collect();
         assert_eq!(got, vec![(false, vec!["Y", "X"])]);
-        let writes = apply_edit(&pre, &post, ChainEdit::Move { from: at(false, 1), to: 0 });
+        let writes = apply_edit(
+            &pre,
+            &post,
+            ChainEdit::Move {
+                from: at(false, 1),
+                to: 0,
+            },
+        );
         assert_eq!(names(&writes[0].1), vec!["Y", "X"]);
 
         // Remove and replace.
-        let writes = apply_edit(&pre, &post, ChainEdit::Change { at: at(true, 0), item: None });
+        let writes = apply_edit(
+            &pre,
+            &post,
+            ChainEdit::Change {
+                at: at(true, 0),
+                item: None,
+            },
+        );
         assert_eq!(writes, vec![(true, Vec::new())]);
         let edited = post[0].with_param("p", 2.0, 1.0);
         let change = ChainEdit::Change {
@@ -929,8 +976,28 @@ mod tests {
         assert_eq!(writes, vec![(false, vec![edited, post[1].clone()])]);
 
         // Nothing changes, nothing is written.
-        assert!(apply_edit(&pre, &post, ChainEdit::Drop { from: at(true, 0), to: at(true, 0) }).is_empty());
-        assert!(apply_edit(&pre, &post, ChainEdit::Move { from: at(false, 0), to: 0 }).is_empty());
+        assert!(
+            apply_edit(
+                &pre,
+                &post,
+                ChainEdit::Drop {
+                    from: at(true, 0),
+                    to: at(true, 0)
+                }
+            )
+            .is_empty()
+        );
+        assert!(
+            apply_edit(
+                &pre,
+                &post,
+                ChainEdit::Move {
+                    from: at(false, 0),
+                    to: 0
+                }
+            )
+            .is_empty()
+        );
         assert!(apply_edit(&pre, &post, ChainEdit::Swap(at(true, 3))).is_empty());
     }
 
@@ -975,9 +1042,8 @@ mod tests {
 
         // The native engine (the default): its effects become the chain
         // after the model, the inactive list goes, the list before stays.
-        let native = mapping(
-            "name: CRT\ncrt_enabled: true\nmagpie_effects: [X]\nmagpie_effects_before_model: [Y]\n",
-        );
+        let native =
+            mapping("name: CRT\ncrt_enabled: true\nmagpie_effects: [X]\nmagpie_effects_before_model: [Y]\n");
         let lists = translated_lists(&native).unwrap();
         assert_eq!(chain_names(&lists.post), vec![legacy::CRT_EFFECT]);
         assert_eq!(chain_names(&lists.pre), vec!["Y"]);

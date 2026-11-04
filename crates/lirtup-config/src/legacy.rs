@@ -197,7 +197,11 @@ fn read_param(map: &Mapping, p: &Param, warnings: &mut Vec<ConfigWarning>) -> f6
     let Some(v) = read else {
         warnings.push(ConfigWarning {
             key: p.field.to_owned(),
-            message: format!("invalid value {}, using the default {}", display(value), p.default),
+            message: format!(
+                "invalid value {}, using the default {}",
+                display(value),
+                p.default
+            ),
         });
         return p.default;
     };
@@ -503,7 +507,11 @@ mod tests {
         );
         assert_eq!(
             keys(&m),
-            ["magpie_effects_before_model", "magpie_effects", "magpie_effects_before_model_x"]
+            [
+                "magpie_effects_before_model",
+                "magpie_effects",
+                "magpie_effects_before_model_x"
+            ]
         );
         assert_eq!(m["magpie_effects_before_model"], map("x: [Bicubic]\n")["x"]);
         let (m, _) = translated("magpie_effects_before_model: [Bicubic]\nanime4k_enabled: false\n");
@@ -513,9 +521,8 @@ mod tests {
     #[test]
     fn the_key_order_is_kept() {
         // The new list goes where the old one was...
-        let (m, _) = translated(
-            "name: CRT\nmagpie_effects: [CAS]\nmodel: none\ncrt_enabled: true\nfuture: 1\n",
-        );
+        let (m, _) =
+            translated("name: CRT\nmagpie_effects: [CAS]\nmodel: none\ncrt_enabled: true\nfuture: 1\n");
         assert_eq!(keys(&m), ["name", "magpie_effects", "model", "future"]);
         // ...or where the first legacy key was.
         let (m, _) =

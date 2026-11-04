@@ -3069,7 +3069,10 @@ mod tests {
         new.scaling.magpie_effects_before_model = vec![MagpieEffectSpec::Short("CAS".into())];
         assert!(rebuilds_effects(&old, &new));
         assert!(!rebuilds_effects(&new, &new), "the same chain before the model");
-        assert!(!rebuilds_effects(&new, &old), "an empty chain before the model builds nothing");
+        assert!(
+            !rebuilds_effects(&new, &old),
+            "an empty chain before the model builds nothing"
+        );
     }
 
     #[test]
@@ -3093,7 +3096,10 @@ mod tests {
         assert!(pre_chain_changed(&old, &fewer));
         let mut invalid = old.clone();
         invalid.scaling.magpie_effects_before_model[0] = MagpieEffectSpec::Short("CAS:x=big".into());
-        assert!(pre_chain_changed(&old, &invalid), "an invalid list empties the chain");
+        assert!(
+            pre_chain_changed(&old, &invalid),
+            "an invalid list empties the chain"
+        );
         // The list after the model is the presenter's.
         let mut after = old.clone();
         after.scaling.magpie_effects = vec![MagpieEffectSpec::Short("CAS".into())];
@@ -3208,9 +3214,11 @@ mod tests {
         effect.scaling.cas_enabled = !effect.scaling.cas_enabled;
         assert!(ab_relevant_changed(&old, &effect));
         let mut pre = old.clone();
-        pre.scaling.magpie_effects_before_model =
-            vec![lirtup_config::MagpieEffectSpec::Short("CAS".into())];
-        assert!(ab_relevant_changed(&old, &pre), "the chain before the model is shown");
+        pre.scaling.magpie_effects_before_model = vec![lirtup_config::MagpieEffectSpec::Short("CAS".into())];
+        assert!(
+            ab_relevant_changed(&old, &pre),
+            "the chain before the model is shown"
+        );
         let mut geometry = old.clone();
         geometry.output_geometry = OutputGeometry("stretch".into());
         assert!(ab_relevant_changed(&old, &geometry));

@@ -651,7 +651,10 @@ mod tests {
         assert_eq!(backup, dir.dir.join("config.yaml.1x.bak"));
         assert_eq!(std::fs::read_to_string(&backup).unwrap(), original);
         for (id, text) in &originals {
-            let bak = dir.dir.join("modes").join(format!("{id}.yaml{MODE_BACKUP_SUFFIX}"));
+            let bak = dir
+                .dir
+                .join("modes")
+                .join(format!("{id}.yaml{MODE_BACKUP_SUFFIX}"));
             assert_eq!(&std::fs::read_to_string(bak).unwrap(), text, "backup of {id}");
         }
 
@@ -830,11 +833,17 @@ profiles:
         );
         // `crt` itself is rewritten without the native engine.
         assert_eq!(
-            plan.rewritten.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            plan.rewritten
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
             ["crt"]
         );
         assert_eq!(
-            modes.raw["crt"].keys().filter_map(Value::as_str).collect::<Vec<_>>(),
+            modes.raw["crt"]
+                .keys()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>(),
             ["name", "magpie_effects", "model"]
         );
 
@@ -947,7 +956,10 @@ profiles:
         assert!(plan.modes.is_empty() && plan.top_mode.is_none() && plan.profiles.is_empty());
         assert_eq!(plan.moved_fields, 0);
         assert_eq!(
-            plan.rewritten.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            plan.rewritten
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
             ["chain", "crt", "inactive"]
         );
         // config.yaml names the same modes.
@@ -957,7 +969,11 @@ profiles:
         // crt: the CRT with its one non-default parameter, where the first
         // legacy key was; name and description kept.
         let keys = |id: &str| -> Vec<String> {
-            modes.raw[id].keys().filter_map(Value::as_str).map(str::to_owned).collect()
+            modes.raw[id]
+                .keys()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
         };
         assert_eq!(keys("crt"), ["name", "description", "magpie_effects", "model"]);
         assert_eq!(modes.modes["crt"].description.as_deref(), Some("Tubo"));

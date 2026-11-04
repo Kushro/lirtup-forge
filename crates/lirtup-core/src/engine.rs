@@ -544,7 +544,12 @@ fn warm_up_options(fp16: bool) -> [lirtup_magpiefx::CompileOptions; 4] {
         swap_input,
         swap_output,
     };
-    [options(false, false), options(true, false), options(false, true), options(true, true)]
+    [
+        options(false, false),
+        options(true, false),
+        options(false, true),
+        options(true, true),
+    ]
 }
 
 /// `modes` with the entry of the previewed mode replaced by its unsaved
@@ -1835,7 +1840,10 @@ mod tests {
             let mut combos: Vec<(bool, bool)> = all.iter().map(|o| (o.swap_input, o.swap_output)).collect();
             combos.sort_unstable();
             combos.dedup();
-            assert_eq!(combos, [(false, false), (false, true), (true, false), (true, true)]);
+            assert_eq!(
+                combos,
+                [(false, false), (false, true), (true, false), (true, true)]
+            );
         }
     }
 

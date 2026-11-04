@@ -67,7 +67,10 @@ fn expected(port: &PortEffect) -> EffectSpec {
 /// Translate `map` and read its chain back the way a session does.
 fn translated_chain(mut map: Mapping) -> Vec<EffectSpec> {
     let mut warnings: Vec<ConfigWarning> = Vec::new();
-    assert!(legacy::translate_native(&mut map, &mut warnings), "nothing translated");
+    assert!(
+        legacy::translate_native(&mut map, &mut warnings),
+        "nothing translated"
+    );
     assert!(warnings.is_empty(), "warnings: {warnings:?}");
     assert!(!legacy::has_legacy_keys(&map), "legacy keys left: {map:?}");
     let (config, warnings) = Config::from_mapping(&map);
@@ -289,8 +292,8 @@ fn max_difference(gpu: &Gpu<'_>, port: &PortEffect) -> Result<u8, String> {
         .catalog
         .resolve(port.magpie_name())
         .map_err(|e| format!("catalog: {e}"))?;
-    let compiled =
-        compile_effect_with(&entry, gpu.compilers, gpu.cache, &options).map_err(|e| format!("compile: {e}"))?;
+    let compiled = compile_effect_with(&entry, gpu.compilers, gpu.cache, &options)
+        .map_err(|e| format!("compile: {e}"))?;
     if !compiled.input_swapped() || !compiled.output_swapped() {
         return Err("the red/blue swap was not folded into the shaders".to_owned());
     }
@@ -371,7 +374,12 @@ fn ports_match_magpiefx() {
             Err(e) => failures.push(format!("{label}: {e}")),
         }
     }
-    assert!(failures.is_empty(), "{} failed:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 #[test]
