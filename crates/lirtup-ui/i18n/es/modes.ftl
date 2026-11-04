@@ -63,14 +63,19 @@ modes-kernel-radius-force = Forzar el radio
 
 ## Efectos
 modes-section-effects = Efectos de Magpie
-modes-engine = Motor de efectos
-modes-engine-native = Nativo
-modes-engine-magpiefx = MagpieFX
-modes-engine-magpiefx-help = ejecuta los .hlsl de Magpie sin modificarlos · { $count } efectos en el catálogo ({ $verified } verificados; los demás llevan «Sin probar») y los tuyos en ~/.config/linux-rt-upscaler/effects · compila la primera vez (dxc o glslangValidator).
-modes-engine-magpiefx-help-unloaded = ejecuta los .hlsl de Magpie sin modificarlos, los del catálogo y los tuyos en ~/.config/linux-rt-upscaler/effects · compila la primera vez (dxc o glslangValidator).
-modes-engine-native-help = precompilado, carga al instante, controles afinados · solo 3 efectos por ahora.
+modes-effects-help = ejecuta los .hlsl de Magpie sin modificarlos · { $count } efectos en el catálogo ({ $verified } verificados; los demás llevan «Sin probar») y los tuyos en ~/.config/linux-rt-upscaler/effects · los incluidos vienen precompilados; los que agregues o edites se compilan la primera vez (dxc o glslangValidator).
+modes-effects-help-unloaded = ejecuta los .hlsl de Magpie sin modificarlos, los del catálogo y los tuyos en ~/.config/linux-rt-upscaler/effects · los incluidos vienen precompilados; los que agregues o edites se compilan la primera vez (dxc o glslangValidator).
+modes-legacy-banner = Este modo tiene ajustes del motor de efectos nativo, que ya no existe. Al escalar se aplican como efectos MagpieFX (los ves abajo, sin poder editarlos); migrá la configuración para editarlos acá.
+modes-legacy-migrate = Migrar…
 modes-chain-label = Cadena de efectos
-modes-chain-empty = La cadena está vacía. Agrega un efecto del catálogo.
+modes-chain-before = Antes del modelo
+modes-chain-before-help = Sobre la captura, a la resolución del juego; el modelo recibe el resultado.
+modes-chain-before-empty = Nada antes del modelo.
+modes-chain-after = Después del modelo
+modes-chain-after-help = Sobre la salida del modelo, antes del escalado final.
+modes-chain-empty = Nada después del modelo.
+modes-chain-model = Modelo { $model } · { $scale }×
+modes-chain-no-model = Sin modelo: las dos listas corren seguidas, a la resolución del juego.
 modes-add-effect = Agregar efecto…
 modes-untested = Sin probar
 modes-effect-user = Tuyo
@@ -89,6 +94,8 @@ modes-effect-overrides = { $count ->
 modes-effect-move = Mover { $name } (flechas arriba y abajo)
 modes-effect-up = Subir
 modes-effect-down = Bajar
+modes-effect-to-before = Mover antes del modelo
+modes-effect-to-after = Mover después del modelo
 modes-effect-remove = Quitar { $name }
 modes-effect-params-toggle = Parámetros de { $name }
 modes-effect-param-default = predeterminado: { $value }
@@ -102,35 +109,6 @@ modes-effect-missing = No está en el catálogo: la sesión lo va a saltar.
 modes-total = Total ≈ { $ms }/cuadro
 modes-total-unknown = Sin medir en esta GPU
 modes-measure = Medir en mi GPU
-
-## Nativo
-modes-anime4k = Anime4K_Upscale_S
-modes-anime4k-help = Escala 2× · anime y arte lineal
-modes-luma-sharpen = LumaSharpen
-modes-luma-sharpen-help = Máscara de enfoque sobre la luminancia
-modes-luma-sharpen-strength = Magnitud
-modes-luma-sharpen-clamp = Límite por píxel
-modes-luma-sharpen-pattern = Patrón de muestras
-modes-luma-sharpen-offset-bias = Radio del patrón
-modes-crt = CRT-Easymode
-modes-crt-help = Máscara y líneas de un monitor CRT; reemplaza el escalado final
-modes-crt-sharpness-h = Nitidez horizontal
-modes-crt-sharpness-v = Nitidez vertical
-modes-crt-mask-strength = Intensidad de la máscara
-modes-crt-mask-dot-width = Ancho del punto
-modes-crt-mask-dot-height = Alto del punto
-modes-crt-mask-stagger = Desfase de la máscara
-modes-crt-mask-size = Tamaño de la máscara
-modes-crt-scanline-strength = Intensidad de las líneas
-modes-crt-beam-min = Haz mínimo
-modes-crt-beam-max = Haz máximo
-modes-crt-bright-min = Brillo mínimo
-modes-crt-bright-max = Brillo máximo
-modes-crt-cutoff = Corte de líneas
-modes-crt-gamma-input = Gamma de entrada
-modes-crt-gamma-output = Gamma de salida
-modes-crt-bright-boost = Refuerzo de brillo
-modes-crt-dilation = Dilatación
 
 ## Retoque final
 modes-section-final = Retoque final
@@ -167,9 +145,6 @@ modes-lut-cyano = Cianotipia
 
 ## Pasadas en la medición
 modes-pass-deband = Supresión de bandas
-modes-pass-anime4k = Anime4K
-modes-pass-luma_sharpen = LumaSharpen
-modes-pass-crt_easymode = CRT-Easymode
 modes-pass-cas = CAS
 modes-pass-bloom = Resplandor
 modes-pass-vignette = Viñetado
@@ -203,7 +178,7 @@ modes-cancel = Cancelar
 ## Medir en mi GPU
 bench-title = Medir en mi GPU
 bench-what-mode = Mide cada pasada del modo «{ $name }» con una imagen de prueba.
-bench-what-native = Mide las pasadas nativas con una imagen de prueba.
+bench-what-native = Mide LumaSharpen, Anime4K_Upscale_S y CRT_Easymode (MagpieFX) con una imagen de prueba.
 bench-sizes = Tamaños
 bench-framegen = Incluir la generación de cuadros
 bench-framegen-help = ×2 a ×4, con los dos modelos; tarda bastante más

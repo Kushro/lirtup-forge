@@ -2,11 +2,14 @@
 
 A **mode** is how a window is processed, in order:
 
-1. the SRCNN model, which doubles the size (or quadruples it with two passes);
-2. the sampling filters that fit the result to the output size;
-3. the Magpie effects;
-4. the finishing touches: CAS sharpening, bloom, vignette, film grain and a
-   color LUT, plus debanding, which runs on the source before the model.
+1. the Magpie effects **before the model**, on the captured image at the
+   game's resolution (none by default);
+2. the SRCNN model, which doubles the size (or quadruples it with two passes);
+3. debanding, then the Magpie effects **after the model**, on the model's
+   output;
+4. the sampling filters that fit the result to the output size;
+5. the finishing touches: CAS sharpening, bloom, vignette, film grain and a
+   color LUT.
 
 Each mode is a file in `~/.config/linux-rt-upscaler/modes/<id>.yaml`, and each
 profile names one with `mode: <id>`. Several profiles can share a mode: the
@@ -63,21 +66,50 @@ anti-ringing strength and the Lanczos radius.
 
 ## Magpie effects
 
-The effects of [Magpie](https://github.com/Blinue/Magpie) run through one of
-two engines; only the selected one runs:
+The effects of [Magpie](https://github.com/Blinue/Magpie) run through
+MagpieFX, which runs Magpie's `.hlsl` files unmodified: the 117 bundled with
+Magpie and any you add. Anime4K_Upscale_S, LumaSharpen and CRT_Easymode are
+three of them; the separate «native» engine of 2.1 and earlier is gone.
 
-| | Native | MagpieFX |
-| --- | --- | --- |
-| How | Each effect ported by hand | Magpie's `.hlsl` files run unmodified by a generic loader |
-| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | The 117 bundled with Magpie, plus any you add |
-| Loading | Instant | Compiled on first use (`dxc`, or `glslang` as fallback), then cached |
-| Settings | Tuned controls | Controls generated from each effect's parameters |
+The chain has two segments, with the model between them:
 
-With MagpieFX, *Add effect* opens the catalog: the bundled effects (installed
+- **Before the model** (`magpie_effects_before_model`): on the captured image,
+  at the game's resolution; the model gets the result. Cheap, since the image
+  is small, and what the model sees changes (a sharpen or a denoise here is
+  then upscaled).
+- **After the model** (`magpie_effects`): on the model's output, before the
+  final scaling. This is where effects went before, and where new ones go.
+
+The row between the segments names the model and its scale. With the model
+set to `none`, both segments run one after the other at the game's
+resolution.
+
+*Add effect* in each segment opens the catalog: the bundled effects (installed
 in `/usr/share/lirtup/effects`) and yours, from
-`~/.config/linux-rt-upscaler/effects/`. Drag the cards to reorder the chain,
-or use their up and down buttons. Each card shows its GPU time and its
-parameters; changing one applies at once, without recompiling.
+`~/.config/linux-rt-upscaler/effects/`. Drag the cards to reorder a segment,
+or use their up and down buttons. The `swap_vert` button of a card moves it
+to the end of the other segment; you can also drag a card onto a card of the
+other segment (it goes before it) or onto the other segment's title (it goes
+last). An effect can be in both segments; it then runs twice. Each card shows
+its GPU time and its parameters; changing one applies at once, without
+recompiling. If the session had to disable an effect, its card says so with
+the error, in every segment where it appears.
+
+The bundled effects come precompiled; the ones you add or edit compile the
+first time (`dxc`, or `glslang` as fallback) and are then cached.
+
+With a chain before the model, the scaler processes the whole frame instead
+of only the tiles that changed (an effect that looks at neighbouring pixels
+would leave seams between tiles).
+
+### Modes from 2.1 with native effects
+
+A mode file that still has settings of the retired native engine
+(`effects_engine`, `anime4k_enabled`, `luma_sharpen_*`, `crt_*`) keeps
+working: scaling applies them as the same MagpieFX effects, after the model.
+The editor shows that chain read-only with a banner; *Migrate…* rewrites the
+files (with a backup) so you can edit it here. See
+[Migrating](migration.md).
 
 Details, the compilers and the effects that need `dxc`:
 [MagpieFX effects](magpiefx.md).
@@ -89,6 +121,14 @@ your GPU and saves the results per GPU. The costs shown in the mode list and
 the effect cards then come from your GPU instead of the reference numbers. The
 measurement runs in its own process (`lirtup bench`), so the app keeps
 responding, and *Cancel* stops it.
+
+Every MagpieFX effect is measured at the size of the test image, which stands
+for the captured window. An effect before the model costs what was measured;
+one after the model runs on an image 2× larger per side (4× with *Double
+upscale*, 1× without a model), so its card and the total count 4× (16×, 1×)
+its measurement. This is an estimate: an effect that changes the size itself
+(Anime4K_Upscale_S doubles it) is not followed through the rest of its
+segment.
 
 ## Frame generation
 
@@ -133,5 +173,5 @@ GPU time of each frame; with heavy effects the layer keeps more frames.
 ## Finishing touches
 
 CAS sharpening, bloom, vignette, film grain and a color LUT (one of the
-built-in presets) run last, on the output image. Debanding runs first, on the
-captured image, before the model.
+built-in presets) run last, on the output image. Debanding runs on the
+model's output, before the effects after the model.

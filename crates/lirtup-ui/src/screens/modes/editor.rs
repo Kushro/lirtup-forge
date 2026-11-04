@@ -1,22 +1,27 @@
 //! The editor of one mode: header (rename, duplicate, delete), the shared
-//! mode banner, Modelo, Muestreo, the effects (engine, native passes or the
-//! MagpieFX chain, the total and «Medir en mi GPU») and Retoque final.
+//! mode banner, Modelo, Muestreo, the effects (the MagpieFX chain before
+//! and after the model, the total and «Medir en mi GPU») and Retoque final.
+//!
+//! A mode file that still has settings of the retired native effects
+//! engine shows a banner with «Migrar…» and its chain read-only, as the
+//! read-time translation runs it: an edit to the chain would be overridden
+//! by that translation until the files are migrated.
 //!
 //! Every row edits `Scope::Mode(id)` with `SetField`, `Inherit` and
 //! `Revert`; the save bar of the frame saves (front C's `save_bar_scope`).
 
 use dioxus::prelude::*;
-use lirtup_config::{Downsampler, EffectsEngine, MagpieEffectSpec, ModeSettings, Model, Upsampler};
+use lirtup_config::{Downsampler, MagpieEffectSpec, ModeSettings, Model, Upsampler};
 
-use super::chain::{CHAIN_KEY, EffectChain, chain_names};
+use super::chain::{CHAIN_KEY, ChainLists, EffectChain, PRE_CHAIN_KEY, chain_names, translated_lists};
 use super::costs::{Costs, use_costs};
 use super::widgets::{
     CostBadge, Num, NumberRow, SwitchRow, fmt_ms, inherit, use_control, use_origin, use_value, yaml,
 };
 use crate::app::{use_dispatch, use_store};
 use crate::components::{
-    Button, ButtonVariant, Connected, IconButton, IconButtonVariant, Select, SettingGroup, SettingRow,
-    Slider, Switch, TextField,
+    Button, ButtonVariant, IconButton, IconButtonVariant, Select, SettingGroup, SettingRow, Slider,
+    Switch, TextField,
 };
 use crate::i18n::tr;
 use crate::route::{ModeId, ProfileRef, Route};
@@ -38,183 +43,11 @@ pub(crate) struct Toggle {
     pub title: &'static str,
     /// Fluent key of the help text.
     pub subtitle: Option<&'static str>,
-    /// Its label in the bench (`cas`, `anime4k`...).
+    /// Its label in the bench (`cas`, `deband`...).
     pub bench: &'static str,
     /// Its settings.
     pub params: &'static [Num],
 }
-
-/// The native passes of the «Nativo» engine.
-pub(crate) const NATIVE: &[Toggle] = &[
-    Toggle {
-        key: "anime4k_enabled",
-        icon: "auto_awesome",
-        title: "modes-anime4k",
-        subtitle: Some("modes-anime4k-help"),
-        bench: "anime4k",
-        params: &[],
-    },
-    Toggle {
-        key: "luma_sharpen_enabled",
-        icon: "deblur",
-        title: "modes-luma-sharpen",
-        subtitle: Some("modes-luma-sharpen-help"),
-        bench: "luma_sharpen",
-        params: &[
-            Num::float(
-                "luma_sharpen_strength",
-                "tune",
-                "modes-luma-sharpen-strength",
-                0.0,
-                3.0,
-                0.05,
-            ),
-            Num::float(
-                "luma_sharpen_clamp",
-                "vertical_align_center",
-                "modes-luma-sharpen-clamp",
-                0.0,
-                1.0,
-                0.005,
-            ),
-            Num::int(
-                "luma_sharpen_pattern",
-                "grid_on",
-                "modes-luma-sharpen-pattern",
-                0.0,
-                3.0,
-            ),
-            Num::float(
-                "luma_sharpen_offset_bias",
-                "open_with",
-                "modes-luma-sharpen-offset-bias",
-                0.0,
-                6.0,
-                0.1,
-            ),
-        ],
-    },
-    Toggle {
-        key: "crt_enabled",
-        icon: "tv",
-        title: "modes-crt",
-        subtitle: Some("modes-crt-help"),
-        bench: "crt_easymode",
-        params: &[
-            Num::float(
-                "crt_sharpness_h",
-                "swap_horiz",
-                "modes-crt-sharpness-h",
-                0.0,
-                1.0,
-                0.05,
-            ),
-            Num::float(
-                "crt_sharpness_v",
-                "swap_vert",
-                "modes-crt-sharpness-v",
-                0.0,
-                1.0,
-                0.05,
-            ),
-            Num::float(
-                "crt_mask_strength",
-                "texture",
-                "modes-crt-mask-strength",
-                0.0,
-                1.0,
-                0.01,
-            ),
-            Num::int(
-                "crt_mask_dot_width",
-                "width",
-                "modes-crt-mask-dot-width",
-                1.0,
-                100.0,
-            ),
-            Num::int(
-                "crt_mask_dot_height",
-                "height",
-                "modes-crt-mask-dot-height",
-                1.0,
-                100.0,
-            ),
-            Num::int(
-                "crt_mask_stagger",
-                "view_week",
-                "modes-crt-mask-stagger",
-                0.0,
-                100.0,
-            ),
-            Num::int("crt_mask_size", "zoom_out_map", "modes-crt-mask-size", 1.0, 100.0),
-            Num::float(
-                "crt_scanline_strength",
-                "line_weight",
-                "modes-crt-scanline-strength",
-                0.0,
-                1.0,
-                0.05,
-            ),
-            Num::float(
-                "crt_scanline_beam_width_min",
-                "line_start",
-                "modes-crt-beam-min",
-                0.5,
-                5.0,
-                0.1,
-            ),
-            Num::float(
-                "crt_scanline_beam_width_max",
-                "line_end",
-                "modes-crt-beam-max",
-                0.5,
-                5.0,
-                0.1,
-            ),
-            Num::float(
-                "crt_scanline_bright_min",
-                "brightness_low",
-                "modes-crt-bright-min",
-                0.0,
-                1.0,
-                0.05,
-            ),
-            Num::float(
-                "crt_scanline_bright_max",
-                "brightness_high",
-                "modes-crt-bright-max",
-                0.0,
-                1.0,
-                0.05,
-            ),
-            Num::int(
-                "crt_scanline_cutoff",
-                "content_cut",
-                "modes-crt-cutoff",
-                1.0,
-                1000.0,
-            ),
-            Num::float("crt_gamma_input", "input", "modes-crt-gamma-input", 0.1, 5.0, 0.1),
-            Num::float(
-                "crt_gamma_output",
-                "output",
-                "modes-crt-gamma-output",
-                0.1,
-                5.0,
-                0.1,
-            ),
-            Num::float(
-                "crt_bright_boost",
-                "exposure_plus_1",
-                "modes-crt-bright-boost",
-                1.0,
-                2.0,
-                0.05,
-            ),
-            Num::int("crt_dilation", "blur_linear", "modes-crt-dilation", 0.0, 1.0),
-        ],
-    },
-];
 
 /// Retoque final (and debanding, which runs before scaling).
 pub(crate) const FINAL: &[Toggle] = &[
@@ -354,7 +187,6 @@ pub(crate) fn ModeEditor(id: ModeId) -> Element {
 
     let scope = Scope::Mode(id.clone());
     let name = use_value::<String>(scope.clone(), "name".into());
-    let engine = use_value::<EffectsEngine>(scope.clone(), "effects_engine".into());
     let s = store.read();
     let Some(saved) = s.modes.store.get(&id).cloned() else {
         drop(s);
@@ -382,7 +214,7 @@ pub(crate) fn ModeEditor(id: ModeId) -> Element {
                 }
             }
             Section { title: t!("modes-section-sampling"), Sampling { id: id.clone() } }
-            EffectsSection { id: id.clone(), engine: engine(), costs: costs() }
+            EffectsSection { id: id.clone(), costs: costs() }
             Section { title: t!("modes-section-final"),
                 for toggle in FINAL {
                     ToggleGroup { key: "{toggle.key}", scope: scope.clone(), toggle: *toggle, cost: costs.read().native(toggle.bench) }
@@ -707,23 +539,32 @@ fn KernelRadiusRow(scope: Scope) -> Element {
     }
 }
 
-/// Engine choice, its explanation, then the native passes or the chain,
-/// the total and «Medir en mi GPU».
+/// The help paragraph, the old-keys banner, the chain (both segments), the
+/// total and «Medir en mi GPU».
 #[component]
-fn EffectsSection(id: ModeId, engine: EffectsEngine, costs: Costs) -> Element {
+fn EffectsSection(id: ModeId, costs: Costs) -> Element {
     let store = use_store();
     let dispatch = use_dispatch();
-    let scope = Scope::Mode(id.clone());
-    let engine_value = use_value::<EffectsEngine>(scope.clone(), "effects_engine".into());
-    let control = use_control(engine_value, |e| *e);
     let settings = use_mode_settings(id.clone());
-    let chain = chain_names(&settings.read().magpie_effects);
-    let total = costs.mode(&settings.read(), &chain);
+    // The chain as the read-time translation runs it, while the file still
+    // has native-engine keys.
+    let legacy = {
+        let s = store.read();
+        s.modes.store.raw.get(&id).and_then(translated_lists)
+    };
+    let (pre, post) = {
+        let settings = settings.read();
+        let lists = legacy.clone().unwrap_or_else(|| ChainLists {
+            pre: settings.magpie_effects_before_model.clone(),
+            post: settings.magpie_effects.clone(),
+        });
+        (chain_names(&lists.pre), chain_names(&lists.post))
+    };
+    let total = costs.mode(&settings.read(), &pre, &post);
     let (catalog, verified) = {
         let s = store.read();
         (s.effects.len(), s.effects.iter().filter(|e| e.verified).count())
     };
-    let set_scope = scope.clone();
     let bench_id = id.clone();
     let summary = {
         let mut parts = Vec::new();
@@ -737,44 +578,19 @@ fn EffectsSection(id: ModeId, engine: EffectsEngine, costs: Costs) -> Element {
         parts.join(" · ")
     };
     rsx! {
-        Section {
-            title: t!("modes-section-effects"),
-            trailing: rsx! {
-                Connected {
-                    options: vec![
-                        (EffectsEngine::Native, t!("modes-engine-native")),
-                        (EffectsEngine::Magpiefx, t!("modes-engine-magpiefx")),
-                    ],
-                    value: control,
-                    label: t!("modes-engine"),
-                    on_change: move |e: EffectsEngine| dispatch(Action::SetField {
-                        scope: set_scope.clone(),
-                        key: "effects_engine".into(),
-                        value: yaml(e),
-                    }),
-                }
-            },
-            div { class: "flex flex-wrap gap-x-6 gap-y-2 px-5 py-4 rounded-lg-inc bg-surface-container-high",
-                p { class: "t-bs m-0 flex-[1_1_240px]",
-                    b { {t!("modes-engine-magpiefx")} ": " }
-                    if catalog > 0 {
-                        {t!("modes-engine-magpiefx-help", count = catalog, verified = verified)}
-                    } else {
-                        {t!("modes-engine-magpiefx-help-unloaded")}
-                    }
-                }
-                p { class: "t-bs m-0 flex-[1_1_240px] text-on-surface-variant",
-                    b { {t!("modes-engine-native")} ": " }
-                    {t!("modes-engine-native-help")}
+        Section { title: t!("modes-section-effects"),
+            p { class: "t-bs m-0 px-5 py-4 rounded-lg-inc bg-surface-container-high",
+                b { "MagpieFX: " }
+                if catalog > 0 {
+                    {t!("modes-effects-help", count = catalog, verified = verified)}
+                } else {
+                    {t!("modes-effects-help-unloaded")}
                 }
             }
-            if engine == EffectsEngine::Magpiefx {
-                EffectChain { id: id.clone(), costs: costs.clone() }
-            } else {
-                for toggle in NATIVE {
-                    ToggleGroup { key: "{toggle.key}", scope: scope.clone(), toggle: *toggle, cost: costs.native(toggle.bench) }
-                }
+            if legacy.is_some() {
+                LegacyBanner {}
             }
+            EffectChain { id: id.clone(), costs: costs.clone(), read_only: legacy }
             div { class: "flex flex-wrap items-center gap-2 justify-end",
                 span { class: "t-bs mono text-on-surface-variant", "{summary}" }
                 Button {
@@ -783,6 +599,33 @@ fn EffectsSection(id: ModeId, engine: EffectsEngine, costs: Costs) -> Element {
                     icon: "speed",
                     onclick: move |_| dispatch(Action::OpenDialog(Dialog::Bench { mode: Some(bench_id.clone()) })),
                 }
+            }
+        }
+    }
+}
+
+/// «Este modo tiene ajustes del motor de efectos nativo…» with «Migrar…»
+/// (the migration dialog with the plan of the files as saved).
+#[component]
+fn LegacyBanner() -> Element {
+    let store = use_store();
+    let dispatch = use_dispatch();
+    rsx! {
+        div {
+            class: "flex flex-wrap items-center gap-3 px-5 py-4 rounded-lg-inc bg-tertiary-container text-on-tertiary-container",
+            role: "status",
+            span { class: "flex-[1_1_260px] t-bm", {t!("modes-legacy-banner")} }
+            Button {
+                label: t!("modes-legacy-migrate"),
+                variant: ButtonVariant::Tertiary,
+                icon: "update",
+                onclick: move |_| {
+                    let plan = {
+                        let s = store.read();
+                        lirtup_config::migrate::plan(&s.config.file, &s.modes.store)
+                    };
+                    dispatch(Action::OpenDialog(Dialog::Migrate(plan)));
+                },
             }
         }
     }
@@ -800,14 +643,15 @@ fn use_mode_settings(id: ModeId) -> Memo<ModeSettings> {
             .get(&id)
             .map(|m| m.settings.clone())
             .unwrap_or_default();
-        settings.effects_engine = s.field::<EffectsEngine>(&scope, "effects_engine").value();
+        settings.model = s.field::<Model>(&scope, "model").value();
+        settings.double_upscale = s.field::<bool>(&scope, "double_upscale").value();
         settings.magpie_effects = s.field::<Vec<MagpieEffectSpec>>(&scope, CHAIN_KEY).value();
-        for toggle in NATIVE.iter().chain(FINAL) {
+        settings.magpie_effects_before_model = s
+            .field::<Vec<MagpieEffectSpec>>(&scope, PRE_CHAIN_KEY)
+            .value();
+        for toggle in FINAL {
             let on = s.field::<bool>(&scope, toggle.key).value();
             match toggle.key {
-                "anime4k_enabled" => settings.anime4k_enabled = on,
-                "luma_sharpen_enabled" => settings.luma_sharpen_enabled = on,
-                "crt_enabled" => settings.crt_enabled = on,
                 "cas_enabled" => settings.cas_enabled = on,
                 "deband_enabled" => settings.deband_enabled = on,
                 "bloom_enabled" => settings.bloom_enabled = on,
@@ -878,7 +722,7 @@ mod tests {
     #[test]
     fn every_setting_has_its_text() {
         let mut keys: Vec<&str> = Vec::new();
-        for toggle in NATIVE.iter().chain(FINAL) {
+        for toggle in FINAL {
             keys.push(toggle.title);
             keys.extend(toggle.subtitle);
             keys.extend(toggle.params.iter().map(|n| n.title));
@@ -893,7 +737,7 @@ mod tests {
 
     #[test]
     fn toggles_are_mode_keys() {
-        for toggle in NATIVE.iter().chain(FINAL) {
+        for toggle in FINAL {
             assert!(lirtup_config::MODE_KEYS.contains(&toggle.key), "{}", toggle.key);
             for num in toggle.params {
                 assert!(lirtup_config::MODE_KEYS.contains(&num.key), "{}", num.key);

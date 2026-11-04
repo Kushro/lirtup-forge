@@ -6,32 +6,56 @@ effects are loaded unmodified: the loader reads the directives, generates
 one compute shader per pass, compiles it to SPIR-V at runtime and runs all
 passes on the GPU.
 
-The MagpieFX chain runs on the captured (and optionally upscaled and
-debanded) frame, **before** the final scaler, so an effect that changes the
-size (e.g. `Anime4K_Upscale_S`, 2x) hands a larger image to the scaler.
+MagpieFX is the only effects engine: the hand-written «native» ports of
+LumaSharpen, Anime4K_Upscale_S and CRT_Easymode that 2.1 and earlier offered
+as an alternative are gone, and those three effects run through MagpieFX
+like the other 114.
 
-## Native or MagpieFX
+## Where the chain runs
 
-The Magpie effects come in two engines, and only the selected one runs
-(`effects_engine` in the config, `--effects-engine` on the CLI, or *Engine*
-in the GUI's mode editor):
+A mode has two MagpieFX lists, and a frame goes through them in this order:
 
-| | Native | MagpieFX |
-|---|---|---|
-| Effects | LumaSharpen, Anime4K_Upscale_S, CRT_Easymode | All 117 of Magpie bundled, plus any MagpieFX `.hlsl` you add |
-| Loading | Precompiled, instant | Compiled on first load, then cached |
-| Out-of-range writes | Bounds-checked | Rely on the driver discarding them |
-| Settings | `anime4k_enabled`, `luma_sharpen_*`, `crt_*` | `magpie_effects` chain |
+```text
+capture ─▶ [magpie_effects_before_model] ─▶ model (SRCNN, or none)
+        ─▶ [deband] ─▶ [magpie_effects] ─▶ final scaler ─▶ [CAS, bloom, vignette]
+        ─▶ [LUT, grain] ─▶ screen
+```
 
-Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, dxc):
+- `magpie_effects_before_model` (empty by default) runs on the captured frame,
+  at the game's resolution; the model upscales its result. With a list here,
+  the scaler processes the whole frame instead of only the tiles that
+  changed.
+- `magpie_effects` runs on the model's output (debanded if deband is on),
+  before the final scaler, so an effect that changes the size (e.g.
+  `Anime4K_Upscale_S`, 2x) hands a larger image to the scaler.
 
-| Effect | Native | MagpieFX |
-|---|---|---|
-| LumaSharpen | 0.016 | 0.016 |
-| Anime4K_Upscale_S | 0.145 | 0.142 |
-| CRT_Easymode | 0.122 | 0.118 |
+With `model: none` both lists run one after the other on the captured frame.
+An effect can be in both lists; it then runs twice. In the GUI, the mode
+editor shows the two lists as two segments, *Before the model* and *After the
+model*, and a card moves between them with its `swap_vert` button or by
+dragging it ([Scaling modes](modes.md#magpie-effects)).
 
-The rest of this page is about the MagpieFX engine.
+Reference GPU time (ms/frame, 1280x720 to 2560x1440, AMD RX 9070 XT, dxc,
+after the model):
+
+| Effect | MagpieFX |
+|---|---|
+| Sharpen/LumaSharpen | 0.016 |
+| Anime4K/Anime4K_Upscale_S | 0.142 |
+| CRT/CRT_Easymode | 0.118 |
+
+### Files from 2.1 with native effects
+
+Files that still use the old keys (`effects_engine`, `anime4k_enabled`,
+`luma_sharpen_*`, `crt_*`) keep working: when the configuration is read,
+the native effects that were on become the same MagpieFX effects in
+`magpie_effects`, in the old order (Anime4K, LumaSharpen, CRT) and with the
+same parameters; with `effects_engine: magpiefx` the chain is kept as it
+was. `lirtup migrate` (or *Migrate…* in the GUI) rewrites the files that
+way, with a backup. On the command line the old flags (`--effects-engine`,
+`--enable-anime4k`, `--enable-luma-sharpen`, `--luma-sharpen-*`,
+`--enable-crt`, `--crt-*`) no longer exist: use `--magpie-effect`. See
+[Configuration](configuration.md) and [Migrating](migration.md).
 
 ## Compilers
 
@@ -87,19 +111,25 @@ files it includes and the lookup textures it reads) or given as a path.
 
 ```bash
 lirtup list effects
-lirtup run --magpie-effect LumaSharpen:sharpStrength=1.0 -t "My game"
-lirtup run --magpie-effect Anime4K_Upscale_S --magpie-effect CRT_Easymode -t "My game"
+lirtup run --magpie-effect Sharpen/LumaSharpen:sharpStrength=1.0 -t "My game"
+lirtup run --magpie-effect Anime4K/Anime4K_Upscale_S --magpie-effect CRT/CRT_Easymode -t "My game"
+lirtup run --magpie-effect-before-model Sharpen/LumaSharpen -t "My game"
 ```
 
-In the YAML configuration:
+In the YAML configuration (or a mode file):
 
 ```yaml
+magpie_effects_before_model:
+  - Sharpen/LumaSharpen
 magpie_effects:
-  - LumaSharpen
-  - name: CRT_Easymode
+  - name: CRT/CRT_Easymode
     params:
       maskStrength: 0.5
 ```
+
+Both lists take the same forms: a name, `Name:param=value,...`, or
+`{name, params}`. The names are the catalog's (`lirtup list effects`); the
+bare file name (`LumaSharpen`) also works.
 
 Parameter names, ranges and defaults are the ones in the effect's
 `//!PARAMETER` blocks. Out-of-range or unknown parameters disable the effect
@@ -111,7 +141,9 @@ chain keeps working.
 ## Measuring performance
 
 - In the GUI: *Measure on my GPU* in *Scaling modes* times every effect on
-  your GPU; the costs on the effect cards then come from it.
+  your GPU; the costs on the effect cards then come from it (an effect after
+  the model counts 4× its measurement with a 2× model, see
+  [Scaling modes](modes.md#measure-on-my-gpu)).
 - While scaling: the stats panel (`Alt`+`Shift`+`I`) shows the GPU time of
   each effect, and `--magpie-profile` (or `magpie_profile: true`) logs the
   median GPU time per effect every 5 seconds.
@@ -172,7 +204,7 @@ backend they fall back to FP32.
 Captured frames travel through the app as BGRA bytes, while MagpieFX effects
 expect RGBA. The loader swaps red and blue inside the generated shaders of
 the first effect (on every read of `INPUT`) and of the last effect (on every
-store to `OUTPUT`), at no measurable cost. Effects that pass `INPUT` or
+store to `OUTPUT`) of each list, at no measurable cost. Effects that pass `INPUT` or
 `OUTPUT` to a function (FXAA) get a separate swap pass instead.
 
 ## Limitations
