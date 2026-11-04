@@ -20,9 +20,16 @@ The hotkeys are global: they work while the game has the focus. Change them in
 | `Alt`+`Shift`+`+` / `-` | Zoom in or out | `zoom_in`, `zoom_out` |
 | `Alt`+`Shift`+`↑` `↓` `←` `→` | Move the image | `offset_up`, `offset_down`, `offset_left`, `offset_right` |
 | `Alt`+`Shift`+`R` | Restore the geometry, zoom and offset | `restore_view` |
+| `Alt`+`Shift`+`N` | Next scaling mode, like the toolbar's *Mode* chip | `mode_next` |
+| `Alt`+`Shift`+`B` | Previous scaling mode | `mode_prev` |
+| `Alt`+`Shift`+`X` | Swap between the current settings and the previous ones ([A/B](#ab-swap)) | `swap_ab` |
+| `Alt`+`Shift`+`C` | Start or end the [split comparison](#split-comparison) | `toggle_compare` |
 
-`start_fullscreen`, `start_windowed` and `toggle_toolbar` are new in 2.0; the
-rest keep the 1.x bindings.
+`start_fullscreen`, `start_windowed` and `toggle_toolbar` are new in 2.0;
+`mode_next`, `mode_prev`, `swap_ab` and `toggle_compare` are new after 2.1.0;
+the rest keep the 1.x bindings. In *Settings* ▸ *Hotkeys* the two mode
+hotkeys are listed under *View*, next to the model, and the A/B and split
+comparison ones under *Compare*.
 
 Hotkeys are written as modifiers and a key joined by `+`. The modifiers are
 `Ctrl`, `Alt`, `Shift` and `Super`; keys follow the X11 key names (`A`,
@@ -58,7 +65,8 @@ hides it at any time). From left to right:
 | Screenshot | Same as `Alt`+`Shift`+`P` |
 | Mode | The scaling mode: a click or the wheel down picks the next one, a right click or the wheel up the previous one. See [trying modes](#trying-modes-in-the-game) |
 | Save | Shown next to *Mode* while it is not the profile's: saves it in the profile |
-| Multiplier | Next frame generation multiplier (off, ×2, ×3, ×4, *Auto*), saved in the configuration |
+| Multiplier | Next frame generation multiplier, saved in the configuration. See [the multiplier](#the-multiplier) |
+| Compare | Start or end the [split comparison](#split-comparison); highlighted while it is on |
 | Hide | Hide the toolbar until the cursor comes back to the edge |
 | To window / fullscreen | Switch between the two |
 | Stop | Stop scaling |
@@ -88,6 +96,62 @@ moment after the last click, so you can skip several modes quickly.
 - A mode with Magpie effects that were never compiled can freeze the image for
   a few seconds the first time; the on-screen message says *preparing
   effects*. After that they are cached ([Magpie effects](magpiefx.md)).
+- `Alt`+`Shift`+`N` and `Alt`+`Shift`+`B` do the same as a click and a right
+  click on the chip, with the same short wait, also while the toolbar is
+  hidden.
+- **With a single mode** there is nothing to go through: the chip (or the
+  hotkeys) only shows *Only one mode: create another in LirtUp Forge*. Create
+  more in the GUI's [Modes](modes.md) page.
+- While you edit a mode in the GUI with *Try live* on, the chip shows a dot
+  and the session uses your unsaved changes; see [modes](modes.md).
+
+### The multiplier
+
+What the *Multiplier* button does depends on the frame generation engine:
+
+- **Built-in engine.** Each click picks the next multiplier (off, ×2, ×3, ×4,
+  *Auto*) and the session uses it at once.
+- **lsfg-vk layer.** The layer reads the multiplier only when the game starts,
+  so a click goes Off → ×2 → ×3 → ×4 → Off (there is no *Auto*, which needs
+  the built-in engine). The button shows the new value right away and the
+  on-screen message says *Frame generation: ×3 (restarts the session…)*.
+  1.2 seconds after the last click the value is saved and the session
+  restarts with it, so you can click several times to skip values. The GUI
+  does the saving and the restart: with the GUI closed nothing changes.
+
+## Comparing settings
+
+Two tools help you judge a change on the same scene. Both compare **A**, the
+settings before the last change (a mode picked from the chip or with the
+hotkeys, a saved edit, a *Try live* preview), with **B**, the current ones.
+Changes made with the model, geometry, zoom or offset hotkeys do not count.
+Nothing is written anywhere: A lasts until the session ends. Before the first
+change the message says *Nothing to compare yet*.
+
+### A/B swap
+
+`Alt`+`Shift`+`X` swaps the current settings with the previous ones, so you
+can blink between them on a live game. The message says which one you see:
+*A: previous settings* or *B: current settings*. Press it again to go back.
+The swap itself is a change, so the side you left becomes the new A.
+
+### Split comparison
+
+The *Compare* button of the toolbar (or `Alt`+`Shift`+`C`) freezes the image
+on the current frame and shows it split in two: **A, the previous settings, on
+the left**, and **B, the current ones, on the right**, divided by a vertical
+line. The message says *Compare: ← previous · current →*.
+
+- **Drag** with the left button anywhere on the image (outside the toolbar) to
+  move the line, or click to put it there. While the comparison is on, the
+  mouse is not forwarded to the game.
+- The game keeps running behind, but the image does not change until the
+  comparison ends. The toolbar, the stats panel and the messages keep
+  working.
+- Press the button or the hotkey again to end it (*Compare ended*). It also
+  ends by itself when the settings change, when you pick another mode, swap
+  A/B, switch window, switch between window and fullscreen, or the window
+  changes size.
 
 ## Stats panel
 

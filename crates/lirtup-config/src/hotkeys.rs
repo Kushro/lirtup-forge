@@ -62,7 +62,8 @@ pub enum HotkeyAction {
 
 impl HotkeyAction {
     /// All actions: activation (2.0), then the 1.x groups (session, view,
-    /// zooming, panning).
+    /// zooming, panning), the bar toggle (2.0) and the live-tuning actions
+    /// (mode next/previous, A/B, split compare), in that order.
     pub const ALL: [HotkeyAction; 20] = [
         HotkeyAction::StartFullscreen,
         HotkeyAction::StartWindowed,
@@ -112,7 +113,8 @@ impl HotkeyAction {
         }
     }
 
-    /// The 1.x default binding.
+    /// The default binding: the 1.x one, or the one chosen when the action
+    /// was added (every default is `Alt+Shift+<key>` and none repeats).
     pub fn default_binding(self) -> &'static str {
         match self {
             HotkeyAction::StartFullscreen => "Alt+Shift+A",
@@ -329,6 +331,41 @@ mod tests {
             let h: Hotkey = action.default_binding().parse().unwrap();
             assert_eq!(h.to_string(), action.default_binding());
             assert_eq!(action.as_str().parse::<HotkeyAction>().unwrap(), action);
+        }
+    }
+
+    #[test]
+    fn live_tuning_actions() {
+        let tuning = [
+            (HotkeyAction::ModeNext, "mode_next", "Alt+Shift+N"),
+            (HotkeyAction::ModePrev, "mode_prev", "Alt+Shift+B"),
+            (HotkeyAction::SwapAb, "swap_ab", "Alt+Shift+X"),
+            (HotkeyAction::ToggleCompare, "toggle_compare", "Alt+Shift+C"),
+        ];
+        // They close `ALL`, in this order.
+        assert_eq!(
+            HotkeyAction::ALL[HotkeyAction::ALL.len() - 4..].to_vec(),
+            tuning.map(|t| t.0).to_vec()
+        );
+        for (action, key, binding) in tuning {
+            assert_eq!(action.as_str(), key);
+            assert_eq!(action.default_binding(), binding);
+            assert_eq!(key.parse::<HotkeyAction>().unwrap(), action);
+            // serde uses the same snake_case name as the YAML key.
+            let yaml = serde_yaml_ng::to_string(&action).unwrap();
+            assert_eq!(yaml.trim(), key);
+            assert_eq!(default_hotkeys()[key], binding);
+        }
+        assert!("mode-next".parse::<HotkeyAction>().is_err());
+    }
+
+    #[test]
+    fn default_bindings_are_unique() {
+        let mut seen: Vec<Hotkey> = Vec::new();
+        for action in HotkeyAction::ALL {
+            let h: Hotkey = action.default_binding().parse().unwrap();
+            assert!(!seen.contains(&h), "{action:?} repeats {h}");
+            seen.push(h);
         }
     }
 

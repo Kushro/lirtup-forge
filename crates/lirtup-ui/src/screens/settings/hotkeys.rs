@@ -1,6 +1,7 @@
 //! Atajos: the hotkeys of `lirtup serve`, in the groups of the design
-//! (Activación, Sesión, Vista, Zoom y desplazamiento), each with a
-//! `HotkeyCapture`.
+//! (Activación, Sesión, Vista, Zoom y desplazamiento, Comparar), each with a
+//! `HotkeyCapture`. The mode hotkeys sit in Vista next to the model; the A/B
+//! and split-compare hotkeys of live tuning have their own group.
 //!
 //! They are the `hotkeys.<action>` keys of *Predeterminado* in
 //! `config.yaml`; an empty binding means unassigned. Ajustes has no save
@@ -47,6 +48,8 @@ pub(crate) const GROUPS: [(&str, &[HotkeyAction]); 5] = [
         "settings-hotkeys-view",
         &[
             HotkeyAction::CycleModel,
+            HotkeyAction::ModeNext,
+            HotkeyAction::ModePrev,
             HotkeyAction::CycleGeometry,
             HotkeyAction::RestoreView,
         ],
@@ -64,12 +67,7 @@ pub(crate) const GROUPS: [(&str, &[HotkeyAction]); 5] = [
     ),
     (
         "settings-hotkeys-tuning",
-        &[
-            HotkeyAction::ModeNext,
-            HotkeyAction::ModePrev,
-            HotkeyAction::SwapAb,
-            HotkeyAction::ToggleCompare,
-        ],
+        &[HotkeyAction::SwapAb, HotkeyAction::ToggleCompare],
     ),
 ];
 
@@ -250,6 +248,35 @@ mod tests {
         for action in HotkeyAction::ALL {
             let key = label_key(action);
             assert!(has_key(Lang::Es, &key) && has_key(Lang::En, &key), "{key}");
+        }
+    }
+
+    #[test]
+    fn live_tuning_hotkeys_are_grouped() {
+        let group_of = |action: HotkeyAction| {
+            GROUPS
+                .iter()
+                .find(|(_, actions)| actions.contains(&action))
+                .map(|(group, _)| *group)
+        };
+        // The mode hotkeys sit next to the model, in Vista.
+        assert_eq!(group_of(HotkeyAction::ModeNext), group_of(HotkeyAction::CycleModel));
+        assert_eq!(group_of(HotkeyAction::ModePrev), group_of(HotkeyAction::CycleModel));
+        // A/B and the split comparison have their own group, the last one.
+        let (last, actions) = GROUPS[GROUPS.len() - 1];
+        assert_eq!(last, "settings-hotkeys-tuning");
+        assert_eq!(actions, &[HotkeyAction::SwapAb, HotkeyAction::ToggleCompare]);
+    }
+
+    #[test]
+    fn default_bindings_do_not_conflict() {
+        let bindings: BTreeMap<_, _> = HotkeyAction::ALL
+            .into_iter()
+            .map(|a| (a, parse(a.default_binding())))
+            .collect();
+        for action in HotkeyAction::ALL {
+            assert!(bindings[&action].is_some(), "{action:?}");
+            assert!(conflicts(&bindings, action).is_empty(), "{action:?}");
         }
     }
 
