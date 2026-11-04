@@ -85,7 +85,7 @@ use lirtup_proto::Stage;
 use lirtup_x11::{CoordinateMapper, Rect, RgbaImage};
 
 use crate::framegen::FrameGen;
-use crate::magpie::{MagpieContext, OutSize, build_magpie_chain, parse_chain, set_chain_params};
+use crate::magpie::{MagpieContext, OutSize, build_magpie_chain, parse_chain, same_names, set_chain_params};
 use crate::surface::SharedSurface;
 use crate::{PipelineError, Result};
 
@@ -305,11 +305,6 @@ fn native_params(effect: &NativeEffect) -> ParamValues {
         ]),
         NativeEffect::Lut { intensity, .. } => p(&[("lut_intensity", f64::from(intensity))]),
     }
-}
-
-/// The same MagpieFX effects in the same order (parameters aside).
-fn same_names(a: &[EffectSpec], b: &[EffectSpec]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.name == y.name)
 }
 
 /// Whether `new` can be applied to passes built for `old` with
@@ -1308,25 +1303,6 @@ mod tests {
         assert_eq!(plan.magpie.len(), 1);
         assert_eq!(plan.magpie[0].name, "Sharpen/LumaSharpen");
         assert!(plan.pre.is_empty());
-    }
-
-    #[test]
-    fn same_names_ignores_the_parameters() {
-        let chain = |items: &[&str]| {
-            parse_chain(
-                &items
-                    .iter()
-                    .map(|s| MagpieEffectSpec::Short((*s).to_owned()))
-                    .collect::<Vec<_>>(),
-            )
-        };
-        let a = chain(&["Sharpen/LumaSharpen:sharpStrength=0.5", "CAS"]);
-        let b = chain(&["Sharpen/LumaSharpen:sharpStrength=1", "CAS"]);
-        assert_ne!(a, b);
-        assert!(same_names(&a, &b));
-        assert!(!same_names(&a, &chain(&["CAS", "Sharpen/LumaSharpen"])));
-        assert!(!same_names(&a, &chain(&["Sharpen/LumaSharpen"])));
-        assert!(same_names(&[], &[]));
     }
 
     #[test]
