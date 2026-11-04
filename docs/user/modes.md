@@ -19,6 +19,24 @@ To compare modes in the game, use the *Mode* chip of the toolbar over the game
 ([Controls](controls.md#trying-modes-in-the-game)): it changes the mode for the
 session only, and *Save* keeps it in the profile.
 
+## Try live
+
+While a session is scaling with a mode, open that mode in the editor: the save
+bar at the bottom shows *Try live*. Turn it on and every change you make in
+the editor shows in the game at once, about 150 ms after you stop moving a
+slider, without writing anything to disk. The toolbar's *Mode* chip and the
+session card on *Home* say *preview* while it is on.
+
+- *Save* writes the mode and ends the preview; the session keeps the saved
+  settings.
+- *Reset*, leaving the editor, closing the app or stopping the session end it,
+  and the session goes back to the mode as saved.
+- If the session switches to another mode (the *Mode* chip, a restart with
+  another profile), the preview ends too.
+
+Only the mode the session is using can be tried live. To try another one,
+pick it first with the *Mode* chip over the game.
+
 ## Model
 
 The slider goes from `none` (no neural network, only the filters) to `8x32`,
@@ -79,6 +97,9 @@ window: Vulkan, OpenGL, emulators or video. Turn it on in a profile's
 `frame_gen_multiplier` in the configuration or with `--frame-gen N`. The
 multiplier is the number of frames shown per captured frame: 2 to 5, or
 *Auto*. It is read when scaling starts, so changing it restarts the session.
+With the lsfg-vk layer, the multiplier chip of the toolbar cycles Off, ×2, ×3
+and ×4; LirtUp Forge must be open to save the choice and restart the session
+([Controls](controls.md)).
 
 There are two engines:
 

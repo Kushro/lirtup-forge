@@ -20,6 +20,7 @@
 //! - `LIRTUP_GUI_EVAL`: a JavaScript file run in the page 2 s after start
 //!   (clicks and key events on the DOM reach the Dioxus handlers).
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use dioxus::desktop::tao::event::{Event as TaoEvent, WindowEvent};
@@ -36,7 +37,7 @@ use crate::i18n::{LANG, Lang};
 use crate::link::{self, CoreLink};
 use crate::route::{ProfileRef, ProfileTab, Route, SettingsTab};
 use crate::screens;
-use crate::state::{Action, Dialog, Effect, LinkState, Store, Toast, Written, update};
+use crate::state::{Action, Dialog, Effect, LinkState, PREVIEW_DEBOUNCE, Store, Toast, Written, update};
 use crate::theme::{self, SCHEME};
 use crate::{thumbs, windows};
 
@@ -44,6 +45,10 @@ use crate::{thumbs, windows};
 const TOAST_TIME: Duration = Duration::from_secs(6);
 /// Below this window width the drawer becomes a rail.
 const RAIL_BELOW: f64 = 1100.0;
+
+/// «Probar en vivo»'s debounce: every `Command::Preview` or `PreviewEnd`
+/// bumps it, and a delayed `Preview` goes out only if nothing came after it.
+static PREVIEW_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Bumped by F2: the profile page opens «Editar perfil».
 pub static EDIT_PROFILE: GlobalSignal<u64> = Signal::global(|| 0);
@@ -294,7 +299,16 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
         }
     }
     match effect {
-        Effect::Send(command) => core.send(command),
+        Effect::Send(command) => {
+            if matches!(
+                command,
+                lirtup_proto::Command::Preview { .. } | lirtup_proto::Command::PreviewEnd
+            ) {
+                // A delayed Preview must not arrive after this one.
+                PREVIEW_GENERATION.fetch_add(1, Ordering::SeqCst);
+            }
+            core.send(command)
+        }
         Effect::WriteConfig(file) => {
             spawn(async move {
                 let result = tokio::task::spawn_blocking(move || file.save()).await;
@@ -338,8 +352,17 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
             });
         }
         Effect::Toast(toast) => dismiss_later(toast, store),
-        // TODO(gui): debounce (PREVIEW_DEBOUNCE, a generation counter).
-        Effect::PreviewLater(command) => core.send(command),
+        Effect::PreviewLater(command) => {
+            let generation = PREVIEW_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+            let core = core.clone();
+            spawn(async move {
+                tokio::time::sleep(PREVIEW_DEBOUNCE).await;
+                // Newer edits replaced it, or the preview ended meanwhile.
+                if PREVIEW_GENERATION.load(Ordering::SeqCst) == generation && store.peek().preview.is_some() {
+                    core.send(command);
+                }
+            });
+        }
         Effect::WriteIcon { path, png } => {
             if !in_icons_dir(&path) {
                 tracing::error!("refusing to touch {} (not in icons/)", path.display());
@@ -708,15 +731,22 @@ fn Page() -> Element {
     }
 }
 
-/// The floating save bar: shown with edits on the page's scope.
+/// The floating save bar: shown with edits on the page's scope, and on the
+/// editor of the mode the session runs, for «Probar en vivo» (live tuning).
 #[component]
 fn SaveBar() -> Element {
     let store = use_store();
     let dispatch = use_dispatch();
     let scope = screens::profile::save_bar_scope(&store.read());
-    let open = scope.is_some();
     let count = scope.as_ref().map_or(0, |(_, n)| *n);
     let route = store.read().route.clone();
+    let previewing = store.read().preview.is_some();
+    let can_preview = previewing || store.read().preview_target().is_some();
+    let open = scope.is_some() || can_preview;
+    let mode_page = match &route {
+        Route::Modes { id: Some(id) } => Some(id.clone()),
+        _ => None,
+    };
     let menu = vec![
         MenuItem::new("tab", t!("savebar-reset-tab")).icon("undo"),
         MenuItem::new("overrides", t!("savebar-remove-overrides")).icon("layers_clear"),
@@ -746,17 +776,40 @@ fn SaveBar() -> Element {
     let reset_main = reset.clone();
     rsx! {
         FloatingToolbar { open,
-            span { class: "dot" }
-            span { class: "t-ll mr-2", {t!("savebar-changes", count = count)} }
-            SplitButton {
-                label: t!("savebar-reset"),
-                variant: ButtonVariant::Outlined,
-                menu_label: t!("savebar-reset-more"),
-                on_click: move |_| reset_main("tab"),
-                menu,
-                on_select: reset,
+            if count > 0 {
+                span { class: "dot" }
+                span { class: "t-ll mr-2", {t!("savebar-changes", count = count)} }
             }
-            Button { label: t!("savebar-save"), title: "Ctrl+S".to_string(), onclick: move |_| dispatch(Action::Save) }
+            if can_preview {
+                Button {
+                    label: t!("savebar-try-live"),
+                    variant: if previewing { ButtonVariant::Tertiary } else { ButtonVariant::Outlined },
+                    icon: if previewing { "visibility" } else { "visibility_off" },
+                    title: t!("savebar-try-live-hint"),
+                    onclick: move |_| dispatch(Action::TogglePreview),
+                }
+            }
+            if count > 0 {
+                if let Some(id) = mode_page {
+                    // A mode page has one layer: Restablecer drops its edits.
+                    Button {
+                        label: t!("savebar-reset"),
+                        variant: ButtonVariant::Outlined,
+                        icon: "undo",
+                        onclick: move |_| dispatch(Action::ResetMode(id.clone())),
+                    }
+                } else {
+                    SplitButton {
+                        label: t!("savebar-reset"),
+                        variant: ButtonVariant::Outlined,
+                        menu_label: t!("savebar-reset-more"),
+                        on_click: move |_| reset_main("tab"),
+                        menu,
+                        on_select: reset,
+                    }
+                }
+                Button { label: t!("savebar-save"), title: "Ctrl+S".to_string(), onclick: move |_| dispatch(Action::Save) }
+            }
         }
     }
 }

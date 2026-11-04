@@ -2,6 +2,7 @@
 //! and running, error-container with the detail and «Reintentar» when the
 //! session failed. Nothing while idle. A mode chosen in the bar over the
 //! game shows as temporary, with «Guardar en …» (the bar's own «save»).
+//! «Probar en vivo» in the mode editor shows a «vista previa» badge.
 
 use dioxus::prelude::*;
 use lirtup_config::Value;
@@ -9,7 +10,7 @@ use lirtup_proto::{Event, SessionView, Stage, StatsSample};
 
 use super::LAST_START;
 use crate::app::{use_dispatch, use_store};
-use crate::components::{Button, ButtonVariant, Icon, LoadingIndicator};
+use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Icon, LoadingIndicator};
 use crate::state::{Action, SessionState, Store};
 
 /// The card.
@@ -54,7 +55,13 @@ pub fn SessionCard() -> Element {
                     }
                     div { class: "flex flex-col gap-0.5 flex-[1_1_280px] min-w-0",
                         span { class: "t-tl truncate", {t!("home-session-running", title = view.window.title.clone())} }
-                        span { class: "mono t-bs", "{line}" }
+                        span { class: "flex flex-wrap items-center gap-2",
+                            span { class: "mono t-bs", "{line}" }
+                            if view.preview {
+                                // «Probar en vivo» of the mode editor: unsaved edits on screen.
+                                Badge { label: t!("home-session-preview"), variant: BadgeVariant::Primary, icon: "visibility" }
+                            }
+                        }
                         if let Some(w) = warning {
                             span { class: "t-bs flex items-center gap-1",
                                 Icon { name: "warning", size: 18 }

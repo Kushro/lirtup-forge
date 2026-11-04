@@ -349,6 +349,9 @@ pub struct Saving {
     /// Send `Restart` after `ReloadConfig` (the frame generation section's
     /// «Guardar y reiniciar»: its settings are read once per session).
     pub restart: bool,
+    /// Send `PreviewEnd` before `ReloadConfig` and turn «Probar en vivo»
+    /// off: the save wrote the previewed mode, its edits are now on disk.
+    pub end_preview: bool,
 }
 
 /// Everything that changes the store.
@@ -421,6 +424,9 @@ pub enum Action {
     /// The «Probar en vivo» toggle of the save bar (the mode editor, with
     /// the session running that mode).
     TogglePreview,
+    /// Restablecer of the save bar on a mode page: drop that mode's unsaved
+    /// edits (and end «Probar en vivo» on it).
+    ResetMode(ModeId),
 
     // ---- profiles and modes ----------------------------------------------
     /// «Crear» of «Nuevo perfil».

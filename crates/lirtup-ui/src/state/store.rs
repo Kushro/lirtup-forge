@@ -33,13 +33,15 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use indexmap::IndexMap;
-use lirtup_config::{Config, ConfigFile, MODE_KEYS, Mapping, Mode, ModeStore, Profile, Value};
+use lirtup_config::{
+    Config, ConfigFile, FrameGenEngine, MODE_KEYS, Mapping, Mode, ModeStore, Profile, Value,
+};
 use lirtup_proto::{Command, Event};
 use lirtup_x11::WindowInfo;
 
 use super::{
     Action, BenchView, CompileState, ConfigDoc, Dialog, Effect, Field, Key, LinkState, ModesDoc, Origin,
-    Saving, Scope, SessionState, Store, Toast, UnsavedChoice, Written,
+    PreviewState, Saving, Scope, SessionState, Store, Toast, UnsavedChoice, Written,
 };
 use crate::route::{ModeId, ProfileName, ProfileRef, ProfileTab, Route};
 
@@ -328,21 +330,34 @@ pub fn apply_edits(file: &ConfigFile, edits: &IndexMap<(ProfileRef, Key), Option
     out
 }
 
+/// One mode file as read with its edits merged in: exactly what Guardar
+/// writes for it ([`apply_mode_edits`]) and what «Probar en vivo» sends
+/// (`Command::Preview`). `None` when the mode is not in the store.
+pub fn merged_mode_raw(
+    modes: &ModeStore,
+    edits: &IndexMap<(String, Key), Option<Value>>,
+    id: &str,
+) -> Option<Mapping> {
+    let mut raw = modes.raw.get(id)?.clone();
+    for ((_, key), value) in edits.iter().filter(|((m, _), _)| m == id) {
+        set_in(&mut raw, key, value.clone());
+    }
+    Some(raw)
+}
+
 /// The modes with their edits merged in, only the ones that changed.
 pub fn apply_mode_edits(
     modes: &ModeStore,
     edits: &IndexMap<(String, Key), Option<Value>>,
 ) -> Vec<(String, lirtup_config::Mode, Mapping)> {
-    let mut changed: IndexMap<String, Mapping> = IndexMap::new();
-    for ((id, key), value) in edits {
-        let Some(raw) = modes.raw.get(id) else {
-            continue;
-        };
-        let layer = changed.entry(id.clone()).or_insert_with(|| raw.clone());
-        set_in(layer, key, value.clone());
+    let mut ids: Vec<&String> = Vec::new();
+    for (id, _) in edits.keys() {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
     }
-    changed
-        .into_iter()
+    ids.into_iter()
+        .filter_map(|id| merged_mode_raw(modes, edits, id).map(|raw| (id.clone(), raw)))
         .filter(|(id, raw)| modes.raw.get(id) != Some(raw))
         .map(|(id, raw)| {
             let (mut mode, _) = Mode::from_mapping(&id, &raw);
@@ -526,6 +541,32 @@ impl Store {
             .iter()
             .filter(|w| matcher.matches(&w.title, w.width(), w.height()))
             .collect()
+    }
+
+    /// The mode «Probar en vivo» can preview now: the page is that mode's
+    /// editor and the running session uses that mode. The save bar shows its
+    /// toggle only then (or while a preview is on).
+    pub fn preview_target(&self) -> Option<ModeId> {
+        let Route::Modes { id: Some(id) } = &self.route else {
+            return None;
+        };
+        let SessionState::Running(view) = &self.session else {
+            return None;
+        };
+        (view.mode.as_deref() == Some(id.as_str()) && self.modes.store.raw.contains_key(id))
+            .then(|| id.clone())
+    }
+
+    /// The `Command::Preview` of mode `id` with its unsaved edits (see
+    /// [`merged_mode_raw`]).
+    pub fn preview_command(&self, id: &str) -> Option<Command> {
+        let raw = merged_mode_raw(&self.modes.store, &self.modes.edits, id)?;
+        let profile = self.preview.as_ref().and_then(|p| p.profile.clone());
+        Some(Command::Preview {
+            profile,
+            mode: id.to_owned(),
+            raw,
+        })
     }
 
     /// The saved value of `key` in a layer (`null` = not set). `match` of a
@@ -767,6 +808,7 @@ fn begin_saving(
                 done,
                 undo_to,
                 restart,
+                end_preview: false,
             });
         }
     }
@@ -804,7 +846,9 @@ fn save(store: &mut Store, restart: bool) -> Option<Effect> {
         store.config.edits.clear();
         effects.push(Effect::WriteConfig(store.config.file.clone()));
     }
+    let mut end_preview = false;
     for (id, mode, raw) in apply_mode_edits(&store.modes.store, &store.modes.edits) {
+        end_preview |= store.preview.as_ref().is_some_and(|p| p.mode == id);
         store.modes.store.raw.insert(id.clone(), raw.clone());
         store.modes.store.modes.insert(id.clone(), mode.clone());
         effects.push(Effect::WriteMode { id, mode, raw });
@@ -819,6 +863,9 @@ fn save(store: &mut Store, restart: bool) -> Option<Effect> {
     };
     done.undo = undo_to.is_some();
     begin_saving(store, before, effects.len(), done, undo_to, restart);
+    if let Some(saving) = &mut store.saving {
+        saving.end_preview |= end_preview;
+    }
     Some(Effect::Many(effects))
 }
 
@@ -873,7 +920,13 @@ fn written(store: &mut Store, result: Result<Written, String>) -> Option<Effect>
         return show(store, toast("toast-write-failed", vec![("error", error)]));
     }
     store.undo = saving.undo_to;
-    let mut effect = send(Command::ReloadConfig);
+    // The previewed mode is on disk now: end the preview first, so the
+    // reload reads the saved file (`ReloadConfig` keeps a preview).
+    let mut effect = None;
+    if saving.end_preview && store.preview.take().is_some() {
+        effect = send(Command::PreviewEnd);
+    }
+    effect = join(effect, send(Command::ReloadConfig));
     if saving.restart && matches!(store.session, SessionState::Running(_)) {
         effect = join(effect, send(Command::Restart));
     }
@@ -1017,7 +1070,13 @@ fn save_setting(store: &mut Store, profile: Option<String>, key: String, value: 
         ProfileRef::Default => toast("profile-toast-setting-default", Vec::new()),
         ProfileRef::Named(name) => toast("profile-toast-setting", vec![("name", name.clone())]),
     };
-    write_structure(store, done, move |file, _| {
+    // The lsfg-vk layer reads the multiplier when the session starts: the
+    // bar's (or the tray's) ×N needs a restart after the reload, as
+    // «Guardar y reiniciar». The built-in engine changes it live.
+    let restart = key == "frame_gen_multiplier"
+        && store.framegen.engine == FrameGenEngine::Layer
+        && matches!(store.session, SessionState::Running(_));
+    let effect = write_structure(store, done, move |file, _| {
         let layer = match &target {
             ProfileRef::Default => Some(&mut file.general),
             ProfileRef::Named(name) => file.profiles.get_mut(name).map(|p| &mut p.options),
@@ -1025,7 +1084,63 @@ fn save_setting(store: &mut Store, profile: Option<String>, key: String, value: 
         if let Some(layer) = layer {
             set_in(layer, &key, Some(value));
         }
-    })
+    });
+    if restart && let Some(saving) = &mut store.saving {
+        saving.restart = true;
+    }
+    effect
+}
+
+/// «Probar en vivo» on or off.
+fn toggle_preview(store: &mut Store) -> Option<Effect> {
+    if store.preview.take().is_some() {
+        return send(Command::PreviewEnd);
+    }
+    let id = store.preview_target()?;
+    let SessionState::Running(view) = &store.session else {
+        return None;
+    };
+    store.preview = Some(PreviewState {
+        mode: id.clone(),
+        profile: view.profile.clone(),
+    });
+    match store.preview_command(&id) {
+        Some(command) => send(command),
+        None => {
+            store.preview = None;
+            None
+        }
+    }
+}
+
+/// An edit of `scope` while «Probar en vivo» is on for it: the edited mode
+/// goes to the session after [`super::PREVIEW_DEBOUNCE`].
+fn preview_edit(store: &Store, scope: &Scope) -> Option<Effect> {
+    let Scope::Mode(id) = scope else {
+        return None;
+    };
+    if store.preview.as_ref()?.mode != *id {
+        return None;
+    }
+    store.preview_command(id).map(Effect::PreviewLater)
+}
+
+/// End «Probar en vivo» when it no longer applies: the page is not that
+/// mode's editor any more, or the session stopped or runs another mode.
+/// `PreviewEnd` goes out only while a session runs (the core drops a
+/// preview with its session).
+fn end_stale_preview(store: &mut Store) -> Option<Effect> {
+    let preview = store.preview.as_ref()?;
+    let on_page = matches!(&store.route, Route::Modes { id: Some(id) } if *id == preview.mode);
+    let (running, same_mode) = match &store.session {
+        SessionState::Running(view) => (true, view.mode.as_deref() == Some(preview.mode.as_str())),
+        _ => (false, false),
+    };
+    if on_page && same_mode && store.modes.store.raw.contains_key(&preview.mode) {
+        return None;
+    }
+    store.preview = None;
+    running.then_some(Effect::Send(Command::PreviewEnd))
 }
 
 /// «Crear» of «Nuevo perfil». The dialog validated the name; a name that
@@ -1354,8 +1469,16 @@ fn gpu_times(store: &mut Store) -> Option<Effect> {
 /// See [`super::update`].
 pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
     let effect = match action {
-        // TODO(gui): block 2d of the live-tuning contract.
-        Action::TogglePreview => None,
+        Action::TogglePreview => toggle_preview(store),
+        Action::ResetMode(id) => {
+            store.modes.edits.retain(|(m, _), _| *m != id);
+            if store.preview.as_ref().is_some_and(|p| p.mode == id) {
+                store.preview = None;
+                send(Command::PreviewEnd)
+            } else {
+                None
+            }
+        }
         // ---- navigation and dialogs -------------------------------------
         Action::Navigate(to) => {
             if !store.route.same_page(&to) && store.page_edits(&store.route) > 0 {
@@ -1404,17 +1527,17 @@ pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
         Action::SetField { scope, key, value } => {
             let scope = effective_scope(&scope, &key);
             store.set_edit(&scope, &key, Some(value));
-            None
+            preview_edit(store, &scope)
         }
         Action::Inherit { scope, key } => {
             let scope = effective_scope(&scope, &key);
             store.set_edit(&scope, &key, None);
-            None
+            preview_edit(store, &scope)
         }
         Action::Revert { scope, key } => {
             let scope = effective_scope(&scope, &key);
             store.revert(&scope, &key);
-            None
+            preview_edit(store, &scope)
         }
         action @ (Action::ResetTab { .. }
         | Action::RemoveProfileOverrides { .. }
@@ -1436,7 +1559,10 @@ pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
                 });
                 store.toast = None;
                 begin_saving(store, before, 1, toast("toast-undone", Vec::new()), None, false);
-                Some(Effect::WriteConfig(file))
+                // «Deshacer» puts the files back: a preview of edits made
+                // since then would not match them.
+                let end = store.preview.take().and_then(|_| send(Command::PreviewEnd));
+                join(end, Some(Effect::WriteConfig(file)))
             }
         },
 
@@ -1599,6 +1725,7 @@ pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
         };
     }
     store.refresh_users();
+    let effect = join(effect, end_stale_preview(store));
     join(effect, gpu_times(store))
 }
 
@@ -2226,6 +2353,412 @@ profiles:
             .position(|e| *e == Effect::Send(Command::Restart))
             .unwrap();
         assert!(reload < restart);
+    }
+
+    // ---- live tuning: the layer's multiplier and «Probar en vivo» --------------
+
+    fn multiplier_from_the_bar(store: &mut Store, value: u64) -> Option<Effect> {
+        update(
+            store,
+            Action::Core(Event::SaveSetting {
+                profile: None,
+                key: "frame_gen_multiplier".into(),
+                value: Value::from(value),
+            }),
+        )
+    }
+
+    #[test]
+    fn the_layers_multiplier_restarts_after_the_reload() {
+        let mut store = store_with(FILE_1X);
+        store.framegen.engine = FrameGenEngine::Layer;
+        store.session = SessionState::Running(session());
+        let effect = multiplier_from_the_bar(&mut store, 3);
+        assert!(!sends(&effect, &Command::Restart));
+        assert_eq!(
+            written_config(effect).general["frame_gen_multiplier"],
+            Value::from(3)
+        );
+        let list = effects(update(&mut store, Action::Written(Ok(Written::Config))));
+        let reload = list
+            .iter()
+            .position(|e| *e == Effect::Send(Command::ReloadConfig))
+            .unwrap();
+        let restart = list
+            .iter()
+            .position(|e| *e == Effect::Send(Command::Restart))
+            .unwrap();
+        assert!(reload < restart);
+    }
+
+    #[test]
+    fn the_multiplier_does_not_restart_with_the_native_engine_or_no_session() {
+        // Built-in engine: it changes live.
+        let mut store = store_with(FILE_1X);
+        store.framegen.engine = FrameGenEngine::Native;
+        store.session = SessionState::Running(session());
+        multiplier_from_the_bar(&mut store, 3);
+        let effect = update(&mut store, Action::Written(Ok(Written::Config)));
+        assert!(sends(&effect, &Command::ReloadConfig));
+        assert!(!sends(&effect, &Command::Restart));
+
+        // No session: nothing to restart.
+        let mut store = store_with(FILE_1X);
+        store.framegen.engine = FrameGenEngine::Layer;
+        multiplier_from_the_bar(&mut store, 2);
+        let effect = update(&mut store, Action::Written(Ok(Written::Config)));
+        assert!(sends(&effect, &Command::ReloadConfig));
+        assert!(!sends(&effect, &Command::Restart));
+
+        // Another key from the bar never restarts.
+        let mut store = store_with(FILE_1X);
+        store.framegen.engine = FrameGenEngine::Layer;
+        store.session = SessionState::Running(session());
+        update(
+            &mut store,
+            Action::Core(Event::SaveSetting {
+                profile: None,
+                key: "show_stats".into(),
+                value: Value::Bool(true),
+            }),
+        );
+        let effect = update(&mut store, Action::Written(Ok(Written::Config)));
+        assert!(!sends(&effect, &Command::Restart));
+    }
+
+    /// Mode `anime` (`name`, `model`), its editor open and a session running
+    /// it.
+    fn previewable() -> Store {
+        let mut store = Store::default();
+        let raw: Mapping = serde_yaml_ng::from_str("name: Anime\nmodel: 4x24\n").unwrap();
+        store
+            .modes
+            .store
+            .modes
+            .insert("anime".into(), Mode::from_mapping("anime", &raw).0);
+        store.modes.store.raw.insert("anime".into(), raw);
+        let crt: Mapping = serde_yaml_ng::from_str("name: CRT\n").unwrap();
+        store
+            .modes
+            .store
+            .modes
+            .insert("crt".into(), Mode::from_mapping("crt", &crt).0);
+        store.modes.store.raw.insert("crt".into(), crt);
+        store.session = SessionState::Running(SessionView {
+            mode: Some("anime".into()),
+            ..session()
+        });
+        store.route = Route::Modes {
+            id: Some("anime".into()),
+        };
+        store
+    }
+
+    fn anime() -> Scope {
+        Scope::Mode("anime".into())
+    }
+
+    fn preview_of(effect: &Option<Effect>) -> Option<(Option<String>, String, Mapping)> {
+        effects(effect.clone()).into_iter().find_map(|e| match e {
+            Effect::Send(Command::Preview { profile, mode, raw }) => Some((profile, mode, raw)),
+            _ => None,
+        })
+    }
+
+    fn preview_later(effect: &Option<Effect>) -> Option<Mapping> {
+        effects(effect.clone()).into_iter().find_map(|e| match e {
+            Effect::PreviewLater(Command::Preview { raw, .. }) => Some(raw),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn try_live_shows_only_on_the_running_modes_editor() {
+        let mut store = previewable();
+        assert_eq!(store.preview_target(), Some("anime".to_string()));
+        store.route = Route::Modes {
+            id: Some("crt".into()),
+        };
+        assert_eq!(store.preview_target(), None);
+        assert_eq!(update(&mut store, Action::TogglePreview), None);
+        assert_eq!(store.preview, None);
+        store.route = Route::Modes {
+            id: Some("anime".into()),
+        };
+        store.session = SessionState::Idle;
+        assert_eq!(store.preview_target(), None);
+        assert_eq!(update(&mut store, Action::TogglePreview), None);
+        assert_eq!(store.preview, None);
+    }
+
+    #[test]
+    fn toggle_preview_sends_the_mode_with_its_edits() {
+        let mut store = previewable();
+        update(
+            &mut store,
+            Action::SetField {
+                scope: anime(),
+                key: "cas_enabled".into(),
+                value: true.into(),
+            },
+        );
+        let effect = update(&mut store, Action::TogglePreview);
+        let (profile, mode, raw) = preview_of(&effect).expect("a Preview");
+        assert_eq!(profile.as_deref(), Some("baldr sky"));
+        assert_eq!(mode, "anime");
+        // The file as read plus the edit: what Guardar would write.
+        let expected = merged_mode_raw(&store.modes.store, &store.modes.edits, "anime").unwrap();
+        assert_eq!(raw, expected);
+        assert_eq!(raw["cas_enabled"], Value::Bool(true));
+        assert_eq!(raw["model"], Value::from("4x24"));
+        assert_eq!(raw["name"], Value::from("Anime"));
+        assert_eq!(
+            store.preview,
+            Some(PreviewState {
+                mode: "anime".into(),
+                profile: Some("baldr sky".into()),
+            })
+        );
+
+        // Off: PreviewEnd at once.
+        let effect = update(&mut store, Action::TogglePreview);
+        assert!(sends(&effect, &Command::PreviewEnd));
+        assert_eq!(store.preview, None);
+    }
+
+    #[test]
+    fn edits_while_previewing_send_a_delayed_preview() {
+        let mut store = previewable();
+        // Not previewing: an edit sends nothing.
+        let effect = update(
+            &mut store,
+            Action::SetField {
+                scope: anime(),
+                key: "model".into(),
+                value: "4x12".into(),
+            },
+        );
+        assert_eq!(effect, None);
+        update(&mut store, Action::TogglePreview);
+
+        let effect = update(
+            &mut store,
+            Action::SetField {
+                scope: anime(),
+                key: "cas_enabled".into(),
+                value: true.into(),
+            },
+        );
+        let raw = preview_later(&effect).expect("a PreviewLater");
+        assert_eq!(raw["cas_enabled"], Value::Bool(true));
+        assert_eq!(raw["model"], Value::from("4x12"));
+
+        // «Volver a heredar» removes the key from what is previewed.
+        let effect = update(
+            &mut store,
+            Action::Inherit {
+                scope: anime(),
+                key: "model".into(),
+            },
+        );
+        let raw = preview_later(&effect).expect("a PreviewLater");
+        assert!(!raw.contains_key("model"));
+
+        // Revert puts the saved value back.
+        let effect = update(
+            &mut store,
+            Action::Revert {
+                scope: anime(),
+                key: "model".into(),
+            },
+        );
+        let raw = preview_later(&effect).expect("a PreviewLater");
+        assert_eq!(raw["model"], Value::from("4x24"));
+
+        // Another mode's edit is not previewed.
+        let effect = update(
+            &mut store,
+            Action::SetField {
+                scope: Scope::Mode("crt".into()),
+                key: "cas_enabled".into(),
+                value: true.into(),
+            },
+        );
+        assert_eq!(preview_later(&effect), None);
+    }
+
+    #[test]
+    fn save_ends_the_preview_before_the_reload() {
+        let mut store = previewable();
+        update(&mut store, Action::TogglePreview);
+        update(
+            &mut store,
+            Action::SetField {
+                scope: anime(),
+                key: "cas_enabled".into(),
+                value: true.into(),
+            },
+        );
+        let effect = update(&mut store, Action::Save);
+        assert!(!sends(&effect, &Command::PreviewEnd));
+        assert!(store.preview.is_some());
+        let list = effects(update(
+            &mut store,
+            Action::Written(Ok(Written::Mode("anime".into()))),
+        ));
+        let end = list
+            .iter()
+            .position(|e| *e == Effect::Send(Command::PreviewEnd))
+            .expect("a PreviewEnd");
+        let reload = list
+            .iter()
+            .position(|e| *e == Effect::Send(Command::ReloadConfig))
+            .expect("a ReloadConfig");
+        assert!(end < reload);
+        assert_eq!(store.preview, None);
+    }
+
+    #[test]
+    fn a_failed_save_keeps_the_preview() {
+        let mut store = previewable();
+        update(&mut store, Action::TogglePreview);
+        update(
+            &mut store,
+            Action::SetField {
+                scope: anime(),
+                key: "cas_enabled".into(),
+                value: true.into(),
+            },
+        );
+        update(&mut store, Action::Save);
+        let effect = update(&mut store, Action::Written(Err("disk full".into())));
+        assert!(!sends(&effect, &Command::PreviewEnd));
+        assert!(store.preview.is_some());
+        assert_eq!(store.dirty_count(&anime()), 1);
+    }
+
+    #[test]
+    fn a_save_without_the_previewed_mode_keeps_the_preview() {
+        let mut store = previewable();
+        store.config = store_with(FILE_1X).config;
+        update(&mut store, Action::TogglePreview);
+        // A key saved from the bar over the game.
+        multiplier_from_the_bar(&mut store, 2);
+        let effect = update(&mut store, Action::Written(Ok(Written::Config)));
+        assert!(sends(&effect, &Command::ReloadConfig));
+        assert!(!sends(&effect, &Command::PreviewEnd));
+        assert!(store.preview.is_some());
+    }
+
+    #[test]
+    fn reset_of_the_mode_page_ends_the_preview() {
+        let mut store = previewable();
+        update(&mut store, Action::TogglePreview);
+        update(
+            &mut store,
+            Action::SetField {
+                scope: anime(),
+                key: "cas_enabled".into(),
+                value: true.into(),
+            },
+        );
+        let effect = update(&mut store, Action::ResetMode("anime".into()));
+        assert!(sends(&effect, &Command::PreviewEnd));
+        assert_eq!(store.preview, None);
+        assert_eq!(store.dirty_count(&anime()), 0);
+    }
+
+    #[test]
+    fn leaving_the_editor_or_stopping_ends_the_preview() {
+        // Leaving the page (no edits, so no «Cambios sin guardar»).
+        let mut store = previewable();
+        update(&mut store, Action::TogglePreview);
+        let effect = update(&mut store, Action::Navigate(Route::Home));
+        assert!(sends(&effect, &Command::PreviewEnd));
+        assert_eq!(store.preview, None);
+
+        // With edits: the dialog first, then «Descartar y cambiar».
+        let mut store = previewable();
+        update(&mut store, Action::TogglePreview);
+        update(
+            &mut store,
+            Action::SetField {
+                scope: anime(),
+                key: "cas_enabled".into(),
+                value: true.into(),
+            },
+        );
+        let effect = update(&mut store, Action::Navigate(Route::Home));
+        assert!(!sends(&effect, &Command::PreviewEnd));
+        assert!(store.preview.is_some());
+        let effect = update(&mut store, Action::Unsaved(UnsavedChoice::DiscardAndGo));
+        assert!(sends(&effect, &Command::PreviewEnd));
+        assert_eq!(store.preview, None);
+
+        // The session stopped: the core dropped the preview with it.
+        let mut store = previewable();
+        update(&mut store, Action::TogglePreview);
+        let effect = update(
+            &mut store,
+            Action::Core(Event::SessionStopped {
+                reason: StopReason::User,
+            }),
+        );
+        assert!(!sends(&effect, &Command::PreviewEnd));
+        assert_eq!(store.preview, None);
+
+        // The session now runs another mode.
+        let mut store = previewable();
+        update(&mut store, Action::TogglePreview);
+        let effect = update(
+            &mut store,
+            Action::Core(Event::SessionStarted(SessionView {
+                mode: Some("crt".into()),
+                mode_temporary: true,
+                ..session()
+            })),
+        );
+        assert!(sends(&effect, &Command::PreviewEnd));
+        assert_eq!(store.preview, None);
+
+        // The same mode, now with `preview` on: it stays.
+        let mut store = previewable();
+        update(&mut store, Action::TogglePreview);
+        let effect = update(
+            &mut store,
+            Action::Core(Event::SessionStarted(SessionView {
+                mode: Some("anime".into()),
+                preview: true,
+                ..session()
+            })),
+        );
+        assert!(!sends(&effect, &Command::PreviewEnd));
+        assert!(store.preview.is_some());
+    }
+
+    #[test]
+    fn merged_mode_raw_is_what_save_writes() {
+        let mut store = previewable();
+        for (key, value) in [("cas_enabled", Value::Bool(true)), ("model", Value::from("fast"))] {
+            update(
+                &mut store,
+                Action::SetField {
+                    scope: anime(),
+                    key: key.into(),
+                    value,
+                },
+            );
+        }
+        let merged = merged_mode_raw(&store.modes.store, &store.modes.edits, "anime").unwrap();
+        let list = effects(update(&mut store, Action::Save));
+        let [Effect::WriteMode { raw, .. }] = list.as_slice() else {
+            panic!("{list:?}");
+        };
+        assert_eq!(*raw, merged);
+        assert_eq!(
+            merged_mode_raw(&store.modes.store, &store.modes.edits, "missing"),
+            None
+        );
     }
 
     // ---- 1.x files round trip --------------------------------------------------
