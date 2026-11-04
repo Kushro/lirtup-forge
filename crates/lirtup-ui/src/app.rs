@@ -778,15 +778,19 @@ fn SaveBar() -> Element {
         FloatingToolbar { open,
             if count > 0 {
                 span { class: "dot" }
-                span { class: "t-ll mr-2", {t!("savebar-changes", count = count)} }
+                // Ellipsized in a narrow window: the tooltip keeps the text.
+                span { class: "t-ll mr-2", title: t!("savebar-changes", count = count), {t!("savebar-changes", count = count)} }
             }
             if can_preview {
-                Button {
-                    label: t!("savebar-try-live"),
-                    variant: if previewing { ButtonVariant::Tertiary } else { ButtonVariant::Outlined },
-                    icon: Some(if previewing { "visibility" } else { "visibility_off" }),
-                    title: t!("savebar-try-live-hint"),
-                    onclick: move |_| dispatch(Action::TogglePreview),
+                // `.lf-try-live`: icon only in a narrow window (main.css).
+                span { class: "lf-try-live",
+                    Button {
+                        label: t!("savebar-try-live"),
+                        variant: if previewing { ButtonVariant::Tertiary } else { ButtonVariant::Outlined },
+                        icon: Some(if previewing { "visibility" } else { "visibility_off" }),
+                        title: t!("savebar-try-live-hint"),
+                        onclick: move |_| dispatch(Action::TogglePreview),
+                    }
                 }
             }
             if count > 0 {
