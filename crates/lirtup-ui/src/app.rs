@@ -338,6 +338,8 @@ fn run_effect(effect: Effect, core: &CoreLink, store: Signal<Store>) {
             });
         }
         Effect::Toast(toast) => dismiss_later(toast, store),
+        // TODO(gui): debounce (PREVIEW_DEBOUNCE, a generation counter).
+        Effect::PreviewLater(command) => core.send(command),
         Effect::WriteIcon { path, png } => {
             if !in_icons_dir(&path) {
                 tracing::error!("refusing to touch {} (not in icons/)", path.display());

@@ -65,6 +65,11 @@ pub struct SessionView {
     /// New in 2.1; absent from an older `lirtup serve`.
     #[serde(default)]
     pub mode_temporary: bool,
+    /// The configuration includes the unsaved edits of a mode
+    /// (`Command::Preview`, «Probar en vivo»). New after 2.1.0; absent from an
+    /// older `lirtup serve`.
+    #[serde(default)]
+    pub preview: bool,
     /// Fullscreen or windowed.
     pub kind: SessionKind,
     /// Captured size (after crop).

@@ -195,6 +195,7 @@ mod tests {
             profile: None,
             mode: Some("anime".into()),
             mode_temporary: false,
+            preview: false,
             kind: SessionKind::Fullscreen,
             src: Size {
                 width: 1280,
@@ -233,6 +234,7 @@ mod tests {
             profile: Some("Juego".into()),
             mode: Some("crt".into()),
             mode_temporary: false,
+            preview: false,
             kind: SessionKind::Fullscreen,
             src: Size::default(),
             dst: Size::default(),

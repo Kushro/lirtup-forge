@@ -186,6 +186,23 @@ struct Running {
     window: WindowInfo,
     /// The profile the `Start` named (`None` = matched by window).
     profile: Option<String>,
+    /// «Probar en vivo» (`Command::Preview`): unsaved edits of one mode,
+    /// applied by [`Inner::resolve_for`] until `PreviewEnd` or the session
+    /// ends (it lives and dies with `Running`).
+    #[allow(dead_code)] // TODO(proto-engine): use it.
+    preview: Option<Preview>,
+}
+
+/// A mode editor preview (see [`Running::preview`]).
+#[allow(dead_code)] // TODO(proto-engine): use it.
+#[derive(Debug, Clone)]
+struct Preview {
+    /// The profile the GUI saw (informational).
+    profile: Option<String>,
+    /// Id of the previewed mode.
+    mode: String,
+    /// The mode file with the unsaved edits (`ModeStore::raw` shape).
+    raw: lirtup_config::Mapping,
 }
 
 #[derive(Default)]
@@ -403,6 +420,13 @@ impl Engine {
     pub fn pause_hotkeys(&self, on: bool) {
         self.inner.pause_hotkeys(on);
     }
+
+    /// The connection that sent the running `Command::Preview` closed: end
+    /// the preview as `PreviewEnd` would (nothing if there is none). The
+    /// server calls it from a per-connection guard, as
+    /// [`Engine::watch_gpu_times`].
+    // TODO(proto-engine): implement (clear `Running::preview`, reload).
+    pub fn end_preview(&self) {}
 
     /// Subscribe to events. A lagging receiver gets `RecvError::Lagged` and
     /// should ask for a [`Engine::snapshot`].
@@ -737,6 +761,11 @@ impl Inner {
             }),
             Command::WatchGpuTimes { on } => self.watch_gpu_times(on),
             Command::PauseHotkeys { on } => self.pause_hotkeys(on),
+            // TODO(proto-engine): block 2b of the live-tuning contract.
+            Command::Preview { mode, .. } => {
+                tracing::warn!("Preview of mode {mode:?}: not implemented yet");
+            }
+            Command::PreviewEnd => tracing::warn!("PreviewEnd: not implemented yet"),
             Command::Quit => {
                 self.stop_session(StopReason::Quit);
                 self.quit.send_replace(true);
@@ -1037,6 +1066,7 @@ impl Inner {
                     session,
                     window,
                     profile: request.profile,
+                    preview: None,
                 });
             }
             Err(e) => self.fail(e.stage(), e.to_string(), false),
@@ -1282,6 +1312,8 @@ impl Inner {
                                 config: Arc::new(resolved.config),
                                 profile: resolved.profile,
                                 mode: resolved.mode,
+                                // TODO(proto-engine): `running.preview.is_some()`.
+                                preview: false,
                             });
                         }
                     }

@@ -48,12 +48,22 @@ pub enum HotkeyAction {
     OffsetRight,
     /// Show or hide the bar over the game (new in 2.0, round 4 front T).
     ToggleToolbar,
+    /// Next scaling mode, as the bar's mode chip (live tuning, after 2.1.0).
+    ModeNext,
+    /// Previous scaling mode, as the bar's mode chip (live tuning).
+    ModePrev,
+    /// A/B by blinking: swap the current settings and the ones before the
+    /// last change (live tuning).
+    SwapAb,
+    /// Split comparison on a frozen frame: previous settings on the left,
+    /// current on the right (live tuning).
+    ToggleCompare,
 }
 
 impl HotkeyAction {
     /// All actions: activation (2.0), then the 1.x groups (session, view,
     /// zooming, panning).
-    pub const ALL: [HotkeyAction; 16] = [
+    pub const ALL: [HotkeyAction; 20] = [
         HotkeyAction::StartFullscreen,
         HotkeyAction::StartWindowed,
         HotkeyAction::ToggleScaling,
@@ -70,6 +80,10 @@ impl HotkeyAction {
         HotkeyAction::OffsetUp,
         HotkeyAction::OffsetDown,
         HotkeyAction::ToggleToolbar,
+        HotkeyAction::ModeNext,
+        HotkeyAction::ModePrev,
+        HotkeyAction::SwapAb,
+        HotkeyAction::ToggleCompare,
     ];
 
     /// The YAML key (`toggle_scaling`, ...).
@@ -91,6 +105,10 @@ impl HotkeyAction {
             HotkeyAction::OffsetLeft => "offset_left",
             HotkeyAction::OffsetRight => "offset_right",
             HotkeyAction::ToggleToolbar => "toggle_toolbar",
+            HotkeyAction::ModeNext => "mode_next",
+            HotkeyAction::ModePrev => "mode_prev",
+            HotkeyAction::SwapAb => "swap_ab",
+            HotkeyAction::ToggleCompare => "toggle_compare",
         }
     }
 
@@ -113,6 +131,10 @@ impl HotkeyAction {
             HotkeyAction::OffsetLeft => "Alt+Shift+Left",
             HotkeyAction::OffsetRight => "Alt+Shift+Right",
             HotkeyAction::ToggleToolbar => "Alt+Shift+D",
+            HotkeyAction::ModeNext => "Alt+Shift+N",
+            HotkeyAction::ModePrev => "Alt+Shift+B",
+            HotkeyAction::SwapAb => "Alt+Shift+X",
+            HotkeyAction::ToggleCompare => "Alt+Shift+C",
         }
     }
 }

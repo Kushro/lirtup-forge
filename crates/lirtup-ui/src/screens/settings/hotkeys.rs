@@ -28,7 +28,7 @@ use crate::screens::modes::widgets::{use_control, use_origin, use_value, yaml};
 use crate::state::{Action, Scope};
 
 /// The groups and their actions, in display order.
-pub(crate) const GROUPS: [(&str, &[HotkeyAction]); 4] = [
+pub(crate) const GROUPS: [(&str, &[HotkeyAction]); 5] = [
     (
         "settings-hotkeys-activation",
         &[HotkeyAction::StartFullscreen, HotkeyAction::StartWindowed],
@@ -62,6 +62,15 @@ pub(crate) const GROUPS: [(&str, &[HotkeyAction]); 4] = [
             HotkeyAction::OffsetRight,
         ],
     ),
+    (
+        "settings-hotkeys-tuning",
+        &[
+            HotkeyAction::ModeNext,
+            HotkeyAction::ModePrev,
+            HotkeyAction::SwapAb,
+            HotkeyAction::ToggleCompare,
+        ],
+    ),
 ];
 
 /// Material Symbols name of an action.
@@ -83,6 +92,10 @@ pub(crate) fn icon(action: HotkeyAction) -> &'static str {
         HotkeyAction::OffsetLeft => "keyboard_arrow_left",
         HotkeyAction::OffsetRight => "keyboard_arrow_right",
         HotkeyAction::ToggleToolbar => "toolbar",
+        HotkeyAction::ModeNext => "line_end",
+        HotkeyAction::ModePrev => "line_start",
+        HotkeyAction::SwapAb => "swap_horiz",
+        HotkeyAction::ToggleCompare => "difference",
     }
 }
 

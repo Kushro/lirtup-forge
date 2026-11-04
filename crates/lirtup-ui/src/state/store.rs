@@ -1354,6 +1354,8 @@ fn gpu_times(store: &mut Store) -> Option<Effect> {
 /// See [`super::update`].
 pub(super) fn update(store: &mut Store, action: Action) -> Option<Effect> {
     let effect = match action {
+        // TODO(gui): block 2d of the live-tuning contract.
+        Action::TogglePreview => None,
         // ---- navigation and dialogs -------------------------------------
         Action::Navigate(to) => {
             if !store.route.same_page(&to) && store.page_edits(&store.route) > 0 {
@@ -1723,6 +1725,7 @@ profiles:
             profile: Some("baldr sky".into()),
             mode: None,
             mode_temporary: false,
+            preview: false,
             kind: SessionKind::Fullscreen,
             src: Size {
                 width: 800,

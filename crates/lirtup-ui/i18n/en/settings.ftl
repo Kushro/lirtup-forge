@@ -68,6 +68,7 @@ settings-hotkeys-reset-all = Reset all
 settings-hotkeys-activation = Activation
 settings-hotkeys-session = Session
 settings-hotkeys-view = View
+settings-hotkeys-tuning = Live tuning
 settings-hotkeys-zoom = Zoom and offset
 settings-hotkey-default = Default: { $keys }
 settings-hotkey-conflict = Also used by: { $actions }
@@ -87,6 +88,10 @@ settings-hotkey-offset_up = Move the content up
 settings-hotkey-offset_down = Move the content down
 settings-hotkey-offset_left = Move the content left
 settings-hotkey-offset_right = Move the content right
+settings-hotkey-mode_next = Next mode
+settings-hotkey-mode_prev = Previous mode
+settings-hotkey-swap_ab = Compare with the previous settings (A/B)
+settings-hotkey-toggle_compare = Split comparison
 
 ## Style
 settings-zoom = Zoom

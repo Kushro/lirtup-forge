@@ -655,6 +655,39 @@ impl Presenter {
         Ok(status != PresentStatus::Ok || surface.needs_recreation())
     }
 
+    // ---- split comparison (live tuning, block 3) -------------------------
+    //
+    // TODO(presenter): implement. A is `other` (EffectPlan::from_config) over
+    // the SAME source texture (the upscaler output is shared), run once into
+    // `screen_a` with A's pre/scaler/linear/convert/screen passes; B is this
+    // presenter's own chain, run once into `screen_b`. While active,
+    // `present` composes `split_compose(screen_a, screen_b, split)` into
+    // `screen` (no chain re-run: the session froze the frame), then the
+    // overlays; `present_unchanged` presents `screen` as it is. FrameGen gets
+    // the composed screen. `resize` and `update_config` end the comparison.
+
+    /// Start the split comparison against `other` (A, left of the split);
+    /// this presenter's configuration is B (right). Builds A's resources and
+    /// renders both sides once from the current source.
+    pub fn begin_compare(&mut self, other: &Config) -> Result<()> {
+        let _ = other;
+        Ok(())
+    }
+
+    /// Where the split is, as a fraction of the output width (clamped to
+    /// `0..=1`). The next `present` composes with it.
+    pub fn set_split(&mut self, x: f32) {
+        let _ = x;
+    }
+
+    /// The comparison is on.
+    pub fn compare_active(&self) -> bool {
+        false
+    }
+
+    /// End the comparison: drop A's resources, back to the normal chain.
+    pub fn end_compare(&mut self) {}
+
     /// The swapchain (overlay) has a new size: recreate it, the screen
     /// texture and the scaler output. The caller then rebinds the OSD and
     /// the panel to [`Presenter::screen`].

@@ -15,6 +15,7 @@ home-session-mode-temporary = { $mode } (temporary)
 home-session-save-mode = Save in “{ $name }”
 home-session-save-mode-default = Save in Default
 home-session-save-mode-hint = Save the mode chosen in the bar over the game in the profile
+home-session-preview = preview
 home-stage-config = could not read the configuration
 home-stage-window = the window was not found
 home-stage-device = GPU or Vulkan error

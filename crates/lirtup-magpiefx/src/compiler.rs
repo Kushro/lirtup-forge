@@ -413,6 +413,11 @@ const CACHE_VERSION: &str = "rs1";
 pub struct SpirvCache {
     /// Folder.
     pub dir: PathBuf,
+    /// Read-only folder of precompiled SPIR-V with the same file names
+    /// (`lirtup_config::paths::magpiefx_seed_dir`), looked up after `dir`;
+    /// its hits are used as they are (not copied).
+    // TODO(magpiefx): fill it in `new` and look it up in `compile_with`.
+    pub seed: Option<PathBuf>,
 }
 
 /// A rewrite of the preprocessed source (the red/blue swap): its cache key
@@ -427,7 +432,7 @@ pub struct Transform<'a> {
 impl SpirvCache {
     /// Cache in `dir`.
     pub fn new(dir: PathBuf) -> SpirvCache {
-        SpirvCache { dir }
+        SpirvCache { dir, seed: None }
     }
 
     /// Compile with the first compiler that succeeds, reading and writing the

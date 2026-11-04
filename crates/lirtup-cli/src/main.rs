@@ -524,6 +524,8 @@ fn answer_timeout(command: &Command) -> Option<Duration> {
         | Command::Hotkey { .. }
         | Command::WatchGpuTimes { .. }
         | Command::PauseHotkeys { .. }
+        | Command::Preview { .. }
+        | Command::PreviewEnd
         | Command::CancelBench => 1,
     };
     Some(Duration::from_secs(secs))
@@ -649,7 +651,7 @@ fn parse_command(text: &str) -> anyhow::Result<Command> {
         })
         .collect();
     // Bare names are matched ignoring case: `reloadconfig` → `ReloadConfig`.
-    const NAMES: [&str; 16] = [
+    const NAMES: [&str; 18] = [
         "Hello",
         "Start",
         "Stop",
@@ -665,6 +667,8 @@ fn parse_command(text: &str) -> anyhow::Result<Command> {
         "Bench",
         "CancelBench",
         "Diagnostics",
+        "PreviewEnd",
+        "Preview",
         "Quit",
     ];
     let name = NAMES

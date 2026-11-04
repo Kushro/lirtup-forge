@@ -24,6 +24,12 @@ pub struct ToolbarZone {
     pub bar: Option<Rect>,
     /// Height of the band at the top edge that reveals the bar, px.
     pub reveal: u32,
+    /// Take every pointer event of the overlay, not only the bar's (the
+    /// split comparison drags its line anywhere): the router sends them all
+    /// as [`Routed::Toolbar`], and in `top-transparent` the input region is
+    /// the whole overlay. `false` = the bar and its band only.
+    // TODO(session): honour it in `ToolbarRouter::route` and `surface.rs`.
+    pub whole: bool,
 }
 
 /// A pointer event for the bar, in overlay coordinates.
@@ -234,7 +240,11 @@ mod tests {
 
     fn router(bar: Option<Rect>) -> ToolbarRouter {
         let mut r = ToolbarRouter::new();
-        r.set_zone(Some(ToolbarZone { bar, reveal: 8 }));
+        r.set_zone(Some(ToolbarZone {
+            bar,
+            reveal: 8,
+            whole: false,
+        }));
         r
     }
 

@@ -58,7 +58,7 @@ pub const PINNED_KEY: &str = "toolbar_pinned";
 /// The Material Symbols the bar uses. `scripts/gen-tokens-icons.py` reads
 /// the string literals of this file for the bar's font instances, so every
 /// icon is named here.
-pub const ICON_NAMES: [&str; 11] = [
+pub const ICON_NAMES: [&str; 12] = [
     "push_pin",
     "monitoring",
     "crop",
@@ -66,6 +66,7 @@ pub const ICON_NAMES: [&str; 11] = [
     "tune",
     "save",
     "animation",
+    "compare",
     "visibility_off",
     "close_fullscreen",
     "open_in_full",
@@ -91,8 +92,13 @@ pub enum ToolbarAction {
     ModePrev,
     /// Save the chosen mode in the session's profile.
     SaveMode,
-    /// Next frame generation multiplier (Off, ×2, ×3, ×4, Auto).
+    /// Next frame generation multiplier (Off, ×2, ×3, ×4, Auto; with the
+    /// lsfg-vk layer Off, ×2, ×3, ×4, applied by a restart).
     Multiplier,
+    /// Start or end the split comparison on a frozen frame (live tuning:
+    /// previous settings on the left, current on the right). Icon
+    /// `"compare"`, highlighted while [`ToolbarState::comparing`].
+    Compare,
     /// Hide the bar (until the pointer comes back to the edge). The bar
     /// already hid itself.
     Hide,
@@ -131,6 +137,11 @@ pub struct ToolbarState {
     pub mode_label: Option<String>,
     /// The mode is not the profile's (temporary; «save» shows).
     pub mode_temporary: bool,
+    /// The session shows the unsaved edits of the mode editor («Probar en
+    /// vivo», `Command::Preview`): the mode chip marks it.
+    pub preview: bool,
+    /// The split comparison is on: the compare button is highlighted.
+    pub comparing: bool,
     /// The stats panel is visible.
     pub stats: bool,
     /// The session is windowed (the to-window button shows «fullscreen»).
@@ -356,6 +367,8 @@ impl Toolbar {
         Some(ToolbarZone {
             bar,
             reveal: (REVEAL * self.scale).ceil() as u32,
+            // TODO(session): `self.state.comparing` (the whole overlay).
+            whole: false,
         })
     }
 

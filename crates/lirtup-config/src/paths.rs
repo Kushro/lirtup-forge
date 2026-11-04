@@ -41,6 +41,22 @@ pub fn magpiefx_cache_dir() -> PathBuf {
         .join("magpiefx")
 }
 
+/// Environment variable naming the precompiled MagpieFX seed folder (the
+/// AppImage launcher sets it).
+pub const MAGPIEFX_SEED_DIR_ENV: &str = "LIRTUP_MAGPIEFX_SEED_DIR";
+
+/// Read-only folder of precompiled MagpieFX SPIR-V shipped with the
+/// package (`magpiefx-seed`), looked up after [`magpiefx_cache_dir`]:
+/// `$LIRTUP_MAGPIEFX_SEED_DIR`, else `magpiefx-seed` next to the built-in
+/// effects folder (`/usr/share/lirtup/magpiefx-seed`). `None` = no seed.
+// TODO(magpiefx): the fallback next to the effects folder (stub: the
+// environment variable only).
+pub fn magpiefx_seed_dir() -> Option<PathBuf> {
+    std::env::var_os(MAGPIEFX_SEED_DIR_ENV)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
 /// Where the process writes its own `lsfg-vk.toml`.
 pub fn lsfg_toml_path() -> PathBuf {
     config_dir().join("lsfg-vk.toml")

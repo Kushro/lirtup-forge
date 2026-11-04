@@ -308,6 +308,22 @@ pub struct Store {
     /// Writes of `config.yaml` and `modes/` in flight (front C): the state
     /// to restore if one fails, and what to say when all are done.
     pub saving: Option<Saving>,
+    /// «Probar en vivo» is on for one mode (live tuning): its edits go to the
+    /// session as `Command::Preview`.
+    pub preview: Option<PreviewState>,
+}
+
+/// The wait between the last edit and the `Command::Preview` it sends
+/// (sliders send one, not one per step).
+pub const PREVIEW_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// «Probar en vivo» ([`Store::preview`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewState {
+    /// The mode being edited and previewed.
+    pub mode: ModeId,
+    /// The session's profile when it was turned on (`Command::Preview`).
+    pub profile: Option<String>,
 }
 
 /// Writes in flight ([`Store::saving`]). The store shows the result of a
@@ -402,6 +418,9 @@ pub enum Action {
     /// Guardar, then restart the session once the files are written (flow
     /// 5: the frame generation settings are read when a session starts).
     SaveAndRestart,
+    /// The «Probar en vivo» toggle of the save bar (the mode editor, with
+    /// the session running that mode).
+    TogglePreview,
 
     // ---- profiles and modes ----------------------------------------------
     /// «Crear» of «Nuevo perfil».
@@ -557,6 +576,9 @@ pub enum Effect {
     /// Show the snackbar and dismiss it after a while
     /// ([`Action::DismissToast`]).
     Toast(Toast),
+    /// Send this `Command::Preview` [`PREVIEW_DEBOUNCE`] after the last one
+    /// asked for (a newer one replaces it).
+    PreviewLater(Command),
     /// Write a profile icon (`png`), or remove it (`None`); only inside the
     /// `icons/` folder next to `config.yaml`.
     WriteIcon {

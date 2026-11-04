@@ -1009,6 +1009,7 @@ mod tests {
             profile: None,
             mode: None,
             mode_temporary: false,
+            preview: false,
             kind: SessionKind::Fullscreen,
             src: Size::default(),
             dst: Size::default(),

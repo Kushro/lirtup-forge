@@ -134,6 +134,28 @@ pub enum Command {
         /// Paused or not.
         on: bool,
     },
+    /// «Probar en vivo» of the mode editor (after 2.1.0): apply the unsaved edits of
+    /// mode `mode` to the running session without writing anything. `raw`
+    /// is the mode file as the editor would write it (the file as read plus
+    /// the edits, the same mapping `ModeStore::save_raw` takes). The engine
+    /// keeps it until `PreviewEnd`, the session stopping, or the connection
+    /// that sent it closing; every resolution that names `mode` uses it
+    /// (`ReloadConfig` keeps it). `SessionView::preview` tells the clients.
+    Preview {
+        /// The session's profile, as the GUI saw it (informational: a mode
+        /// file is shared, so the engine applies the preview wherever the
+        /// resolution names `mode`).
+        profile: Option<String>,
+        /// Id of the mode (file stem of `modes/<id>.yaml`).
+        mode: String,
+        /// The mode file with the unsaved edits applied.
+        raw: lirtup_config::Mapping,
+    },
+    /// End the preview: the session goes back to the files (a normal
+    /// reload). Sent by the GUI after saving (before `ReloadConfig`), on
+    /// «Restablecer»/«Deshacer», when leaving the editor and when the toggle
+    /// is turned off.
+    PreviewEnd,
     /// Stop the session and exit `lirtup serve`.
     Quit,
 }

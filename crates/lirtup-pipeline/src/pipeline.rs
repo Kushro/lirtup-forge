@@ -173,6 +173,10 @@ pub enum PipelineCommand {
         profile: Option<String>,
         /// Mode name.
         mode: Option<String>,
+        /// The configuration includes the unsaved edits of a mode
+        /// (`Command::Preview`); `SessionView::preview` and the mode chip
+        /// show it, and the OSD tells when it turns on or off.
+        preview: bool,
     },
     /// A session hotkey (see the module docs for which).
     Hotkey(HotkeyAction),
@@ -358,6 +362,19 @@ const SAVE_POSITION_AFTER: Duration = Duration::from_millis(800);
 /// The mode chip applies its choice this long after the last click, so
 /// stepping through several modes rebuilds the chain once.
 pub const MODE_APPLY_AFTER: Duration = Duration::from_millis(300);
+
+/// The multiplier chip with the lsfg-vk layer: the value is saved (and the
+/// session restarted by the GUI) this long after the last click, so stepping
+/// through several values restarts once.
+pub const MULTIPLIER_APPLY_AFTER: Duration = Duration::from_millis(1200);
+
+/// The next multiplier of the bar's button with the lsfg-vk layer, which
+/// has no Auto: off (`None` or `Some(1)`) → ×2 → ×3 → ×4 → off (`None`).
+// TODO(session): implement (stub returns the input) and test it.
+#[allow(dead_code)]
+pub(crate) fn next_multiplier_layer(cur: Option<u8>) -> Option<u8> {
+    cur
+}
 
 /// A mode chosen in the bar, waiting for [`MODE_APPLY_AFTER`].
 struct PendingMode {
@@ -589,6 +606,19 @@ struct Runner {
     windowed_position: Option<(i32, i32)>,
     /// Screenshots saved (or not) on their thread: the OSD tells after.
     screenshots: (Sender<bool>, Receiver<bool>),
+    /// The configuration includes a mode editor preview
+    /// ([`PipelineCommand::UpdateConfig::preview`]).
+    preview: bool,
+    /// A/B: the working configuration before the last change that the
+    /// presenter or the upscaler cares about (`SwapAb`, the comparison's A).
+    #[allow(dead_code)] // TODO(session): use it.
+    ab_previous: Option<Config>,
+    /// No new frames are pulled (the comparison): the last one is presented
+    /// again with the overlays alive.
+    #[allow(dead_code)] // TODO(session): use it.
+    frozen: bool,
+    /// The split comparison is on.
+    comparing: bool,
 }
 
 impl Runner {
@@ -647,6 +677,10 @@ impl Runner {
             moved: None,
             windowed_position: None,
             screenshots: crossbeam_channel::unbounded(),
+            preview: false,
+            ab_previous: None,
+            frozen: false,
+            comparing: false,
         };
         runner.windowed_position = saved_position(&runner.config);
         runner.parts = Some(runner.build(setup.window)?);
@@ -866,7 +900,13 @@ impl Runner {
                 config,
                 profile,
                 mode,
-            } => self.reload_config(&config, profile, mode)?,
+                preview,
+            } => {
+                // TODO(session): OSD on transitions («Vista previa: cambios sin
+                // guardar» / «Vista previa terminada»), end the comparison.
+                self.preview = preview;
+                self.reload_config(&config, profile, mode)?
+            }
         }
         Ok(None)
     }
@@ -1382,6 +1422,14 @@ impl Runner {
             HotkeyAction::OffsetRight => self.move_view(-OFFSET_STEP, 0),
             HotkeyAction::OffsetUp => self.move_view(0, OFFSET_STEP),
             HotkeyAction::OffsetDown => self.move_view(0, -OFFSET_STEP),
+            // TODO(session): ModeNext/ModePrev → cycle_mode(forward); SwapAb
+            // and ToggleCompare → blocks 1d and 3 of the live-tuning contract.
+            HotkeyAction::ModeNext
+            | HotkeyAction::ModePrev
+            | HotkeyAction::SwapAb
+            | HotkeyAction::ToggleCompare => {
+                tracing::debug!("{action:?} is not implemented yet");
+            }
             HotkeyAction::StartFullscreen | HotkeyAction::StartWindowed | HotkeyAction::ExitApp => {
                 tracing::debug!("{action:?} is handled by the engine");
             }
@@ -1466,6 +1514,8 @@ impl Runner {
             ToolbarAction::ModePrev => self.cycle_mode(false),
             ToolbarAction::SaveMode => self.save_mode()?,
             ToolbarAction::Hide => {}
+            // TODO(session): the split comparison (block 3).
+            ToolbarAction::Compare => {}
             ToolbarAction::ToWindow => self.toggle_windowed()?,
             ToolbarAction::Stop => return Ok(Some(StopReason::User)),
             ToolbarAction::Move { button, x, y } => {
@@ -1734,6 +1784,8 @@ impl Runner {
             multiplier_label,
             mode_label,
             mode_temporary,
+            preview: self.preview,
+            comparing: self.comparing,
             stats: parts.panel.visible(),
             windowed,
             scheme: crate::tokens::Scheme::Dark,
@@ -2072,6 +2124,7 @@ impl Runner {
             profile: self.profile.clone(),
             mode: self.mode.clone(),
             mode_temporary: self.mode_override.is_some(),
+            preview: self.preview,
             kind: self.kind,
             src: Size {
                 width: sw,
