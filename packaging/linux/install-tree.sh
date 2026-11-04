@@ -8,6 +8,8 @@
 #   PREFIX/lib/lirtup/lirtup-gui       the GUI (dx build -p lirtup-ui)
 #   PREFIX/lib/lirtup/assets/          the GUI's assets, from the dx bundle
 #   PREFIX/share/lirtup/effects/       the MagpieFX effects (catalog::builtin_dir)
+#   PREFIX/share/lirtup/magpiefx-seed/ their precompiled SPIR-V, when built
+#                                      (paths::magpiefx_seed_dir)
 #   PREFIX/share/applications, metainfo, icons/hicolor
 #
 # The shaders (.spv) and the CuNNy models are compiled into the binaries
@@ -19,6 +21,10 @@
 #   LIRTUP_CLI_BIN   the lirtup binary
 #   LIRTUP_GUI_APP   the dx bundle folder (with lirtup-gui and assets/)
 #   LIRTUP_EFFECTS   the effects folder of the source tree
+#   LIRTUP_SEED      the MagpieFX seed written by
+#                    `cargo run --release -p lirtup-magpiefx --bin magpiefx-seed -- --out DIR`
+#                    (default build/magpiefx-seed; skipped with a warning when
+#                    missing, without one when set to the empty string)
 set -eu
 
 if [ $# -ne 2 ]; then
@@ -38,6 +44,10 @@ gui_app=${LIRTUP_GUI_APP:-$target/dx/lirtup-gui/release/linux/app}
 # The built-in MagpieFX effects (LIRTUP_EFFECTS overrides the folder).
 LIRTUP_EFFECTS=${LIRTUP_EFFECTS:-$root/crates/lirtup-magpiefx/effects}
 effects=${LIRTUP_EFFECTS:-}
+
+# The precompiled MagpieFX seed (optional: without it effects compile on
+# first use). Unset: the default folder; empty: none.
+seed=${LIRTUP_SEED-$root/build/magpiefx-seed}
 
 fail() {
     echo "install-tree: $*" >&2
@@ -61,6 +71,15 @@ install -Dm755 "$here/launcher.sh" "$dest/bin/lirtup-gui"
 
 mkdir -p "$dest/share/lirtup/effects"
 cp -R "$effects/." "$dest/share/lirtup/effects/"
+
+if [ -z "$seed" ]; then
+    :
+elif [ -d "$seed" ] && [ -n "$(ls -A "$seed")" ]; then
+    mkdir -p "$dest/share/lirtup/magpiefx-seed"
+    cp -R "$seed/." "$dest/share/lirtup/magpiefx-seed/"
+else
+    echo "install-tree: warning: no MagpieFX seed at $seed; effects will compile on first use" >&2
+fi
 
 install -Dm644 "$here/$app_id.desktop" "$dest/share/applications/$app_id.desktop"
 install -Dm644 "$here/$app_id.metainfo.xml" "$dest/share/metainfo/$app_id.metainfo.xml"

@@ -23,6 +23,13 @@ if [ -z "${LIRTUP_EFFECTS_DIR:-}" ] && [ -d "$prefix/share/lirtup/effects" ]; th
     export LIRTUP_EFFECTS_DIR
 fi
 
+# Their precompiled SPIR-V (paths::magpiefx_seed_dir), read-only: inside the
+# AppImage the mount point changes on every launch.
+if [ -z "${LIRTUP_MAGPIEFX_SEED_DIR:-}" ] && [ -d "$prefix/share/lirtup/magpiefx-seed" ]; then
+    LIRTUP_MAGPIEFX_SEED_DIR="$prefix/share/lirtup/magpiefx-seed"
+    export LIRTUP_MAGPIEFX_SEED_DIR
+fi
+
 if [ "$bin" = lirtup-gui ]; then
     # WebKitGTK draws a blank window with its DMA-BUF renderer on some
     # drivers (NVIDIA, some Wayland compositors). Set it to 0 to try it.

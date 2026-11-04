@@ -3,7 +3,9 @@
 # LirtUp Forge 2.0 (Rust). It keeps the package name of the Python 1.x
 # (linux-rt-upscaler) and replaces it. The layout is the one of
 # packaging/linux/install-tree.sh: binaries in /usr/lib/lirtup, launchers in
-# /usr/bin, MagpieFX effects in /usr/share/lirtup/effects.
+# /usr/bin, MagpieFX effects in /usr/share/lirtup/effects and their
+# precompiled SPIR-V (built here with dxc and glslang) in
+# /usr/share/lirtup/magpiefx-seed.
 
 pkgname=linux-rt-upscaler
 pkgver=2.1.0
@@ -29,7 +31,9 @@ depends=(
 makedepends=(
     'cargo'
     'dioxus-cli'
+    'directx-shader-compiler'
     'git'
+    'glslang'
     'npm'
     'vulkan-headers'
 )
@@ -69,6 +73,10 @@ build() {
     fi
 
     cargo build --frozen --release -p lirtup-cli
+    # The precompiled MagpieFX seed (install-tree.sh reads build/magpiefx-seed).
+    rm -rf build/magpiefx-seed
+    cargo run --frozen --release -p lirtup-magpiefx --bin magpiefx-seed -- \
+        --out build/magpiefx-seed --effects-dir crates/lirtup-magpiefx/effects
     # NO_DOWNLOADS makes dx run the tailwindcss of PATH: packaging/tools
     # has one that runs the Tailwind installed by npm ci, minified.
     NO_DOWNLOADS=1 PATH="$PWD/packaging/tools:$PATH" \
