@@ -406,6 +406,19 @@ pub(crate) fn next_multiplier_layer(cur: Option<u8>) -> Option<u8> {
     }
 }
 
+/// Whether the bar shows the multiplier chip with the lsfg-vk layer while
+/// frame generation is off: the layer only runs from the next launch, so
+/// without the chip «No → ×2» could never be chosen on the bar. Only when
+/// the layer is the engine, it is off by configuration (not missing, not
+/// set from outside with `LSFGVK_*`) and its manifest is installed.
+pub(crate) fn show_layer_chip_when_off(
+    engine: lirtup_config::FrameGenEngine,
+    state: lirtup_fg::FrameGenState,
+    installed: bool,
+) -> bool {
+    engine == lirtup_config::FrameGenEngine::Layer && state == lirtup_fg::FrameGenState::Off && installed
+}
+
 /// The configured multiplier as the layer's button steps it: `Fixed(n)` is
 /// `n`, Auto (the built-in engine only) counts as off.
 fn layer_multiplier(m: lirtup_config::FrameGenMultiplier) -> Option<u8> {
@@ -780,6 +793,8 @@ struct Runner {
     split_pointer: SplitPointer,
     /// A multiplier chosen with the lsfg-vk layer, not saved yet.
     pending_multiplier: Option<PendingMultiplier>,
+    /// The lsfg-vk layer manifest is installed (read once per session).
+    layer_installed: bool,
 }
 
 impl Runner {
@@ -846,6 +861,7 @@ impl Runner {
             comparing: false,
             split_pointer: SplitPointer::default(),
             pending_multiplier: None,
+            layer_installed: lirtup_fg::layer::find_layer().is_some(),
         };
         runner.ab_applied = runner.ab_identity();
         runner.windowed_position = saved_position(&runner.config);
@@ -2218,6 +2234,15 @@ impl Runner {
         let active = match parts.presenter.framegen() {
             Some(fg) => fg.active_multiplier(),
             None if self.layer.state == lirtup_fg::FrameGenState::Active => Some(self.layer.multiplier),
+            // Off with the layer: the chip still steps to ×2 (save + restart).
+            None if show_layer_chip_when_off(
+                self.config.frame_gen_engine,
+                self.layer.state,
+                self.layer_installed,
+            ) =>
+            {
+                None
+            }
             None => return None,
         };
         // With the layer, a value chosen on the bar and not saved yet.
@@ -3009,6 +3034,20 @@ mod tests {
         assert_eq!(next_multiplier_layer(Some(0)), Some(2));
         assert_eq!(next_multiplier_layer(Some(1)), Some(2));
         assert_eq!(next_multiplier_layer(Some(5)), None);
+    }
+
+    #[test]
+    fn the_layer_chip_shows_while_off_only_when_it_can_turn_on() {
+        use lirtup_config::FrameGenEngine::{Layer, Native};
+        use lirtup_fg::FrameGenState::{Active, External, NoDll, NoLayer, Off};
+        assert!(show_layer_chip_when_off(Layer, Off, true));
+        // Not installed, or the built-in engine (its own path), or a state
+        // the bar cannot change.
+        assert!(!show_layer_chip_when_off(Layer, Off, false));
+        assert!(!show_layer_chip_when_off(Native, Off, true));
+        for state in [Active, NoLayer, NoDll, External] {
+            assert!(!show_layer_chip_when_off(Layer, state, true), "{state:?}");
+        }
     }
 
     #[test]

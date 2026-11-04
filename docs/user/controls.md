@@ -124,8 +124,9 @@ What the *Multiplier* button does depends on the frame generation engine:
   restarts with it, so you can click several times to skip values. The GUI
   does the saving and the restart: with the GUI closed nothing changes.
   Going back to the value the session already runs with saves nothing. With
-  the layer the button only shows when frame generation was on when the
-  session started.
+  frame generation off the button still shows (*Off*), so a click turns it on
+  with the next restart; it hides only when the layer is not installed or the
+  `LSFGVK_*` variables set it from outside.
 
 ## Comparing settings
 

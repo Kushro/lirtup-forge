@@ -52,7 +52,7 @@
 - **The bar's frame generation button works with the lsfg-vk layer.** It
   steps Off → ×2 → ×3 → ×4 (no Auto), saves the value 1.2 s after the last
   click and the session restarts once after the reload (LirtUp Forge must be
-  open). The tray's ×N does the same with the layer. The built-in engine still
+  open). It also shows while frame generation is off, so it can turn it on. The tray's ×N does the same with the layer. The built-in engine still
   changes it live.
 - The mode chip (and the new mode hotkeys) say «Solo hay un modo: creá otro en
   LirtUp Forge» / «Only one mode: create another in LirtUp Forge» when there
@@ -74,6 +74,8 @@
 
 - On a mode page, the save bar's «Restablecer» now discards that mode's
   unsaved edits; it did nothing there before.
+- The save bar no longer overflows a narrow window: «N cambios sin guardar»
+  shortens with «…», and below 860 px «Probar en vivo» keeps only its icon.
 
 ## 2.1.0 (2026-11-02)
 
