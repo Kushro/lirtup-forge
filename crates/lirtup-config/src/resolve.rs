@@ -1,6 +1,13 @@
 //! Layering of defaults, file, mode, profile and command line into a
 //! [`Config`] (the order is in the crate docs).
+//!
+//! Settings of the retired native effects engine (the keys of
+//! [`crate::legacy::LEGACY_KEYS`]) are translated to MagpieFX effects on the
+//! merged file layers, before the command line goes on top
+//! ([`crate::legacy::translate_native`]); on the command line they are
+//! ignored with a warning.
 
+use crate::legacy::{LEGACY_KEYS, translate_native};
 use crate::{Config, ConfigError, ConfigFile, ConfigWarning, Mapping, ModeStore, Profile, Value};
 
 /// Which profile to apply.
@@ -149,7 +156,35 @@ pub fn resolve_with_mode(
         }
         None => None,
     };
-    // Loose mode keys in the naming layer and above win over the mode's.
+    // Legacy keys on the command line are not translated: they would mix
+    // the old rule with layers already translated. Dropped with a warning.
+    let mut warnings: Vec<ConfigWarning> = Vec::new();
+    let cli_dropped: Vec<String> = cli
+        .keys()
+        .filter_map(Value::as_str)
+        .filter(|k| LEGACY_KEYS.contains(k))
+        .map(str::to_owned)
+        .collect();
+    let cli_clean: Mapping;
+    let cli: &Mapping = if cli_dropped.is_empty() {
+        cli
+    } else {
+        for key in &cli_dropped {
+            warnings.push(ConfigWarning {
+                key: key.clone(),
+                message: "retired native engine setting, ignored; use --magpie-effect".to_owned(),
+            });
+        }
+        cli_clean = cli
+            .iter()
+            .filter(|(k, _)| !k.as_str().is_some_and(|k| LEGACY_KEYS.contains(&k)))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        &cli_clean
+    };
+    // Loose mode keys in the naming layer and above win over the mode's
+    // (legacy keys count as mode keys: an unmigrated profile with loose
+    // native fields over a mode still shadows it).
     let shadowed: Vec<String> = match (&named, &mode_layer) {
         (Some((_, layer)), Some(mode_layer)) => {
             let mut above: Vec<&Mapping> = Vec::new();
@@ -165,7 +200,9 @@ pub fn resolve_with_mode(
             mode_layer
                 .keys()
                 .filter_map(Value::as_str)
-                .filter(|k| *k != "mode" && crate::model::MODE_KEYS.contains(k))
+                .filter(|k| {
+                    *k != "mode" && (crate::model::MODE_KEYS.contains(k) || LEGACY_KEYS.contains(k))
+                })
                 .filter(|k| above.iter().any(|m| m.get(*k).is_some_and(|v| !v.is_null())))
                 .map(str::to_owned)
                 .collect()
@@ -188,6 +225,9 @@ pub fn resolve_with_mode(
     if at(Named::Cli) {
         merge_layer(&mut merged, mode_layer.as_ref().unwrap_or(&Mapping::new()));
     }
+    // The file layers are complete: the native engine becomes MagpieFX
+    // effects here, so the command line (`--magpie-effect`) wins over them.
+    translate_native(&mut merged, &mut warnings);
     merge_layer(&mut merged, cli);
     // Whatever layer won, report the mode actually applied.
     match &named {
@@ -195,7 +235,8 @@ pub fn resolve_with_mode(
         None => merged.remove("mode"),
     };
 
-    let (mut config, mut warnings) = Config::from_mapping(&merged);
+    let (mut config, read_warnings) = Config::from_mapping(&merged);
+    warnings.extend(read_warnings);
     warnings.extend(config.validate());
     if let Some((id, layer)) = &named
         && !shadowed.is_empty()
@@ -244,7 +285,8 @@ pub fn find_profile<'a>(file: &'a ConfigFile, name: &str) -> Option<(&'a str, &'
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Mode, Model};
+    use crate::legacy::{CRT_EFFECT, LUMA_SHARPEN_EFFECT};
+    use crate::{MagpieEffectSpec, Mode, Model};
 
     fn map(yaml: &str) -> Mapping {
         serde_yaml_ng::from_str(yaml).unwrap()
@@ -255,6 +297,12 @@ mod tests {
         let path = dir.path().join("config.yaml");
         std::fs::write(&path, yaml).unwrap();
         ConfigFile::load(&path).unwrap().0
+    }
+
+    /// The chain a 2.1 mode with `crt_enabled: true` (and nothing else of
+    /// the native engine) translates to.
+    fn crt() -> Vec<MagpieEffectSpec> {
+        vec![MagpieEffectSpec::Short(CRT_EFFECT.into())]
     }
 
     fn modes(entries: &[(&str, &str)]) -> ModeStore {
@@ -366,7 +414,7 @@ profiles:
         ]);
         let r = resolve(&file, &store2, &named("AnimeLoose"), &map("mode: crt\n")).unwrap();
         assert_eq!(r.mode.as_deref(), Some("crt"));
-        assert!(r.config.scaling.crt_enabled);
+        assert_eq!(r.config.scaling.magpie_effects, crt());
         assert_eq!(r.config.scaling.model, Model::None);
 
         assert!(matches!(
@@ -391,7 +439,7 @@ profiles:
         assert_eq!(r.mode.as_deref(), Some("crt"));
         assert_eq!(r.named_mode.as_deref(), Some("anime"));
         assert_eq!(r.config.mode.as_deref(), Some("crt"));
-        assert!(r.config.scaling.crt_enabled);
+        assert_eq!(r.config.scaling.magpie_effects, crt());
         assert_eq!(r.config.scaling.model, Model::M8x32);
 
         // A profile that names no mode: the replacement goes in its layer,
@@ -399,12 +447,12 @@ profiles:
         let r = with(&named("Game"), Some("crt"));
         assert_eq!(r.named_mode, None);
         assert_eq!(r.config.scaling.model, Model::M4x12);
-        assert!(r.config.scaling.crt_enabled);
+        assert_eq!(r.config.scaling.magpie_effects, crt());
 
         // No profile: where the top level would name it (its loose fields win).
         let r = with(&ProfileChoice::None, Some("crt"));
         assert_eq!(r.config.scaling.model, Model::Faster);
-        assert!(r.config.scaling.crt_enabled);
+        assert_eq!(r.config.scaling.magpie_effects, crt());
 
         // None, or an empty id, changes nothing.
         let r = with(&named("Anime"), None);
@@ -460,5 +508,82 @@ profiles:
         let r = resolve(&file, &store, &ProfileChoice::None, &Mapping::new()).unwrap();
         assert_eq!(r.config.scaling.model, Model::Fast);
         assert!(r.config.scaling.cas_enabled);
+    }
+
+    #[test]
+    fn native_settings_of_the_files_are_translated() {
+        // A 2.1 mode with the CRT on, and a profile with a loose CRT field
+        // over it (an unmigrated profile): one CRT effect with the loose
+        // value, reported as shadowing nothing of the mode.
+        let file = file(
+            "profiles:\n  Retro:\n    options:\n      mode: crt\n      crt_sharpness_h: 0.7\n\
+             \x20 Plain:\n    options:\n      mode: crt\n      crt_enabled: false\n",
+        );
+        let store = modes(&[("crt", "name: CRT\ncrt_enabled: true\nmodel: none\n")]);
+        let named = |n: &str| ProfileChoice::Named(n.into());
+        let r = resolve(&file, &store, &named("Retro"), &Mapping::new()).unwrap();
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("sharpnessH".to_owned(), 0.7);
+        assert_eq!(
+            r.config.scaling.magpie_effects,
+            vec![MagpieEffectSpec::Full {
+                name: CRT_EFFECT.into(),
+                params
+            }]
+        );
+        assert!(r.shadowed.is_empty(), "{:?}", r.shadowed);
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+        assert!(r.config.extra.is_empty(), "{:?}", r.config.extra);
+
+        // A loose native field over the same field of the mode shadows it.
+        let r = resolve(&file, &store, &named("Plain"), &Mapping::new()).unwrap();
+        assert_eq!(r.shadowed, vec!["crt_enabled".to_owned()]);
+        assert!(r.config.scaling.magpie_effects.is_empty());
+
+        // `--magpie-effect` goes on top of the translated list.
+        let cli = map("magpie_effects: [CAS]\n");
+        let r = resolve(&file, &store, &named("Retro"), &cli).unwrap();
+        assert_eq!(
+            r.config.scaling.magpie_effects,
+            vec![MagpieEffectSpec::Short("CAS".into())]
+        );
+    }
+
+    #[test]
+    fn native_settings_on_the_command_line_are_ignored() {
+        let file = file("model: fast\n");
+        let cli = map("crt_enabled: true\neffects_engine: native\nmodel: none\n");
+        let r = resolve(&file, &ModeStore::default(), &ProfileChoice::None, &cli).unwrap();
+        assert!(r.config.scaling.magpie_effects.is_empty());
+        assert_eq!(r.config.scaling.model, Model::None);
+        let warned: Vec<&str> = r.warnings.iter().map(|w| w.key.as_str()).collect();
+        assert_eq!(warned, ["crt_enabled", "effects_engine"]);
+        assert!(r.warnings[0].message.contains("--magpie-effect"));
+        assert!(r.config.extra.is_empty(), "{:?}", r.config.extra);
+    }
+
+    #[test]
+    fn the_magpiefx_engine_of_a_profile_keeps_the_mode_chain() {
+        let file = file("profiles:\n  P:\n    options:\n      mode: m\n      effects_engine: magpiefx\n");
+        let store = modes(&[(
+            "m",
+            "name: M\nluma_sharpen_enabled: true\nmagpie_effects: [CAS]\n\
+             magpie_effects_before_model: [Bicubic]\n",
+        )]);
+        let r = resolve(&file, &store, &ProfileChoice::Named("P".into()), &Mapping::new()).unwrap();
+        assert_eq!(
+            r.config.scaling.magpie_effects,
+            vec![MagpieEffectSpec::Short("CAS".into())]
+        );
+        assert_eq!(
+            r.config.scaling.magpie_effects_before_model,
+            vec![MagpieEffectSpec::Short("Bicubic".into())]
+        );
+        // Without the profile the mode runs its native LumaSharpen.
+        let r = resolve_with_mode(&file, &store, &ProfileChoice::None, &Mapping::new(), Some("m")).unwrap();
+        assert_eq!(
+            r.config.scaling.magpie_effects,
+            vec![MagpieEffectSpec::Short(LUMA_SHARPEN_EFFECT.into())]
+        );
     }
 }
