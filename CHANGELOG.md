@@ -57,6 +57,12 @@
 - The mode chip (and the new mode hotkeys) say «Solo hay un modo: creá otro en
   LirtUp Forge» / «Only one mode: create another in LirtUp Forge» when there
   is only one mode.
+- Loose mode settings in `config.yaml` (1.x leftovers such as a top-level
+  `magpie_effects`) win over the mode they sit next to, so a mode picked on
+  the bar could change nothing. The resolver now reports which keys shadow
+  the mode (`Resolved::shadowed`, a config warning in the log) and the chip's
+  message adds «ajustes sueltos de config.yaml lo tapan (lirtup migrate)» /
+  «loose settings in config.yaml shadow it (lirtup migrate)».
 - MagpieFX: the shader cache key no longer contains the effects folder's path,
   so the AppImage no longer recompiles every effect on each launch. The cache
   format moves to `rs2`: effects compile once more after updating, unless they

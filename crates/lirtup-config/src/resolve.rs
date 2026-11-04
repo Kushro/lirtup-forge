@@ -36,6 +36,10 @@ pub struct Resolved {
     pub named_mode: Option<String>,
     /// Everything ignored or corrected on the way.
     pub warnings: Vec<ConfigWarning>,
+    /// Keys of the applied mode that loose mode settings in the layer naming
+    /// it (or above) override, so the mode does not show: empty when the
+    /// mode applies as written (typical after `lirtup migrate`).
+    pub shadowed: Vec<String>,
 }
 
 /// Merge `top` over `base` key by key; `hotkeys` merges one level deeper.
@@ -145,6 +149,29 @@ pub fn resolve_with_mode(
         }
         None => None,
     };
+    // Loose mode keys in the naming layer and above win over the mode's.
+    let shadowed: Vec<String> = match (&named, &mode_layer) {
+        (Some((_, layer)), Some(mode_layer)) => {
+            let mut above: Vec<&Mapping> = Vec::new();
+            if *layer == Named::General {
+                above.push(&file.general);
+            }
+            if *layer != Named::Cli
+                && let Some(options) = options
+            {
+                above.push(options);
+            }
+            above.push(cli);
+            mode_layer
+                .keys()
+                .filter_map(Value::as_str)
+                .filter(|k| *k != "mode" && crate::model::MODE_KEYS.contains(k))
+                .filter(|k| above.iter().any(|m| m.get(*k).is_some_and(|v| !v.is_null())))
+                .map(str::to_owned)
+                .collect()
+        }
+        _ => Vec::new(),
+    };
     let at = |layer: Named| named.as_ref().is_some_and(|(_, n)| *n == layer);
 
     let mut merged = Mapping::new();
@@ -170,6 +197,23 @@ pub fn resolve_with_mode(
 
     let (mut config, mut warnings) = Config::from_mapping(&merged);
     warnings.extend(config.validate());
+    if let Some((id, layer)) = &named
+        && !shadowed.is_empty()
+    {
+        let layer = match layer {
+            Named::General => "the top level",
+            Named::Profile => "the profile",
+            Named::Cli => "the command line",
+        };
+        warnings.push(ConfigWarning {
+            key: "mode".to_owned(),
+            message: format!(
+                "mode '{id}' is shadowed by loose mode settings in {layer} ({}); move them into a mode \
+                 (lirtup migrate) or remove them",
+                shadowed.join(", ")
+            ),
+        });
+    }
     config.config_file = Some(file.path.clone()).filter(|p| !p.as_os_str().is_empty());
     for w in &warnings {
         tracing::warn!("config: {}: {}", w.key, w.message);
@@ -180,6 +224,7 @@ pub fn resolve_with_mode(
         mode: named.map(|(id, _)| id),
         named_mode,
         warnings,
+        shadowed,
     })
 }
 
@@ -370,6 +415,42 @@ profiles:
             resolve_with_mode(&file, &store, &named("Anime"), &Mapping::new(), Some("nope")),
             Err(ConfigError::UnknownMode(_))
         ));
+    }
+
+    #[test]
+    fn loose_settings_that_shadow_the_mode_are_reported() {
+        let file = file(FILE);
+        let store = modes(&[
+            ("anime", "name: Anime\nmodel: 4x24\n"),
+            ("crt", "name: CRT\ncrt_enabled: true\nmodel: none\n"),
+        ]);
+        let named = |n: &str| ProfileChoice::Named(n.into());
+        let with = |p: &ProfileChoice, m| resolve_with_mode(&file, &store, p, &Mapping::new(), m).unwrap();
+
+        // The top level sets `model` and names no mode: a replacement there
+        // loses its `model` to the loose key, and says so.
+        let r = with(&ProfileChoice::None, Some("crt"));
+        assert_eq!(r.shadowed, vec!["model".to_owned()]);
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.key == "mode" && w.message.contains("top level"))
+        );
+
+        // The profile's loose `model` shadows the mode it names.
+        let r = with(&named("AnimeLoose"), None);
+        assert_eq!(r.shadowed, vec!["model".to_owned()]);
+
+        // A mode whose keys nobody sets loose applies as written.
+        let r = with(&named("Anime"), None);
+        assert!(r.shadowed.is_empty());
+        assert!(!r.warnings.iter().any(|w| w.key == "mode"));
+
+        // Null means inherit, so it shadows nothing.
+        let r = with(&named("Game"), Some("anime"));
+        assert_eq!(r.shadowed, vec!["model".to_owned()]);
+        let r = with(&named("Game"), Some("crt"));
+        assert_eq!(r.shadowed, vec!["model".to_owned()]);
     }
 
     #[test]

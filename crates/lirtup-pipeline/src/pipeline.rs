@@ -1828,9 +1828,11 @@ impl Runner {
         let entry = self.modes[next].clone();
         let name = mode_name(&entry);
         let temporary = Some(&entry.id) != self.named_mode.as_ref();
-        let effects = self
-            .resolve_mode(Some(&entry.id))
+        let resolved = self.resolve_mode(Some(&entry.id));
+        let effects = resolved
+            .as_ref()
             .is_some_and(|r| rebuilds_effects(&self.config, &r.config));
+        let shadowed = resolved.is_some_and(|r| !r.shadowed.is_empty());
         let mut es = format!("Modo: {name}");
         let mut en = format!("Mode: {name}");
         if temporary {
@@ -1840,6 +1842,12 @@ impl Runner {
         if effects {
             es.push_str(" · preparando efectos…");
             en.push_str(" · preparing effects…");
+        }
+        if shadowed {
+            // Loose mode keys in config.yaml beat the mode (resolve.rs): the
+            // chip would look broken without saying why.
+            es.push_str(" · ajustes sueltos de config.yaml lo tapan (lirtup migrate)");
+            en.push_str(" · loose settings in config.yaml shadow it (lirtup migrate)");
         }
         self.osd(&tr(&es, &en));
         self.pending_mode = Some(PendingMode {

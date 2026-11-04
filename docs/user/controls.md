@@ -104,6 +104,11 @@ moment after the last click, so you can skip several modes quickly.
   more in the GUI's [Modes](modes.md) page.
 - While you edit a mode in the GUI with *Try live* on, the chip shows a dot
   and the session uses your unsaved changes; see [modes](modes.md).
+- If the message adds *loose settings in config.yaml shadow it (lirtup
+  migrate)*, `config.yaml` still has mode settings outside any mode (for
+  example a top-level `magpie_effects` left from 1.x), and those win over the
+  mode. Run `lirtup migrate` (or accept the GUI's offer) to move them into a
+  mode, or delete them.
 
 ### The multiplier
 
