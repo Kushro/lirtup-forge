@@ -15,16 +15,19 @@
 //!
 //! The cases run headless on a synthetic test image, straight on
 //! `lirtup-effects`, `lirtup-magpiefx` and `lirtup-fg` (not through the
-//! presenter): native effects and MagpieFX with Vulkan timestamps, frame
-//! generation timed on the CPU per cycle, like 1.x. Results are kept per GPU
-//! in `bench.json` next to the configuration (same file and shape as 1.x).
+//! presenter): native passes (deband, CAS, bloom, vignette, grain, LUT) and
+//! MagpieFX effects with Vulkan timestamps, frame generation timed on the
+//! CPU per cycle, like 1.x. Results are kept per GPU in `bench.json` next to
+//! the configuration (same file and shape as 1.x). The three effects of the
+//! retired native engine are measured as MagpieFX cases (catalog names).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use lirtup_config::{EffectsEngine, ModeSettings, ModeStore, paths};
+use lirtup_config::legacy::{ANIME4K_EFFECT, CRT_EFFECT, LUMA_SHARPEN_EFFECT};
+use lirtup_config::{ModeSettings, ModeStore, paths};
 use lirtup_effects::Pass;
 use lirtup_effects::effects::NativeEffect;
 use lirtup_fg::dll::{DllKind, find_dll};
@@ -41,13 +44,9 @@ use serde_json::{Map, Value, json};
 
 use crate::{PipelineError, Result};
 
-/// Native effects of a run without a mode, under their 1.x (MagpieFX)
-/// names, with the label of the pass they are.
-const NATIVE_EFFECTS: [(&str, &str); 3] = [
-    ("LumaSharpen", "luma_sharpen"),
-    ("Anime4K_Upscale_S", "anime4k"),
-    ("CRT_Easymode", "crt_easymode"),
-];
+/// The MagpieFX effects of a run without a mode: the three effects the
+/// retired native engine had, by catalog name, in the 1.x order.
+const DEFAULT_EFFECTS: [&str; 3] = [LUMA_SHARPEN_EFFECT, ANIME4K_EFFECT, CRT_EFFECT];
 
 /// Frame generation settings measured (1.x order: model, flow scale,
 /// multiplier).
@@ -162,49 +161,29 @@ fn load_mode(id: &str) -> Option<ModeSettings> {
 
 /// The cases of a request, in the order they are measured (`build_cases`).
 ///
-/// - Without a mode: the three native effects of 1.x (LumaSharpen,
-///   Anime4K_Upscale_S, CRT_Easymode). With a mode: its native passes (by
-///   pass label) or, with the MagpieFX engine, its chain.
+/// - Without a mode: the three effects of the retired native engine, as
+///   MagpieFX cases by catalog name (`Sharpen/LumaSharpen`,
+///   `Anime4K/Anime4K_Upscale_S`, `CRT/CRT_Easymode`, the 1.x order). With
+///   a mode: its native passes (by pass label), then its MagpieFX effects
+///   (the chain before the model, then the one after it).
 /// - Then `effects` (MagpieFX), without repeating one of the mode.
 /// - Then, with `framegen`, ×2 to ×4 at flow 1.0 and 0.5, quality and
 ///   performance model.
+///
+/// Every MagpieFX case is measured at the request's `src` input; the GUI
+/// scales the costs of the chain after the model by the model's scale.
 pub fn build_cases(request: &BenchRequest) -> Vec<BenchCase> {
-    let mut cases = Vec::new();
-    let mut magpie: Vec<String> = Vec::new();
-    match request.mode.as_deref() {
-        None => cases.extend(NATIVE_EFFECTS.iter().map(|(name, _)| BenchCase {
-            kind: BenchKind::Native,
-            name: (*name).to_owned(),
-        })),
+    let mut cases = match request.mode.as_deref() {
+        None => default_cases(&request.effects),
         Some(id) => match load_mode(id) {
-            Some(mode) => {
-                cases.extend(NativeEffect::from_mode(&mode).iter().map(|e| BenchCase {
-                    kind: BenchKind::Native,
-                    name: e.label().to_owned(),
-                }));
-                if mode.effects_engine == EffectsEngine::Magpiefx {
-                    for item in &mode.magpie_effects {
-                        match parse_effect_spec(item) {
-                            Ok(spec) => magpie.push(spec.name),
-                            Err(e) => tracing::warn!("bench: {e}"),
-                        }
-                    }
-                }
+            Some(mode) => mode_cases(&mode, &request.effects),
+            None => {
+                // Nothing of its own (as before), not the default effects.
+                tracing::warn!("bench: mode '{id}' not found");
+                magpie_cases(Vec::new(), &request.effects)
             }
-            None => tracing::warn!("bench: mode '{id}' not found"),
         },
-    }
-    magpie.extend(request.effects.iter().cloned());
-    let mut seen = std::collections::HashSet::new();
-    cases.extend(
-        magpie
-            .into_iter()
-            .filter(|name| seen.insert(name.clone()))
-            .map(|name| BenchCase {
-                kind: BenchKind::Magpiefx,
-                name,
-            }),
-    );
+    };
     if request.framegen {
         for performance in FRAMEGEN_MODELS {
             for flow in FRAMEGEN_FLOW_SCALES {
@@ -218,6 +197,47 @@ pub fn build_cases(request: &BenchRequest) -> Vec<BenchCase> {
         }
     }
     cases
+}
+
+/// The effect cases of a run without a mode: [`DEFAULT_EFFECTS`], then
+/// `extra`.
+fn default_cases(extra: &[String]) -> Vec<BenchCase> {
+    magpie_cases(DEFAULT_EFFECTS.iter().map(|n| (*n).to_owned()).collect(), extra)
+}
+
+/// The effect cases of a mode: its native passes (1.x order), then its
+/// MagpieFX effects (before the model, then after it), then `extra`.
+fn mode_cases(mode: &ModeSettings, extra: &[String]) -> Vec<BenchCase> {
+    let mut cases: Vec<BenchCase> = NativeEffect::from_mode(mode)
+        .iter()
+        .map(|e| BenchCase {
+            kind: BenchKind::Native,
+            name: e.label().to_owned(),
+        })
+        .collect();
+    let mut names = Vec::new();
+    for item in mode.magpie_effects_before_model.iter().chain(&mode.magpie_effects) {
+        match parse_effect_spec(item) {
+            Ok(spec) => names.push(spec.name),
+            Err(e) => tracing::warn!("bench: {e}"),
+        }
+    }
+    cases.extend(magpie_cases(names, extra));
+    cases
+}
+
+/// MagpieFX cases for `names` then `extra`, each name once (first place).
+fn magpie_cases(mut names: Vec<String>, extra: &[String]) -> Vec<BenchCase> {
+    names.extend(extra.iter().cloned());
+    let mut seen = std::collections::HashSet::new();
+    names
+        .into_iter()
+        .filter(|name| seen.insert(name.clone()))
+        .map(|name| BenchCase {
+            kind: BenchKind::Magpiefx,
+            name,
+        })
+        .collect()
 }
 
 /// The synthetic test frame (`make_test_image`): RGBA8, gradients, fine
@@ -503,13 +523,9 @@ impl Backend<'_> {
     }
 
     fn native(&mut self, name: &str) -> Result<Box<dyn Runner>> {
-        let label = NATIVE_EFFECTS
-            .iter()
-            .find(|(n, _)| *n == name)
-            .map_or(name, |(_, label)| *label);
         let effect = all_native(&self.mode)
             .into_iter()
-            .find(|e| e.label() == label)
+            .find(|e| e.label() == name)
             .ok_or_else(|| PipelineError::other(Stage::Effects, format!("{name} is not a native effect")))?;
         let src = self.source()?;
         let size = effect.output_size((src.width(), src.height()), self.dst_size());
@@ -567,14 +583,11 @@ impl Backend<'_> {
     }
 }
 
-/// Every native effect, with the parameters of `mode`.
+/// Every native pass (deband, CAS, bloom, vignette, grain, LUT), with the
+/// parameters of `mode`.
 fn all_native(mode: &ModeSettings) -> Vec<NativeEffect> {
     let mut all = mode.clone();
-    all.effects_engine = EffectsEngine::Native;
     all.deband_enabled = true;
-    all.anime4k_enabled = true;
-    all.luma_sharpen_enabled = true;
-    all.crt_enabled = true;
     all.cas_enabled = true;
     all.bloom_enabled = true;
     all.vignette_enabled = true;
@@ -943,6 +956,7 @@ fn utc_stamp(now: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lirtup_config::MagpieEffectSpec;
     use lirtup_proto::Size;
 
     fn request(framegen: bool, effects: &[&str]) -> BenchRequest {
@@ -968,8 +982,10 @@ mod tests {
         let names: Vec<&str> = cases.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             &names[..5],
-            ["LumaSharpen", "Anime4K_Upscale_S", "CRT_Easymode", "CAS", "FSR"]
+            ["Sharpen/LumaSharpen", "Anime4K/Anime4K_Upscale_S", "CRT/CRT_Easymode", "CAS", "FSR"]
         );
+        // The three effects of the retired native engine are MagpieFX cases.
+        assert!(cases[..5].iter().all(|c| c.kind == BenchKind::Magpiefx));
         assert_eq!(cases.len(), 5 + 12);
         assert_eq!(names[5], "x2 flow 1.0 quality");
         assert_eq!(names[7], "x4 flow 1.0 quality");
@@ -989,9 +1005,59 @@ mod tests {
     #[test]
     fn native_names_map_to_passes() {
         let all = all_native(&ModeSettings::default());
-        for (_, label) in NATIVE_EFFECTS {
-            assert!(all.iter().any(|e| e.label() == label), "{label}");
+        let labels: Vec<&str> = all.iter().map(|e| e.label()).collect();
+        for label in ["deband", "cas", "bloom", "vignette", "grain", "lut"] {
+            assert!(labels.contains(&label), "{label}");
         }
+        assert_eq!(labels.len(), 6, "{labels:?}");
+        // A mode's native cases are found by their pass label.
+        let mode = ModeSettings {
+            deband_enabled: true,
+            cas_enabled: true,
+            ..ModeSettings::default()
+        };
+        for case in mode_cases(&mode, &[]) {
+            assert_eq!(case.kind, BenchKind::Native);
+            assert!(labels.contains(&case.name.as_str()), "{}", case.name);
+        }
+    }
+
+    #[test]
+    fn mode_cases_measure_both_chains_once() {
+        let mode = ModeSettings {
+            deband_enabled: true,
+            cas_enabled: false,
+            bloom_enabled: false,
+            vignette_enabled: false,
+            grain_enabled: false,
+            lut_enabled: false,
+            magpie_effects_before_model: vec![
+                MagpieEffectSpec::Short("CAS".into()),
+                MagpieEffectSpec::Short("Sharpen/LumaSharpen:sharpStrength=1".into()),
+            ],
+            magpie_effects: vec![
+                MagpieEffectSpec::Short("CRT/CRT_Easymode".into()),
+                MagpieEffectSpec::Short("CAS".into()),
+            ],
+            ..ModeSettings::default()
+        };
+        let cases = mode_cases(&mode, &["FSR".to_owned(), "CRT/CRT_Easymode".to_owned()]);
+        let got: Vec<(BenchKind, &str)> = cases.iter().map(|c| (c.kind, c.name.as_str())).collect();
+        assert_eq!(
+            got,
+            [
+                (BenchKind::Native, "deband"),
+                (BenchKind::Magpiefx, "CAS"),
+                (BenchKind::Magpiefx, "Sharpen/LumaSharpen"),
+                (BenchKind::Magpiefx, "CRT/CRT_Easymode"),
+                (BenchKind::Magpiefx, "FSR"),
+            ]
+        );
+        // No mode effects: only the native passes and the extra ones; never
+        // the defaults of a run without a mode.
+        let plain = mode_cases(&ModeSettings::default(), &["CAS".to_owned()]);
+        assert!(plain.iter().all(|c| !DEFAULT_EFFECTS.contains(&c.name.as_str())));
+        assert_eq!(plain.last().map(|c| c.name.as_str()), Some("CAS"));
     }
 
     #[test]
