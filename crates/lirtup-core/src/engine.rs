@@ -39,6 +39,8 @@
 //! | `Diagnostics` | gather `DiagReport` |
 //! | `PauseHotkeys` | count the pausers ([`Engine::pause_hotkeys`], per connection in the server); ungrab every hotkey when the count leaves 0, grab them again when it returns |
 //! | `WatchGpuTimes` | count the watchers ([`Engine::watch_gpu_times`]; the server counts per connection); `PipelineCommand::SetTimestamps` when the count goes to or from 0 |
+//! | `Preview` | keep the unsaved mode in the running session (`Running::preview`), resolve again with it and send `PipelineCommand::UpdateConfig { preview: true }`; ignored with no session |
+//! | `PreviewEnd` | drop the preview and do a `ReloadConfig` (`preview: false`); also [`Engine::end_preview`], when the connection that sent the preview closes |
 //! | `Quit` | shutdown |
 //!
 //! # Details of round 2
@@ -81,7 +83,9 @@ use std::time::Duration;
 use arc_swap::ArcSwap;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use lirtup_config::resolve::{ProfileChoice, Resolved, resolve, resolve_with_mode};
-use lirtup_config::{Config, ConfigFile, FrameGenEngine, FrameGenMultiplier, HotkeyAction, ModeStore, paths};
+use lirtup_config::{
+    Config, ConfigError, ConfigFile, FrameGenEngine, FrameGenMultiplier, HotkeyAction, Mode, ModeStore, paths,
+};
 use lirtup_fg::FrameGenState;
 use lirtup_fg::layer::{self, LayerSetup};
 use lirtup_gpu::{Device, GpuError, Instance, InstanceOptions};
@@ -189,15 +193,13 @@ struct Running {
     /// «Probar en vivo» (`Command::Preview`): unsaved edits of one mode,
     /// applied by [`Inner::resolve_for`] until `PreviewEnd` or the session
     /// ends (it lives and dies with `Running`).
-    #[allow(dead_code)] // TODO(proto-engine): use it.
     preview: Option<Preview>,
 }
 
 /// A mode editor preview (see [`Running::preview`]).
-#[allow(dead_code)] // TODO(proto-engine): use it.
 #[derive(Debug, Clone)]
 struct Preview {
-    /// The profile the GUI saw (informational).
+    /// The profile the GUI saw (informational: only logged).
     profile: Option<String>,
     /// Id of the previewed mode.
     mode: String,
@@ -424,9 +426,13 @@ impl Engine {
     /// The connection that sent the running `Command::Preview` closed: end
     /// the preview as `PreviewEnd` would (nothing if there is none). The
     /// server calls it from a per-connection guard, as
-    /// [`Engine::watch_gpu_times`].
-    // TODO(proto-engine): implement (clear `Running::preview`, reload).
-    pub fn end_preview(&self) {}
+    /// [`Engine::watch_gpu_times`]. It reads the files again (as
+    /// `ReloadConfig`), so the server calls it on a blocking thread.
+    pub fn end_preview(&self) {
+        if !self.inner.stopping.load(Ordering::SeqCst) {
+            self.inner.set_preview(None);
+        }
+    }
 
     /// Subscribe to events. A lagging receiver gets `RecvError::Lagged` and
     /// should ask for a [`Engine::snapshot`].
@@ -525,6 +531,42 @@ fn class_hint(pid: u32) -> Option<String> {
             .map(|c| c.trim().to_owned())
             .filter(|c| !c.is_empty())
     })
+}
+
+/// `modes` with the entry of the previewed mode replaced by its unsaved
+/// edits: both the parsed [`Mode`] and the raw mapping the resolver layers
+/// (an id not in `modes/` yet is added).
+fn apply_preview(modes: &ModeStore, preview: &Preview) -> ModeStore {
+    let mut modes = modes.clone();
+    let (mode, warnings) = Mode::from_mapping(&preview.mode, &preview.raw);
+    for w in warnings {
+        tracing::debug!("preview of {}: {}: {}", preview.mode, w.key, w.message);
+    }
+    modes.modes.insert(preview.mode.clone(), mode);
+    modes.raw.insert(preview.mode.clone(), preview.raw.clone());
+    modes
+}
+
+/// [`resolve_with_mode`], with the unsaved mode of `preview` in place of the
+/// file of the same id.
+///
+/// The resolver only reads the mode it applies (`mode`, else the one the
+/// profile or the top level names), so resolving on the patched store
+/// changes the result exactly when that mode is the previewed one, whether
+/// it is the profile's or the bar's temporary choice; any other mode
+/// resolves as from the files.
+fn resolve_previewed(
+    file: &ConfigFile,
+    modes: &ModeStore,
+    choice: &ProfileChoice,
+    cli: &lirtup_config::Mapping,
+    mode: Option<&str>,
+    preview: Option<&Preview>,
+) -> std::result::Result<Resolved, ConfigError> {
+    match preview.filter(|p| !p.mode.is_empty()) {
+        Some(preview) => resolve_with_mode(file, &apply_preview(modes, preview), choice, cli, mode),
+        None => resolve_with_mode(file, modes, choice, cli, mode),
+    }
 }
 
 /// What the daemon thread holds: the engine, weakly (the engine owns the
@@ -761,17 +803,57 @@ impl Inner {
             }),
             Command::WatchGpuTimes { on } => self.watch_gpu_times(on),
             Command::PauseHotkeys { on } => self.pause_hotkeys(on),
-            // TODO(proto-engine): block 2b of the live-tuning contract.
-            Command::Preview { mode, .. } => {
-                tracing::warn!("Preview of mode {mode:?}: not implemented yet");
+            Command::Preview { profile, mode, raw } => {
+                if mode.is_empty() {
+                    self.log(Level::Warn, "Preview: no mode id");
+                } else {
+                    self.set_preview(Some(Preview { profile, mode, raw }));
+                }
             }
-            Command::PreviewEnd => tracing::warn!("PreviewEnd: not implemented yet"),
+            Command::PreviewEnd => self.set_preview(None),
             Command::Quit => {
                 self.stop_session(StopReason::Quit);
                 self.quit.send_replace(true);
             }
         }
         Ok(())
+    }
+
+    /// `Preview` (`Some`) or `PreviewEnd` (`None`): keep it in the running
+    /// session and send the session its configuration again. A new preview
+    /// resolves from the files as last read; ending one reads them again
+    /// (`ReloadConfig`), so the session never shows the stale file of a mode
+    /// the GUI has just saved. Nothing happens without a session, or when
+    /// there is no preview to end.
+    fn set_preview(self: &Arc<Self>, preview: Option<Preview>) {
+        let what = preview
+            .as_ref()
+            .map(|p| format!("mode {:?} (profile {:?})", p.mode, p.profile));
+        let had = {
+            let mut st = lock(&self.state);
+            match st.session.as_mut().filter(|r| !r.session.is_finished()) {
+                Some(running) => {
+                    let had = running.preview.is_some();
+                    running.preview = preview;
+                    Some(had)
+                }
+                None => None,
+            }
+        };
+        match (had, what) {
+            (None, Some(what)) => tracing::debug!("Preview of {what}: no session, ignored"),
+            (None, None) | (Some(false), None) => tracing::debug!("PreviewEnd: no preview"),
+            (Some(_), Some(what)) => {
+                tracing::debug!("previewing {what}");
+                self.update_session();
+            }
+            (Some(true), None) => {
+                tracing::debug!("preview ended");
+                if let Err(e) = self.reload() {
+                    self.log(Level::Error, format!("cannot read the configuration again: {e}"));
+                }
+            }
+        }
     }
 
     fn pause_hotkeys(&self, on: bool) {
@@ -827,7 +909,7 @@ impl Inner {
     /// The daemon found `window` for `profile`: `DaemonMatch`, then a
     /// `Start` after `target_delay`, in the overlay mode of that profile.
     fn start_matched(self: &Arc<Self>, window: WindowInfo, profile: String) {
-        let kind = match self.resolve_for(&window, Some(&profile), None) {
+        let kind = match self.resolve_with(&window, Some(&profile), None, None) {
             Ok(r) if r.config.overlay_mode == lirtup_config::OverlayMode::Windowed => SessionKind::Windowed,
             _ => SessionKind::Fullscreen,
         };
@@ -984,7 +1066,9 @@ impl Inner {
         drop(x11);
 
         let profile = request.profile.clone().or_else(|| self.options.profile.clone());
-        let resolved = match self.resolve_for(&window, profile.as_deref(), None) {
+        // A new session starts without a preview (the old session's, if
+        // any, dies with it).
+        let resolved = match self.resolve_with(&window, profile.as_deref(), None, None) {
             Ok(r) => r,
             // 1.x (`config/setup.py`): an unknown `-p` warns and goes on
             // with the base configuration.
@@ -993,7 +1077,7 @@ impl Inner {
                     Level::Warn,
                     format!("no profile named {name:?}: using the base configuration"),
                 );
-                match self.resolve_for(&window, None, None) {
+                match self.resolve_with(&window, None, None, None) {
                     Ok(r) => r,
                     Err(e) => return self.fail(Stage::Config, e.to_string(), false),
                 }
@@ -1132,12 +1216,29 @@ impl Inner {
 
     /// The configuration of one window: the named profile, or the one whose
     /// `match` fits; `mode` replaces the mode it names (the bar's mode chip,
-    /// [`resolve_with_mode`]).
+    /// [`resolve_with_mode`]), with the preview of the running session
+    /// ([`resolve_previewed`]). This is the `SessionSetup.resolve` of the
+    /// session thread (the bar's temporary mode, a window switch with
+    /// `follow_focus`), so those show the preview too; a new session
+    /// resolves with [`Inner::resolve_with`] and no preview.
     fn resolve_for(
         &self,
         window: &WindowInfo,
         profile: Option<&str>,
         mode: Option<&str>,
+    ) -> Result<Resolved> {
+        // Never hold `state` and `files` at once: clone, release, resolve.
+        let preview = lock(&self.state).live().and_then(|r| r.preview.clone());
+        self.resolve_with(window, profile, mode, preview.as_ref())
+    }
+
+    /// [`Inner::resolve_for`] with an explicit preview (`None`: the files).
+    fn resolve_with(
+        &self,
+        window: &WindowInfo,
+        profile: Option<&str>,
+        mode: Option<&str>,
+        preview: Option<&Preview>,
     ) -> Result<Resolved> {
         let choice = match profile {
             Some(name) => ProfileChoice::Named(name.into()),
@@ -1148,12 +1249,13 @@ impl Inner {
             },
         };
         let files = lock(&self.files);
-        Ok(resolve_with_mode(
+        Ok(resolve_previewed(
             &files.file,
             &files.modes,
             &choice,
             &self.options.cli_overrides,
             mode,
+            preview,
         )?)
     }
 
@@ -1288,11 +1390,7 @@ impl Inner {
         self.rebind_hotkeys();
         self.restart_daemon_if_needed();
 
-        let (daemon, live) = {
-            let st = lock(&self.state);
-            let live = st.live().map(|r| (r.window.clone(), r.profile.clone()));
-            (st.daemon, live)
-        };
+        let daemon = lock(&self.state).daemon;
         if daemon.watching != watching {
             self.publish(Event::DaemonState {
                 on: daemon.on,
@@ -1301,30 +1399,11 @@ impl Inner {
             });
         }
 
-        match live {
-            Some((window, profile)) => {
-                let profile = profile.or_else(|| self.options.profile.clone());
-                match self.resolve_for(&window, profile.as_deref(), None) {
-                    Ok(resolved) => {
-                        let st = lock(&self.state);
-                        if let Some(running) = st.live() {
-                            running.session.send(PipelineCommand::UpdateConfig {
-                                config: Arc::new(resolved.config),
-                                profile: resolved.profile,
-                                mode: resolved.mode,
-                                // TODO(proto-engine): `running.preview.is_some()`.
-                                preview: false,
-                            });
-                        }
-                    }
-                    Err(e) => self.log(Level::Error, format!("the new configuration does not apply: {e}")),
-                }
-            }
-            None => {
-                let status = status_from_setup(&config, &self.layer);
-                if status != lock(&self.state).framegen {
-                    self.publish(Event::FrameGen(status));
-                }
+        // The preview, if any, stays (the GUI ends it with `PreviewEnd`).
+        if !self.update_session() {
+            let status = status_from_setup(&config, &self.layer);
+            if status != lock(&self.state).framegen {
+                self.publish(Event::FrameGen(status));
             }
         }
         if self.layer_needs_exec() {
@@ -1334,6 +1413,36 @@ impl Inner {
             );
         }
         Ok(())
+    }
+
+    /// Resolve the running session's configuration again (the files as
+    /// last read, plus its preview) and send it `UpdateConfig`. `false` when
+    /// no session runs.
+    fn update_session(&self) -> bool {
+        let live = {
+            let st = lock(&self.state);
+            st.live()
+                .map(|r| (r.window.clone(), r.profile.clone(), r.preview.clone()))
+        };
+        let Some((window, profile, preview)) = live else {
+            return false;
+        };
+        let profile = profile.or_else(|| self.options.profile.clone());
+        match self.resolve_with(&window, profile.as_deref(), None, preview.as_ref()) {
+            Ok(resolved) => {
+                let st = lock(&self.state);
+                if let Some(running) = st.live() {
+                    running.session.send(PipelineCommand::UpdateConfig {
+                        config: Arc::new(resolved.config),
+                        profile: resolved.profile,
+                        mode: resolved.mode,
+                        preview: preview.is_some(),
+                    });
+                }
+            }
+            Err(e) => self.log(Level::Error, format!("the new configuration does not apply: {e}")),
+        }
+        true
     }
 
     fn framegen_status(&self) -> FrameGenStatus {
@@ -1523,5 +1632,187 @@ impl Inner {
             }
         }
         self.quit.send_replace(true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lirtup_config::{Mapping, Model, Profile, Value};
+
+    /// A mapping of string keys and string or float values.
+    fn map(entries: &[(&str, Value)]) -> Mapping {
+        entries
+            .iter()
+            .map(|(k, v)| (Value::String((*k).into()), v.clone()))
+            .collect()
+    }
+
+    fn s(text: &str) -> Value {
+        Value::String(text.into())
+    }
+
+    /// Modes `calidad` (`faster`, CAS 0.4) and `rapido` (`none`).
+    fn store() -> ModeStore {
+        let mut store = ModeStore::default();
+        for (id, raw) in [
+            (
+                "calidad",
+                map(&[
+                    ("name", s("Calidad")),
+                    ("model", s("faster")),
+                    ("cas_strength", Value::from(0.4)),
+                ]),
+            ),
+            ("rapido", map(&[("name", s("Rápido")), ("model", s("none"))])),
+        ] {
+            store.modes.insert(id.into(), Mode::from_mapping(id, &raw).0);
+            store.raw.insert(id.into(), raw);
+        }
+        store
+    }
+
+    /// The top level names `calidad`; profile `Ys` names `rapido`, profile
+    /// `Loose` names `calidad` with a loose `model` of its own.
+    fn file() -> ConfigFile {
+        let mut file = ConfigFile {
+            general: map(&[("mode", s("calidad"))]),
+            ..ConfigFile::default()
+        };
+        file.profiles.insert(
+            "Ys".into(),
+            Profile {
+                options: map(&[("mode", s("rapido"))]),
+                ..Profile::default()
+            },
+        );
+        file.profiles.insert(
+            "Loose".into(),
+            Profile {
+                options: map(&[("mode", s("calidad")), ("model", s("4x16"))]),
+                ..Profile::default()
+            },
+        );
+        file
+    }
+
+    fn preview(mode: &str, raw: Mapping) -> Preview {
+        Preview {
+            profile: None,
+            mode: mode.into(),
+            raw,
+        }
+    }
+
+    /// `calidad` with the unsaved edits: `4x12`, CAS 0.9.
+    fn edited() -> Preview {
+        preview(
+            "calidad",
+            map(&[
+                ("name", s("Calidad (editado)")),
+                ("model", s("4x12")),
+                ("cas_strength", Value::from(0.9)),
+            ]),
+        )
+    }
+
+    fn resolved(choice: &ProfileChoice, mode: Option<&str>, preview: Option<&Preview>) -> Resolved {
+        resolve_previewed(&file(), &store(), choice, &Mapping::new(), mode, preview).unwrap()
+    }
+
+    fn named(name: &str) -> ProfileChoice {
+        ProfileChoice::Named(name.into())
+    }
+
+    #[test]
+    fn apply_preview_replaces_the_entry_in_both_maps() {
+        let original = store();
+        let edited = edited();
+        let patched = apply_preview(&original, &edited);
+        assert_eq!(patched.raw["calidad"], edited.raw);
+        assert_eq!(patched.modes["calidad"].name, "Calidad (editado)");
+        assert_eq!(patched.modes["calidad"].settings.model, Model::M4x12);
+        // In place: the order of the modes (the bar's list) is kept.
+        let ids: Vec<&str> = patched.modes.keys().map(String::as_str).collect();
+        assert_eq!(ids, ["calidad", "rapido"]);
+        // The other modes and the original store are untouched.
+        assert_eq!(patched.raw["rapido"], original.raw["rapido"]);
+        assert_eq!(patched.modes["rapido"], original.modes["rapido"]);
+        assert_eq!(original, store());
+    }
+
+    #[test]
+    fn apply_preview_adds_a_mode_not_saved_yet() {
+        let new = preview("nuevo", map(&[("model", s("4x12"))]));
+        let patched = apply_preview(&store(), &new);
+        assert_eq!(patched.modes.len(), 3);
+        // No `name`: the id.
+        assert_eq!(patched.modes["nuevo"].name, "nuevo");
+        assert_eq!(patched.raw["nuevo"], new.raw);
+    }
+
+    #[test]
+    fn the_named_mode_shows_the_preview() {
+        let base = resolved(&ProfileChoice::None, None, None);
+        assert_eq!(base.config.scaling.model, Model::Faster);
+        let r = resolved(&ProfileChoice::None, None, Some(&edited()));
+        assert_eq!(r.mode.as_deref(), Some("calidad"));
+        assert_eq!(r.config.scaling.model, Model::M4x12);
+        assert!((r.config.scaling.cas_strength - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn another_mode_resolves_from_the_files() {
+        // Profile `Ys` names `rapido`: the preview of `calidad` changes nothing.
+        let without = resolved(&named("Ys"), None, None);
+        let with = resolved(&named("Ys"), None, Some(&edited()));
+        assert_eq!(with.mode.as_deref(), Some("rapido"));
+        assert_eq!(with.config, without.config);
+        assert_eq!(with.config.scaling.model, Model::None);
+    }
+
+    #[test]
+    fn the_bars_temporary_mode_shows_the_preview() {
+        // The chip chose `calidad` over the profile's `rapido`.
+        let r = resolved(&named("Ys"), Some("calidad"), Some(&edited()));
+        assert_eq!(r.mode.as_deref(), Some("calidad"));
+        assert_eq!(r.named_mode.as_deref(), Some("rapido"));
+        assert_eq!(r.config.scaling.model, Model::M4x12);
+        // And a temporary mode other than the previewed one does not.
+        let r = resolved(&ProfileChoice::None, Some("rapido"), Some(&edited()));
+        assert_eq!(r.config.scaling.model, Model::None);
+    }
+
+    #[test]
+    fn loose_fields_of_the_profile_still_win() {
+        // As saving the mode would: `Loose` sets `model` itself.
+        let r = resolved(&named("Loose"), None, Some(&edited()));
+        assert_eq!(r.config.scaling.model, Model::M4x16);
+        assert!((r.config.scaling.cas_strength - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_mode_not_saved_yet_previews_as_the_temporary_mode() {
+        let new = preview("nuevo", map(&[("model", s("4x12"))]));
+        let r = resolved(&ProfileChoice::None, Some("nuevo"), Some(&new));
+        assert_eq!(r.mode.as_deref(), Some("nuevo"));
+        assert_eq!(r.config.scaling.model, Model::M4x12);
+        // Without the preview it is unknown.
+        let err = resolve_previewed(
+            &file(),
+            &store(),
+            &ProfileChoice::None,
+            &Mapping::new(),
+            Some("nuevo"),
+            None,
+        );
+        assert!(matches!(err, Err(ConfigError::UnknownMode(id)) if id == "nuevo"));
+    }
+
+    #[test]
+    fn a_preview_without_an_id_is_ignored() {
+        let empty = preview("", map(&[("model", s("4x12"))]));
+        let r = resolved(&ProfileChoice::None, None, Some(&empty));
+        assert_eq!(r.config.scaling.model, Model::Faster);
     }
 }
