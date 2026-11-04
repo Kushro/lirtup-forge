@@ -260,8 +260,14 @@ mod tests {
                 .map(|(group, _)| *group)
         };
         // The mode hotkeys sit next to the model, in Vista.
-        assert_eq!(group_of(HotkeyAction::ModeNext), group_of(HotkeyAction::CycleModel));
-        assert_eq!(group_of(HotkeyAction::ModePrev), group_of(HotkeyAction::CycleModel));
+        assert_eq!(
+            group_of(HotkeyAction::ModeNext),
+            group_of(HotkeyAction::CycleModel)
+        );
+        assert_eq!(
+            group_of(HotkeyAction::ModePrev),
+            group_of(HotkeyAction::CycleModel)
+        );
         // A/B and the split comparison have their own group, the last one.
         let (last, actions) = GROUPS[GROUPS.len() - 1];
         assert_eq!(last, "settings-hotkeys-tuning");

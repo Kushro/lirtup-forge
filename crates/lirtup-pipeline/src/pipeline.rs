@@ -1080,7 +1080,10 @@ impl Runner {
                 self.reload_config(&config, profile, mode)?;
                 if preview != was {
                     if preview {
-                        self.osd(&tr("Vista previa: cambios sin guardar", "Preview: unsaved changes"));
+                        self.osd(&tr(
+                            "Vista previa: cambios sin guardar",
+                            "Preview: unsaved changes",
+                        ));
                     } else {
                         self.osd(&tr("Vista previa terminada", "Preview ended"));
                     }
@@ -2076,9 +2079,7 @@ impl Runner {
             parts.presenter.set_split(split_fraction(x, width));
             self.stale = true;
         }
-        let action = routed
-            .bar
-            .and_then(|e| parts.toolbar.pointer(e, Instant::now()));
+        let action = routed.bar.and_then(|e| parts.toolbar.pointer(e, Instant::now()));
         match action {
             Some(action) => self.toolbar_action(action),
             None => Ok(None),
@@ -3109,10 +3110,13 @@ mod tests {
             x: 900,
             y: 20,
         };
-        assert_eq!(p.route(press, true), SplitRouted {
-            bar: Some(press),
-            split_x: None
-        });
+        assert_eq!(
+            p.route(press, true),
+            SplitRouted {
+                bar: Some(press),
+                split_x: None
+            }
+        );
         let release = Release {
             button: 1,
             x: 900,
