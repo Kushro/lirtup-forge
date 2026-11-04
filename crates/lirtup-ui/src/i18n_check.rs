@@ -261,4 +261,33 @@ fn migrate_messages_format() {
         "{}",
         es(4, 2)
     );
+
+    // fx-unify: the native-engine paragraph (a selector at the start).
+    let native = |lang: Lang, count: i64| {
+        let args: HashMap<Cow<'static, str>, _> =
+            [(Cow::Borrowed("count"), arg(count))].into_iter().collect();
+        tr_in(lang, "migrate-native-body", Some(&args))
+    };
+    for (_, lang) in LANGS {
+        for count in [1, 3] {
+            let text = native(lang, count);
+            assert!(!text.contains('$') && text.contains("MagpieFX"), "{text}");
+        }
+        assert!(native(lang, 3).contains('3'), "{}", native(lang, 3));
+    }
+    assert!(
+        native(Lang::Es, 1).starts_with("Un modo usa el motor"),
+        "{}",
+        native(Lang::Es, 1)
+    );
+    assert!(
+        native(Lang::Es, 3).contains("modos usan el motor"),
+        "{}",
+        native(Lang::Es, 3)
+    );
+    assert!(
+        native(Lang::En, 1).starts_with("One mode uses the retired"),
+        "{}",
+        native(Lang::En, 1)
+    );
 }

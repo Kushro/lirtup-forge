@@ -20,6 +20,11 @@ tracing.workspace = true
 serde.workspace = true
 tempfile.workspace = true
 
+[dev-dependencies]
+# The hand ports of the retired native engine, to compare with the same
+# effects run through MagpieFX (`tests/ports.rs`, fx-unify).
+lirtup-effects = { workspace = true, features = ["ports"] }
+
 [[bin]]
 name = "magpiefx-seed"
 path = "src/bin/magpiefx-seed.rs"

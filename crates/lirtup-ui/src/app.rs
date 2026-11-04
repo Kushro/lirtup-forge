@@ -855,7 +855,9 @@ fn Dialogs() -> Element {
         Some(Dialog::Unsaved { to }) => rsx! { screens::profile::UnsavedDialog { to } },
         Some(Dialog::NewProfile { from }) => rsx! { screens::new_profile::NewProfileDialog { from } },
         Some(Dialog::Bench { mode }) => rsx! { screens::bench::BenchDialog { mode } },
-        Some(Dialog::EffectPicker { mode }) => rsx! { screens::modes::EffectPickerDialog { mode } },
+        Some(Dialog::EffectPicker { mode, before_model }) => {
+            rsx! { screens::modes::EffectPickerDialog { mode, before_model } }
+        }
         Some(Dialog::DeleteProfile(name)) => rsx! { screens::profile::DeleteProfileDialog { name } },
         Some(Dialog::DeleteMode(id)) => rsx! { screens::modes::DeleteModeDialog { id } },
         Some(Dialog::Migrate(plan)) => rsx! { screens::migrate::MigrateDialog { plan } },

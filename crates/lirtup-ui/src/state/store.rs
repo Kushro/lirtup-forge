@@ -743,12 +743,14 @@ fn toast(key: &'static str, args: Vec<(&'static str, String)>) -> Toast {
 }
 
 /// Round 4, front M: on the first load, offer moving the loose 1.x mode
-/// fields to modes (`Dialog::Migrate`), unless it was declined
-/// (`gui.migration_declined`) or another dialog is open.
+/// fields to modes and rewriting the mode files that still use the retired
+/// native effects engine (fx-unify) (`Dialog::Migrate`), unless it was
+/// declined (`gui.migration_declined`, one flag for both) or another dialog
+/// is open.
 fn offer_migration(store: &mut Store) {
     if store.gui.migration_declined
         || store.dialog.is_some()
-        || !lirtup_config::migrate::needs_migration(&store.config.file)
+        || !lirtup_config::migrate::needs_migration(&store.config.file, &store.modes.store)
     {
         return;
     }

@@ -1,7 +1,10 @@
 //! Parity of the native passes with 1.x (criterion of 5.8): every case of
 //! `tests/fixtures/parity/cases.json` runs on the GPU and its output is
 //! compared with `refs/<name>.png`, written by `scripts/rust-parity-refs.py`
-//! from the Python app on the same test image.
+//! from the Python app on the same test image. The `luma_sharpen`,
+//! `anime4k` and `crt_easymode` cases run the hand ports of the retired
+//! native engine (`lirtup_effects::ports`, feature `ports`, on for this
+//! crate's tests).
 //!
 //! Needs a Vulkan GPU and the references, so it is ignored by default:
 //!
@@ -17,7 +20,8 @@ use std::sync::Arc;
 
 use lirtup_config::Model;
 use lirtup_effects::Pass;
-use lirtup_effects::effects::{CrtParams, LutPreset, NativeEffect};
+use lirtup_effects::effects::{LutPreset, NativeEffect};
+use lirtup_effects::ports::{CrtParams, PortEffect};
 use lirtup_effects::scalers::{Scaler, ScalerKind, ScalerParams};
 use lirtup_effects::srcnn::{Srcnn, SrcnnOptions};
 use lirtup_effects::util;
@@ -176,14 +180,36 @@ fn run(device: &Arc<Device>, pass: &dyn Pass) {
         .expect("wait");
 }
 
-fn native_effect(case: &Case) -> NativeEffect {
+/// The effect of an effect case: a native pass or one of the ports.
+enum EffectCase {
+    Native(NativeEffect),
+    Port(PortEffect),
+}
+
+impl EffectCase {
+    fn create(&self, device: &Arc<Device>, input: &Texture, dst: (u32, u32)) -> Box<dyn Pass> {
+        let src = (input.width(), input.height());
+        match self {
+            EffectCase::Native(effect) => {
+                let size = effect.output_size(src, dst);
+                effect.create(device, input, size).expect("native pass")
+            }
+            EffectCase::Port(effect) => {
+                let size = effect.output_size(src, dst);
+                effect.create(device, input, size).expect("port pass")
+            }
+        }
+    }
+}
+
+fn effect_case(case: &Case) -> EffectCase {
     let p = |name: &str| {
         *case
             .params
             .get(name)
             .unwrap_or_else(|| panic!("{}: no {name}", case.name)) as f32
     };
-    match case.effect.as_deref().expect("an effect case") {
+    let native = match case.effect.as_deref().expect("an effect case") {
         "deband" => NativeEffect::Deband {
             strength: p("deband_strength"),
         },
@@ -208,16 +234,19 @@ fn native_effect(case: &Case) -> NativeEffect {
             intensity: p("lut_intensity"),
             preset: LutPreset::from_name(case.preset.as_deref().unwrap_or("identity")).expect("a LUT preset"),
         },
-        "luma_sharpen" => NativeEffect::LumaSharpen {
-            strength: p("luma_sharpen_strength"),
-            clamp: p("luma_sharpen_clamp"),
-            pattern: p("luma_sharpen_pattern") as u32,
-            offset_bias: p("luma_sharpen_offset_bias"),
-        },
-        "anime4k" => NativeEffect::Anime4kS,
-        "crt_easymode" => NativeEffect::CrtEasymode(CrtParams::default()),
+        "luma_sharpen" => {
+            return EffectCase::Port(PortEffect::LumaSharpen {
+                strength: p("luma_sharpen_strength"),
+                clamp: p("luma_sharpen_clamp"),
+                pattern: p("luma_sharpen_pattern") as u32,
+                offset_bias: p("luma_sharpen_offset_bias"),
+            });
+        }
+        "anime4k" => return EffectCase::Port(PortEffect::Anime4kS),
+        "crt_easymode" => return EffectCase::Port(PortEffect::CrtEasymode(CrtParams::default())),
         other => panic!("unknown effect {other}"),
-    }
+    };
+    EffectCase::Native(native)
 }
 
 fn scaler_kind(name: &str) -> ScalerKind {
@@ -236,9 +265,7 @@ fn run_case(device: &Arc<Device>, case: &Case, src: &[u8], (w, h): (u32, u32)) -
     let half = case.input.as_deref() == Some("rgba16f");
     let input = upload(device, w, h, src, half);
     let pass: Box<dyn Pass> = if case.effect.is_some() {
-        let effect = native_effect(case);
-        let size = effect.output_size((w, h), case.dst.unwrap_or((w, h)));
-        effect.create(device, &input, size).expect("native pass")
+        effect_case(case).create(device, &input, case.dst.unwrap_or((w, h)))
     } else if let Some(kind) = &case.scaler {
         let dst = case.dst.expect("a scaler case has dst");
         // ModeSettings defaults, as Scaler.configure(Config()) in 1.x.

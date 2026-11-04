@@ -16,8 +16,37 @@
 //! session. A full-frame pass (the first frame, a fallback) writes the
 //! SRCNN's own output, which is then copied into it: `Srcnn` binds its output
 //! at creation (1.x rebinds it with `_rebind_full_frame_output`).
+//!
+//! # The MagpieFX chain before the model (fx-unify)
+//!
+//! ```text
+//! capture ─upload─▶ input ─▶ [magpie_effects_before_model] ─▶ SRCNN ×1/×2 (or none) ─▶ output
+//! ```
+//!
+//! `magpie_effects_before_model` runs here, on the uploaded frame, every
+//! frame (the upload and its damage tracking are unchanged): the first effect
+//! swaps red and blue on read and the last one on write, as the presenter's
+//! chain does ([`crate::magpie`]), so its output is BGRA bytes again and the
+//! model takes it as it took the capture. An effect that does not fix its
+//! OUTPUT size renders at its own input size ([`OutSize::Input`]), so the
+//! model sees the capture's size unless an effect changes it (Anime4K ×2:
+//! the upscaler's output is then the chain's output × the model's scale;
+//! [`Upscaler::scale`] stays the model's). With `model: none` the chain's
+//! output is the upscaler's output.
+//!
+//! The chain is compiled blocking in [`Upscaler::new`]; effects that fail to
+//! compile or bind are dropped and reported ([`Upscaler::take_disabled`]).
+//! New parameter values for the same effects go live
+//! ([`Upscaler::update_pre_params`]); another list rebuilds the upscaler.
+//!
+//! **Tiles**: tile processing cuts the dirty tiles out of the captured
+//! pixels on the CPU, which a neighbourhood effect before the model would
+//! turn into seams. With a non-empty chain before the model the whole
+//! upscaler runs full frame (`use_tile_processing` is ignored; logged at
+//! debug level when the upscaler is built).
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use lirtup_config::{Config, Model};
 use lirtup_effects::Pass;
@@ -27,9 +56,13 @@ use lirtup_gpu::{
     Buffer, BufferDesc, CopyRegion, Device, Format, MemoryLocation, Submission, SubmitOptions, Texture,
     Timestamps,
 };
+use lirtup_magpiefx::spec::EffectSpec;
 use lirtup_x11::DamageRect;
 
 use crate::Result;
+use crate::magpie::{
+    MagpieContext, OutSize, SWAP_RB_LABEL, build_magpie_chain, parse_chain, same_names, set_chain_params,
+};
 use crate::tiles::TileProcessor;
 
 /// What one upscale did (for the stats).
@@ -50,8 +83,21 @@ pub struct Upscaler {
     damage_tracking: bool,
     area_threshold: f32,
     frame_timeout: u64,
-    /// The 1× frame (also the 2× tile residual).
+    /// The 1× frame as captured (also the 2× tile residual: tiles only run
+    /// without a chain before the model).
     input: Texture,
+    /// The MagpieFX chain before the model (its passes, `SwapRB` included),
+    /// reading `input`; the model reads its last output.
+    pre: Vec<Box<dyn Pass>>,
+    /// The effects of `pre`, in order (failed ones dropped).
+    pre_specs: Vec<EffectSpec>,
+    /// Effects of the chain before the model disabled since the last
+    /// [`Upscaler::take_disabled`].
+    disabled: Vec<(String, String)>,
+    /// Frame counter and start, for the chain's animated effects
+    /// (`FrameCount`).
+    frame: u64,
+    started: Instant,
     /// Mirror of the captured frame, `width * 4` bytes per row.
     staging: Buffer,
     /// Full-frame SRCNN: none, one, or two for `double_upscale`.
@@ -79,6 +125,24 @@ impl Upscaler {
             location: MemoryLocation::Upload,
             label: "upscaler staging".to_owned(),
         })?;
+
+        // The chain before the model, compiled now (blocking) so the first
+        // frame does not stall.
+        let mut disabled = Vec::new();
+        let requested = parse_chain(&config.scaling.magpie_effects_before_model);
+        let (pre, pre_specs) = if requested.is_empty() {
+            (Vec::new(), Vec::new())
+        } else {
+            let mut ctx = MagpieContext::new(device);
+            ctx.precompile(&requested, &mut disabled);
+            // What failed to compile is reported once, not again by binding.
+            let specs = without_disabled(&requested, &disabled);
+            let mut magpie = Some(ctx);
+            build_magpie_chain(device, &mut magpie, &input, &specs, OutSize::Input, &mut disabled)
+        };
+        // What the model reads: the chain's output, or the frame.
+        let model_input = pre.last().map(|p| p.output()).unwrap_or(&input).clone();
+
         let mut stages = Vec::new();
         if model != Model::None {
             let options = SrcnnOptions {
@@ -86,7 +150,7 @@ impl Upscaler {
                 tiles: None,
                 fp16: lirtup_magpiefx::runtime::fp16_wanted(device),
             };
-            let first = Srcnn::new(device, &input, &options)?;
+            let first = Srcnn::new(device, &model_input, &options)?;
             if config.scaling.double_upscale {
                 let second = Srcnn::new(device, first.output(), &options)?;
                 stages.push(first);
@@ -96,18 +160,25 @@ impl Upscaler {
             }
         }
         let scale = 1 << stages.len();
-        let tiles = if model != Model::None && config.use_tile_processing {
+        let use_tiles = tiles_allowed(model, config.use_tile_processing, pre.len());
+        if model != Model::None && config.use_tile_processing && !use_tiles {
+            tracing::debug!(
+                "upscaler: tile processing off, full frame: a MagpieFX chain runs before the model"
+            );
+        }
+        let tiles = if use_tiles {
             let residual = if stages.len() == 2 {
                 stages[0].output()
             } else {
-                &input
+                &model_input
             };
             Some(TileProcessor::new(device, config, src_size, residual)?)
         } else {
             None
         };
         tracing::debug!(
-            "upscaler: {w}x{h}, model {}, {scale}x, tiles {}",
+            "upscaler: {w}x{h}, {} effects before the model, model {}, {scale}x, tiles {}",
+            pre_specs.len(),
             model.as_str(),
             tiles.is_some()
         );
@@ -120,6 +191,11 @@ impl Upscaler {
             area_threshold: config.area_threshold,
             frame_timeout: config.frame_timeout,
             input,
+            pre,
+            pre_specs,
+            disabled,
+            frame: 0,
+            started: Instant::now(),
             staging,
             stages,
             tiles,
@@ -161,6 +237,18 @@ impl Upscaler {
             }
         } else {
             recorder.copy_buffer_to_texture(&self.staging, &self.input, &[]);
+        }
+
+        // The chain before the model, on the whole frame (no tiles with it).
+        if !self.pre.is_empty() {
+            let time = self.started.elapsed().as_secs_f32();
+            for pass in &mut self.pre {
+                pass.set_frame(self.frame, time);
+            }
+            self.frame = self.frame.wrapping_add(1);
+            for pass in &self.pre {
+                pass.record(&mut recorder)?;
+            }
         }
 
         // Upscale.
@@ -260,7 +348,7 @@ impl Upscaler {
         match (&self.tiles, self.stages.last()) {
             (Some(tiles), _) => tiles.output(),
             (None, Some(stage)) => stage.output(),
-            (None, None) => &self.input,
+            (None, None) => self.pre.last().map(|p| p.output()).unwrap_or(&self.input),
         }
     }
 
@@ -274,10 +362,73 @@ impl Upscaler {
         self.model
     }
 
-    /// Labels of the SRCNN passes, for the chain (`SessionView.chain`).
+    /// Labels for the chain (`SessionView.chain`, the stats panel): the
+    /// effects bound before the model, then the SRCNN passes. The effects'
+    /// labels are their passes' (as `Presenter::chain` once built: the file
+    /// stem, which also names their timestamps), without the `SwapRB` passes.
     pub fn labels(&self) -> Vec<String> {
-        self.stages.iter().map(|s| s.label().to_owned()).collect()
+        self.pre
+            .iter()
+            .filter(|p| p.label() != SWAP_RB_LABEL)
+            .map(|p| p.label().to_owned())
+            .chain(self.stages.iter().map(|s| s.label().to_owned()))
+            .collect()
     }
+
+    // ---- the MagpieFX chain before the model (fx-unify) -----------------
+
+    /// The effects of `magpie_effects_before_model` actually bound (failed
+    /// ones dropped), in order.
+    pub fn pre_chain(&self) -> &[EffectSpec] {
+        &self.pre_specs
+    }
+
+    /// The effects of the chain before the model disabled (compile or bind
+    /// error) since the last call: `(name, error)`, sent by the session as
+    /// `Event::EffectCompile { session: true }` like
+    /// `Presenter::take_disabled`.
+    pub fn take_disabled(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.disabled)
+    }
+
+    /// Same effects before the model with new parameter values: applied
+    /// live (`set_params`, no recompile, no new textures). `false` when the
+    /// upscaler must be rebuilt instead (another list of effects, or one that
+    /// failed before).
+    pub fn update_pre_params(&mut self, config: &Config) -> Result<bool> {
+        let specs = parse_chain(&config.scaling.magpie_effects_before_model);
+        if !same_names(&specs, &self.pre_specs) {
+            return Ok(false);
+        }
+        if specs.is_empty() {
+            return Ok(true);
+        }
+        // `set_params` writes upload buffers: nothing of ours may be in
+        // flight (normally nothing is: the presenter waited for its frame,
+        // which comes after ours on the same queue).
+        self.finish()?;
+        if !set_chain_params(&mut self.pre, &specs)? {
+            return Ok(false);
+        }
+        self.pre_specs = specs;
+        Ok(true)
+    }
+}
+
+/// Whether the upscaler runs in tile mode: a model, `use_tile_processing`,
+/// and no effect bound before the model (a neighbourhood effect would make
+/// seams at the tile borders: full frame then).
+fn tiles_allowed(model: Model, use_tile_processing: bool, pre_passes: usize) -> bool {
+    model != Model::None && use_tile_processing && pre_passes == 0
+}
+
+/// `specs` without the effects already in `disabled` (failed to compile).
+fn without_disabled(specs: &[EffectSpec], disabled: &[(String, String)]) -> Vec<EffectSpec> {
+    specs
+        .iter()
+        .filter(|s| !disabled.iter().any(|(name, _)| *name == s.name))
+        .cloned()
+        .collect()
 }
 
 /// The damage rectangles clamped to the frame, as copies out of a tightly
@@ -357,6 +508,40 @@ mod tests {
         );
         assert_eq!((regions[1].width, regions[1].height), (10, 10));
         assert_eq!(regions[1].src_offset, (90 * 100 + 90) * 4);
+    }
+
+    #[test]
+    fn tiles_fall_back_to_full_frame_with_a_chain_before_the_model() {
+        let model = Model::ALL
+            .iter()
+            .copied()
+            .find(|m| *m != Model::None)
+            .expect("a model");
+        assert!(tiles_allowed(model, true, 0));
+        assert!(
+            !tiles_allowed(model, true, 3),
+            "a chain before the model: full frame"
+        );
+        assert!(!tiles_allowed(model, false, 0));
+        assert!(!tiles_allowed(Model::None, true, 0));
+    }
+
+    #[test]
+    fn failed_effects_are_not_bound_again() {
+        let spec = |name: &str| EffectSpec {
+            name: name.to_owned(),
+            params: Default::default(),
+        };
+        let specs = [
+            spec("CAS"),
+            spec("Broken"),
+            spec("Sharpen/LumaSharpen"),
+            spec("Broken"),
+        ];
+        let disabled = [("Broken".to_owned(), "does not compile".to_owned())];
+        let kept = without_disabled(&specs, &disabled);
+        assert_eq!(kept, vec![spec("CAS"), spec("Sharpen/LumaSharpen")]);
+        assert_eq!(without_disabled(&specs, &[]), specs.to_vec());
     }
 
     #[test]

@@ -1,12 +1,12 @@
 //! Modos de escalado (front D): the mode list with total cost and use, and
-//! the editor (model, double upscale, sampling, engine, the effect chain
-//! with drag and drop, MagpieFX parameters, the shared mode banner, final
-//! touches). Also the effect picker and deleting a mode.
+//! the editor (model, double upscale, sampling, the MagpieFX chain before
+//! and after the model with drag and drop, its parameters, the shared mode
+//! banner, final touches). Also the effect picker and deleting a mode.
 //!
 //! | Module | What |
 //! | --- | --- |
 //! | [`editor`] | One mode's editor |
-//! | [`chain`] | The MagpieFX chain and its cards |
+//! | [`chain`] | The MagpieFX chain (both segments) and its cards |
 //! | [`picker`] | «Agregar efecto» |
 //! | [`costs`] | ms per pass from `bench.json` and the last measurement |
 //! | [`widgets`] | Rows bound to the store (also used by Ajustes) |
@@ -18,12 +18,12 @@ mod picker;
 pub(crate) mod widgets;
 
 use dioxus::prelude::*;
-use lirtup_config::{EffectsEngine, Mode};
+use lirtup_config::Mode;
 
 pub use picker::EffectPickerDialog;
 
-use self::chain::chain_names;
-use self::costs::{Costs, native_passes, use_costs};
+use self::chain::{ChainLists, chain_names};
+use self::costs::{Costs, use_costs};
 use self::editor::ModeEditor;
 use self::widgets::CostBadge;
 use crate::app::{use_dispatch, use_store};
@@ -59,9 +59,14 @@ fn ModeList(selected: Option<ModeId>, costs: Costs) -> Element {
         .iter()
         .map(|(id, mode)| {
             let users = s.modes.users.get(id).map_or(0, Vec::len);
-            let chain = chain_names(&mode.settings.magpie_effects);
-            let summary = summary(mode, &chain, users);
-            let cost = costs.mode(&mode.settings, &chain);
+            let lists = ChainLists::of(
+                s.modes.store.raw.get(id),
+                &mode.settings.magpie_effects_before_model,
+                &mode.settings.magpie_effects,
+            );
+            let (pre, post) = (chain_names(&lists.pre), chain_names(&lists.post));
+            let summary = summary(mode, &pre, &post, users);
+            let cost = costs.mode(&mode.settings, &pre, &post);
             let dirty = s.dirty_count(&Scope::Mode(id.clone())) > 0;
             (id.clone(), mode.name.clone(), summary, cost, dirty)
         })
@@ -140,17 +145,15 @@ fn ModeListItem(
     }
 }
 
-/// «fast · Anime4K + LumaSharpen · 3 perfiles».
-fn summary(mode: &Mode, chain: &[String], users: usize) -> String {
-    let settings = &mode.settings;
-    let effects: Vec<String> = if settings.effects_engine == EffectsEngine::Magpiefx {
-        chain.to_vec()
-    } else {
-        native_passes(settings)
-            .into_iter()
-            .map(|label| crate::i18n::tr(&format!("modes-pass-{label}")))
-            .collect()
-    };
+/// «fast · Anime4K + LumaSharpen · 3 perfiles»: the model, the effects of
+/// both lists (before the model first) and how many profiles use it.
+fn summary(mode: &Mode, pre: &[String], post: &[String], users: usize) -> String {
+    let effects: Vec<String> = pre
+        .iter()
+        .chain(post)
+        .map(String::as_str)
+        .map(short_name)
+        .collect();
     let effects = match effects.len() {
         0 => t!("modes-no-effects"),
         1 | 2 => effects.join(" + "),
@@ -161,7 +164,14 @@ fn summary(mode: &Mode, chain: &[String], users: usize) -> String {
         ),
     };
     let users = t!("modes-profiles", count = users);
-    format!("{} · {effects} · {users}", settings.model.as_str())
+    format!("{} · {effects} · {users}", mode.settings.model.as_str())
+}
+
+/// An effect's name for the list: the last part of a catalog name
+/// (`CRT/CRT_Easymode` → `CRT_Easymode`) or a path's file stem.
+fn short_name(name: &str) -> String {
+    let last = name.rsplit('/').next().unwrap_or(name);
+    last.strip_suffix(".hlsl").unwrap_or(last).to_owned()
 }
 
 /// «Modo nuevo», or «Modo nuevo 2»… when it is taken.
@@ -308,20 +318,25 @@ mod tests {
 
     fn summaries_in_runtime() {
         let plain = mode("Predeterminado", ModeSettings::default());
-        assert_eq!(summary(&plain, &[], 2), "fast · sin efectos · 2 perfiles");
+        assert_eq!(summary(&plain, &[], &[], 2), "fast · sin efectos · 2 perfiles");
         let chain = ModeSettings {
-            effects_engine: EffectsEngine::Magpiefx,
+            magpie_effects_before_model: vec![MagpieEffectSpec::Short("Sharpen/LumaSharpen".into())],
             magpie_effects: vec![
                 MagpieEffectSpec::Short("A".into()),
                 MagpieEffectSpec::Short("B".into()),
-                MagpieEffectSpec::Short("C".into()),
             ],
             ..ModeSettings::default()
         };
-        let names = chain_names(&chain.magpie_effects);
+        let pre = chain_names(&chain.magpie_effects_before_model);
+        let post = chain_names(&chain.magpie_effects);
         assert_eq!(
-            summary(&mode("x", chain), &names, 0),
-            "fast · A + B y 1 más · sin uso"
+            summary(&mode("x", chain), &pre, &post, 0),
+            "fast · LumaSharpen + A y 1 más · sin uso"
+        );
+        let one = mode("y", ModeSettings::default());
+        assert_eq!(
+            summary(&one, &[], &["/home/me/fx/Mine.hlsl".into()], 1),
+            "fast · Mine · 1 perfil"
         );
     }
 

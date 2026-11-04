@@ -30,6 +30,7 @@ pub mod error;
 pub mod file;
 pub mod gui;
 pub mod hotkeys;
+pub mod legacy;
 pub mod migrate;
 pub mod mode;
 pub mod model;

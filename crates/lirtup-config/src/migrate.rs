@@ -2,7 +2,7 @@
 //! 6.6 of the analysis).
 //!
 //! 1.x keeps the mode fields ([`crate::MODE_KEYS`]: model, double upscale,
-//! sampling, effects engine and chain, final touches) loose, at the top
+//! sampling, effects, final touches) loose, at the top
 //! level and in each profile. 2.0 reads them that way too (they win over
 //! the mode a layer names), so nothing breaks without migrating. Migrating
 //! makes them modes:
@@ -37,15 +37,40 @@
 //! (`~/.config/linux-rt-upscaler.conf`) and the named palette as the seed
 //! color.
 //!
-//! The GUI offers it on the first run with mode fields to move
-//! (`Dialog::Migrate`); `lirtup migrate` does it from the command line.
+//! **The retired native effects engine (fx-unify).** Up to 2.1 a mode could
+//! run the hand ports of Anime4K_Upscale_S, LumaSharpen and CRT_Easymode
+//! (`effects_engine` and 24 loose fields, [`crate::legacy::LEGACY_KEYS`]).
+//! The resolver translates them on read ([`crate::legacy::translate_native`]),
+//! and the migration rewrites the files without them:
+//!
+//! - step A (the layers to modes, above) treats the legacy keys as mode
+//!   fields: they move with the rest, and every combination goes through
+//!   `translate_native` before it becomes a mode, so a new mode never holds
+//!   them (and an existing mode equal to the translated combination is
+//!   reused);
+//! - step B: every existing mode file with a legacy key is rewritten as its
+//!   translation ([`MigrationPlan::rewritten`]; `name`, `description` and
+//!   unknown keys kept, in their order), after a copy to
+//!   `modes/<id>.yaml.bak` ([`MODE_BACKUP_SUFFIX`]). After step A no layer
+//!   of `config.yaml` holds a mode or legacy field, so translating each mode
+//!   file alone gives what translating the merged layers gave.
+//!
+//! The GUI offers it on the first run with mode fields to move or legacy
+//! keys to translate (`Dialog::Migrate`); `lirtup migrate` does it from the
+//! command line.
 
 use std::path::{Path, PathBuf};
 
+use crate::legacy::{self, LEGACY_KEYS};
 use crate::{ConfigError, ConfigFile, GuiConfig, Mapping, ModeStore, Value};
 
 /// The suffix of the backup of `config.yaml`.
 pub const BACKUP_SUFFIX: &str = ".1x.bak";
+
+/// The suffix of the backup of a mode file rewritten without the native
+/// engine (`modes/<id>.yaml.bak`, then `.bak2`, ...; `ModeStore::load` only
+/// reads `*.yaml`). fx-unify.
+pub const MODE_BACKUP_SUFFIX: &str = ".bak";
 
 /// Display name of the top level's mode.
 pub const DEFAULT_MODE_NAME: &str = "Predeterminado";
@@ -96,23 +121,34 @@ pub struct MigrationPlan {
     pub profiles: Vec<(String, Option<String>)>,
     /// How many loose fields move into modes (for the dialog).
     pub moved_fields: usize,
+    /// Existing mode files rewritten without the native engine
+    /// (`crate::legacy::translate_native`): id and the file's new content
+    /// (`name`, `description` and unknown keys kept). fx-unify.
+    pub rewritten: Vec<(String, Mapping)>,
 }
 
 impl MigrationPlan {
     /// Nothing to do.
     pub fn is_empty(&self) -> bool {
-        self.modes.is_empty() && self.profiles.is_empty() && self.top_mode.is_none()
+        self.modes.is_empty()
+            && self.profiles.is_empty()
+            && self.top_mode.is_none()
+            && self.rewritten.is_empty()
     }
 }
 
-/// Whether the file has loose mode fields to move.
-pub fn needs_migration(file: &ConfigFile) -> bool {
-    loose_count(&file.general) > 0 || file.profiles.values().any(|p| loose_count(&p.options) > 0)
+/// Whether the file has loose mode fields to move (legacy keys of the native
+/// engine included), or (fx-unify) a mode file of `modes` still holds a key
+/// of the native engine ([`legacy::has_legacy_keys`], any value).
+pub fn needs_migration(file: &ConfigFile, modes: &ModeStore) -> bool {
+    loose_count(&file.general) > 0
+        || file.profiles.values().any(|p| loose_count(&p.options) > 0)
+        || modes.raw.values().any(legacy::has_legacy_keys)
 }
 
 /// The plan for `file`, with ids that do not clash with `modes`.
 pub fn plan(file: &ConfigFile, modes: &ModeStore) -> MigrationPlan {
-    if !needs_migration(file) {
+    if !needs_migration(file, modes) {
         return MigrationPlan::default();
     }
     let mut plan = MigrationPlan {
@@ -124,11 +160,29 @@ pub fn plan(file: &ConfigFile, modes: &ModeStore) -> MigrationPlan {
                 .sum::<usize>(),
         ..MigrationPlan::default()
     };
+    if plan.moved_fields > 0 {
+        layers_to_modes(file, modes, &mut plan);
+    }
+    // Step B: the existing mode files that still use the native engine.
+    plan.rewritten = modes
+        .raw
+        .iter()
+        .filter(|(_, raw)| legacy::has_legacy_keys(raw))
+        .map(|(id, raw)| (id.clone(), rewrite_mode(raw)))
+        .collect();
+    plan
+}
+
+/// Step A of [`plan`]: the loose mode fields of the top level and the
+/// profiles become modes (`modes`, `top_mode`, `profiles` of `plan`).
+fn layers_to_modes(file: &ConfigFile, modes: &ModeStore, plan: &mut MigrationPlan) {
     // Ids handed out so far: `new_id` sees them as taken.
     let mut scratch = modes.clone();
     let mut new_modes: Vec<(String, Mapping)> = Vec::new();
+    // `content` is already translated; an existing mode is compared in the
+    // same form (translated, without nulls), as the resolver would see it.
     let mut pick = |content: Mapping, name: &str, new_modes: &mut Vec<(String, Mapping)>| {
-        if let Some((id, _)) = modes.raw.iter().find(|(_, raw)| strip_names(raw) == content) {
+        if let Some((id, _)) = modes.raw.iter().find(|(_, raw)| normalized(raw) == content) {
             return id.clone();
         }
         if let Some((id, _)) = new_modes.iter().find(|(_, raw)| strip_names(raw) == content) {
@@ -145,7 +199,9 @@ pub fn plan(file: &ConfigFile, modes: &ModeStore) -> MigrationPlan {
         id
     };
 
-    // The top level: its mode, then its loose fields.
+    // The top level: its mode, then its loose fields. Combinations are
+    // merged untranslated (the resolver translates the merged layers) and
+    // translated only when they become a mode's content.
     let top_named = named(&file.general);
     let top_raw = top_named.and_then(|id| modes.raw.get(id)).map(strip_names);
     let top_extra = top_raw.as_ref().map(non_mode).unwrap_or_default();
@@ -155,7 +211,7 @@ pub fn plan(file: &ConfigFile, modes: &ModeStore) -> MigrationPlan {
     }
     crate::resolve::merge_layer(&mut top, &mode_fields(&file.general));
     let top = ordered(top);
-    let top_content = with_extra(top.clone(), &top_extra);
+    let top_content = with_extra(ordered(translated(top.clone())), &top_extra);
     if !top_content.is_empty() {
         plan.top_mode = Some(pick(top_content, DEFAULT_MODE_NAME, &mut new_modes));
     }
@@ -175,7 +231,7 @@ pub fn plan(file: &ConfigFile, modes: &ModeStore) -> MigrationPlan {
                 let mut combo = mode_fields(&file.general);
                 crate::resolve::merge_layer(&mut combo, &mode_fields(&raw));
                 crate::resolve::merge_layer(&mut combo, &own);
-                Some(with_extra(ordered(combo), &non_mode(&raw)))
+                Some(with_extra(ordered(translated(combo)), &non_mode(&raw)))
             }
             None => {
                 let mut combo = top.clone();
@@ -192,7 +248,7 @@ pub fn plan(file: &ConfigFile, modes: &ModeStore) -> MigrationPlan {
                         .filter(|(k, _)| file.general.get(*k).is_none_or(Value::is_null))
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
-                    Some(with_extra(combo, &inherited))
+                    Some(with_extra(ordered(translated(combo)), &inherited))
                 }
             }
         };
@@ -200,11 +256,12 @@ pub fn plan(file: &ConfigFile, modes: &ModeStore) -> MigrationPlan {
         plan.profiles.push((name.clone(), id));
     }
     plan.modes = new_modes;
-    plan
 }
 
-/// Apply `plan`: back up `config.yaml`, write the modes, then the new
-/// `config.yaml`. Returns the backup's path.
+/// Apply `plan`: back up `config.yaml` (always), back up every mode file
+/// the plan rewrites (`modes/<id>.yaml.bak`, first free), write the new
+/// modes, then the rewritten ones, then the new `config.yaml`. Returns the
+/// backup of `config.yaml`.
 ///
 /// Then the 1.x GUI settings ([`legacy_gui`]) go to `gui-config.yaml` next
 /// to `config.yaml`; a failure there only logs.
@@ -213,25 +270,34 @@ pub fn apply(
     modes: &mut ModeStore,
     plan: &MigrationPlan,
 ) -> Result<PathBuf, ConfigError> {
-    let backup = backup(&file.path)?;
+    let backup_path = backup(&file.path, BACKUP_SUFFIX)?;
+    for (id, _) in &plan.rewritten {
+        let path = modes.dir.join(format!("{id}.yaml"));
+        backup(&path, MODE_BACKUP_SUFFIX)?;
+    }
     for (id, raw) in &plan.modes {
+        modes.save_raw(id, raw.clone())?;
+    }
+    for (id, raw) in &plan.rewritten {
         modes.save_raw(id, raw.clone())?;
     }
     *file = migrated(file, plan);
     file.save()?;
     tracing::info!(
-        "migrated {} to modes ({} fields, {} new modes); backup in {}",
+        "migrated {} to modes ({} fields, {} new modes, {} mode files without the native engine); \
+         backup in {}",
         file.path.display(),
         plan.moved_fields,
         plan.modes.len(),
-        backup.display()
+        plan.rewritten.len(),
+        backup_path.display()
     );
     if let Some(dir) = file.path.parent()
         && let Err(e) = apply_legacy_gui(dir)
     {
         tracing::warn!("1.x GUI settings: {e}");
     }
-    Ok(backup)
+    Ok(backup_path)
 }
 
 /// `file` after `plan`, in memory: the top level and the profiles of the
@@ -321,19 +387,20 @@ pub fn apply_legacy_gui(config_dir: &Path) -> Result<bool, ConfigError> {
     }
 }
 
-/// Copy `path` to the first free of `<path>.1x.bak`, `.1x.bak2`, ... (an
-/// earlier backup is the real 1.x file: never overwritten). A missing file
-/// still gets the path (nothing to copy).
-fn backup(path: &Path) -> Result<PathBuf, ConfigError> {
+/// Copy `path` to the first free of `<path><suffix>`, `<path><suffix>2`, ...
+/// (`config.yaml.1x.bak`, `modes/<id>.yaml.bak`; an earlier backup is an
+/// older file: never overwritten). A missing file still gets the path
+/// (nothing to copy).
+fn backup(path: &Path, suffix: &str) -> Result<PathBuf, ConfigError> {
     let with = |suffix: String| {
         let mut name = path.as_os_str().to_owned();
         name.push(suffix);
         PathBuf::from(name)
     };
-    let target = std::iter::once(with(BACKUP_SUFFIX.to_owned()))
-        .chain((2..).map(|n| with(format!("{BACKUP_SUFFIX}{n}"))))
+    let target = std::iter::once(with(suffix.to_owned()))
+        .chain((2..).map(|n| with(format!("{suffix}{n}"))))
         .find(|p| !p.exists())
-        .unwrap_or_else(|| with(BACKUP_SUFFIX.to_owned()));
+        .unwrap_or_else(|| with(suffix.to_owned()));
     if path.is_file() {
         std::fs::copy(path, &target).map_err(|source| ConfigError::Io {
             path: target.clone(),
@@ -350,7 +417,7 @@ fn rename_layer(layer: &Mapping, mode: Option<&str>, set: bool) -> Mapping {
     let mut placed = false;
     for (key, value) in layer {
         let k = key.as_str().unwrap_or_default();
-        let is_mode_field = crate::MODE_KEYS.contains(&k);
+        let is_mode_field = is_mode_key(k);
         if !set {
             if !is_mode_field {
                 out.insert(key.clone(), value.clone());
@@ -385,11 +452,17 @@ fn named(layer: &Mapping) -> Option<&str> {
         .filter(|m| !m.is_empty())
 }
 
-/// The non-null mode fields of a layer.
+/// A mode field for the migration: a key of [`crate::MODE_KEYS`] or of the
+/// retired native engine ([`LEGACY_KEYS`]).
+fn is_mode_key(key: &str) -> bool {
+    crate::MODE_KEYS.contains(&key) || LEGACY_KEYS.contains(&key)
+}
+
+/// The non-null mode fields of a layer (legacy keys included).
 fn mode_fields(layer: &Mapping) -> Mapping {
     layer
         .iter()
-        .filter(|(k, v)| !v.is_null() && k.as_str().is_some_and(|k| crate::MODE_KEYS.contains(&k)))
+        .filter(|(k, v)| !v.is_null() && k.as_str().is_some_and(is_mode_key))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
 }
@@ -403,7 +476,7 @@ fn loose_count(layer: &Mapping) -> usize {
 /// `description` already out).
 fn non_mode(raw: &Mapping) -> Mapping {
     raw.iter()
-        .filter(|(k, v)| !v.is_null() && !k.as_str().is_some_and(|k| crate::MODE_KEYS.contains(&k)))
+        .filter(|(k, v)| !v.is_null() && !k.as_str().is_some_and(is_mode_key))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
 }
@@ -416,12 +489,60 @@ fn strip_names(raw: &Mapping) -> Mapping {
         .collect()
 }
 
-/// Mode fields in [`crate::MODE_KEYS`] order (the order 2.0 writes).
+/// Mode fields in [`crate::MODE_KEYS`] order (the order 2.0 writes), then
+/// the legacy keys in [`LEGACY_KEYS`] order (until translated).
 fn ordered(fields: Mapping) -> Mapping {
     crate::MODE_KEYS
         .iter()
+        .chain(LEGACY_KEYS.iter())
         .filter_map(|k| fields.get(*k).map(|v| (Value::from(*k), v.clone())))
         .collect()
+}
+
+/// `map` through [`legacy::translate_native`] (no legacy key: unchanged).
+/// The warnings are the resolver's to report.
+fn translated(mut map: Mapping) -> Mapping {
+    legacy::translate_native(&mut map, &mut Vec::new());
+    map
+}
+
+/// A mode file in the form [`plan`] gives a new mode's content: without
+/// `name`, `description` and nulls, translated, mode fields in order and
+/// the other keys after them.
+fn normalized(raw: &Mapping) -> Mapping {
+    let raw = strip_names(raw);
+    with_extra(ordered(translated(mode_fields(&raw))), &non_mode(&raw))
+}
+
+/// An existing mode file without the native engine (step B of [`plan`]):
+/// [`legacy::translate_native`] of the whole file, with the keys in the
+/// file's order; `magpie_effects` stays where it was or, when the file had
+/// none, takes the place of the first legacy key.
+fn rewrite_mode(raw: &Mapping) -> Mapping {
+    let new = translated(raw.clone());
+    let had_chain = raw.contains_key("magpie_effects");
+    let mut out = Mapping::new();
+    let mut placed = false;
+    for key in raw.keys() {
+        if key.as_str().is_some_and(|k| LEGACY_KEYS.contains(&k)) {
+            if !had_chain && !placed {
+                placed = true;
+                if let Some(chain) = new.get("magpie_effects") {
+                    out.insert("magpie_effects".into(), chain.clone());
+                }
+            }
+            continue;
+        }
+        if let Some(value) = new.get(key) {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    for (key, value) in &new {
+        if !out.contains_key(key) {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    out
 }
 
 /// `fields` plus `extra` after them.
@@ -449,7 +570,8 @@ fn ini_section(text: &str, section: &str) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resolve::{ProfileChoice, resolve};
+    use crate::MagpieEffectSpec;
+    use crate::resolve::{ProfileChoice, resolve_with_mode};
 
     /// A config folder in a temporary `XDG_CONFIG_HOME`-like layout:
     /// `<tmp>/linux-rt-upscaler/{config.yaml,modes/}`.
@@ -478,37 +600,72 @@ mod tests {
     }
 
     /// Every choice that can resolve differently: the top level and each
-    /// profile by name. The applied mode is left out of the comparison
-    /// (the point is that it changes).
-    fn resolutions(file: &ConfigFile, modes: &ModeStore) -> Vec<(String, crate::Config)> {
-        std::iter::once(ProfileChoice::None)
+    /// profile by name, each with the mode the layers name and with each
+    /// mode of `ids` in its place (the mode chip). The applied mode is left
+    /// out of the comparison (the point is that it changes).
+    fn resolutions(file: &ConfigFile, modes: &ModeStore, ids: &[String]) -> Vec<(String, crate::Config)> {
+        let choices: Vec<ProfileChoice> = std::iter::once(ProfileChoice::None)
             .chain(file.profiles.keys().map(|n| ProfileChoice::Named(n.clone())))
-            .map(|choice| {
-                let mut config = resolve(file, modes, &choice, &Mapping::new()).unwrap().config;
+            .collect();
+        let mut out = Vec::new();
+        for choice in &choices {
+            for mode in std::iter::once(None).chain(ids.iter().map(|id| Some(id.as_str()))) {
+                let mut config = resolve_with_mode(file, modes, choice, &Mapping::new(), mode)
+                    .unwrap()
+                    .config;
                 config.mode = None;
-                (format!("{choice:?}"), config)
-            })
-            .collect()
+                out.push((format!("{choice:?} with {mode:?}"), config));
+            }
+        }
+        out
     }
 
     /// Migrate the folder and check: same `Config` everywhere, no loose
-    /// mode fields left, the backup is the old file, and migrating again
-    /// does nothing.
+    /// mode fields or legacy keys left, the backups are the old files, and
+    /// migrating again does nothing.
+    ///
+    /// The mode chip (a mode in place of the named one) is compared only
+    /// when nothing moves out of `config.yaml`: with loose fields, before
+    /// migrating they win over the replacement and after it they are part
+    /// of the replaced mode, so the chip shows the mode as written (the
+    /// point of moving them).
     fn migrate_and_check(dir: &Dir) -> (MigrationPlan, ConfigFile, ModeStore) {
         let (mut file, mut modes) = dir.load();
-        let before = resolutions(&file, &modes);
-        let original = std::fs::read_to_string(&file.path).unwrap();
-        assert!(needs_migration(&file));
+        assert!(needs_migration(&file, &modes));
         let plan = plan(&file, &modes);
         assert!(!plan.is_empty());
+        let ids: Vec<String> = if plan.moved_fields == 0 {
+            modes.raw.keys().cloned().collect()
+        } else {
+            Vec::new()
+        };
+        let before = resolutions(&file, &modes, &ids);
+        let original = std::fs::read_to_string(&file.path).unwrap();
+        let mode_path = |id: &str| dir.dir.join("modes").join(format!("{id}.yaml"));
+        let originals: Vec<(String, String)> = plan
+            .rewritten
+            .iter()
+            .map(|(id, _)| (id.clone(), std::fs::read_to_string(mode_path(id)).unwrap()))
+            .collect();
         let backup = apply(&mut file, &mut modes, &plan).unwrap();
         assert_eq!(backup, dir.dir.join("config.yaml.1x.bak"));
         assert_eq!(std::fs::read_to_string(&backup).unwrap(), original);
+        for (id, text) in &originals {
+            let bak = dir
+                .dir
+                .join("modes")
+                .join(format!("{id}.yaml{MODE_BACKUP_SUFFIX}"));
+            assert_eq!(&std::fs::read_to_string(bak).unwrap(), text, "backup of {id}");
+        }
 
         let (file, modes) = dir.load();
-        assert!(!needs_migration(&file), "{:?}", file.general);
+        assert!(!needs_migration(&file, &modes), "{:?}", file.general);
         assert!(super::plan(&file, &modes).is_empty());
-        let after = resolutions(&file, &modes);
+        for (id, raw) in &modes.raw {
+            assert!(!legacy::has_legacy_keys(raw), "{id}: {raw:?}");
+        }
+        let after = resolutions(&file, &modes, &ids);
+        assert_eq!(before.len(), after.len());
         for ((choice, a), (_, b)) in before.iter().zip(&after) {
             assert_eq!(a, b, "{choice} resolves differently after migrating");
         }
@@ -540,6 +697,9 @@ frame_gen_multiplier: 4
         let mode = &modes.modes["predeterminado"];
         assert_eq!(mode.name, "Predeterminado");
         assert_eq!(mode.settings.magpie_effects.len(), 3);
+        // `effects_engine: magpiefx` moved, translated: the chain stays.
+        assert!(!modes.raw["predeterminado"].contains_key("effects_engine"));
+        assert!(plan.rewritten.is_empty());
         assert_eq!(
             file.general.keys().filter_map(Value::as_str).collect::<Vec<_>>(),
             ["mode", "auto_crop_menu_bar", "show_stats", "frame_gen_multiplier"]
@@ -665,7 +825,27 @@ profiles:
         let crt = &modes.raw["modo-de-namescrt"];
         assert_eq!(crt["cas_enabled"], Value::Bool(true));
         assert_eq!(crt["model"], Value::from("none"));
-        assert!(modes.raw.contains_key("crt"));
+        // ... and the mode's native CRT became the MagpieFX effect.
+        assert!(!crt.contains_key("crt_enabled"));
+        assert_eq!(
+            modes.modes["modo-de-namescrt"].settings.magpie_effects,
+            [MagpieEffectSpec::Short(legacy::CRT_EFFECT.to_owned())]
+        );
+        // `crt` itself is rewritten without the native engine.
+        assert_eq!(
+            plan.rewritten
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            ["crt"]
+        );
+        assert_eq!(
+            modes.raw["crt"]
+                .keys()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>(),
+            ["name", "magpie_effects", "model"]
+        );
 
         assert!(file.profiles["Same"].options.get("mode").is_none());
         assert_eq!(file.profiles["Same"].options["max_fps"], Value::from(30));
@@ -713,10 +893,11 @@ profiles:
     fn nothing_to_do() {
         let dir = Dir::new("mode: anime\nshow_stats: true\n", &[("anime", "model: 4x24\n")]);
         let (file, modes) = dir.load();
-        assert!(!needs_migration(&file));
+        assert!(!needs_migration(&file, &modes));
         assert!(plan(&file, &modes).is_empty());
         let only_nulls = Dir::new("model: null\nprofiles:\n  P:\n    options: {model: null}\n", &[]);
-        assert!(!needs_migration(&only_nulls.load().0));
+        let (file, modes) = only_nulls.load();
+        assert!(!needs_migration(&file, &modes));
     }
 
     #[test]
@@ -730,6 +911,162 @@ profiles:
         assert_eq!(
             std::fs::read_to_string(dir.dir.join("config.yaml.1x.bak")).unwrap(),
             "old\n"
+        );
+    }
+
+    /// A 2.1 folder: `config.yaml` already migrated (no loose fields), mode
+    /// files with the native engine.
+    const CONFIG_21: &str = "\
+mode: crt
+show_stats: true
+profiles:
+  Chain:
+    options:
+      mode: chain
+  Inactive:
+    options:
+      mode: inactive
+  Plain:
+    options:
+      mode: plain
+      max_fps: 60
+";
+
+    const MODES_21: [(&str, &str); 4] = [
+        (
+            "crt",
+            "name: CRT\ndescription: Tubo\ncrt_enabled: true\ncrt_mask_size: 2\nmodel: none\n",
+        ),
+        (
+            "chain",
+            "name: Cadena\neffects_engine: magpiefx\nmagpie_effects:\n- CAS\nmodel: fast\n\
+             luma_sharpen_enabled: true\n",
+        ),
+        (
+            "inactive",
+            "name: Inactiva\nmodel: fast\neffects_engine: native\nmagpie_effects:\n- CAS\nfuture_key: 1\n",
+        ),
+        ("plain", "name: Plain\nmodel: fast\nmagpie_effects:\n- CAS\n"),
+    ];
+
+    #[test]
+    fn native_engine_modes_are_rewritten() {
+        let dir = Dir::new(CONFIG_21, &MODES_21);
+        let (plan, file, modes) = migrate_and_check(&dir);
+        assert!(plan.modes.is_empty() && plan.top_mode.is_none() && plan.profiles.is_empty());
+        assert_eq!(plan.moved_fields, 0);
+        assert_eq!(
+            plan.rewritten
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            ["chain", "crt", "inactive"]
+        );
+        // config.yaml names the same modes.
+        assert_eq!(file.general["mode"], Value::from("crt"));
+        assert_eq!(file.profiles["Plain"].options["mode"], Value::from("plain"));
+
+        // crt: the CRT with its one non-default parameter, where the first
+        // legacy key was; name and description kept.
+        let keys = |id: &str| -> Vec<String> {
+            modes.raw[id]
+                .keys()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        };
+        assert_eq!(keys("crt"), ["name", "description", "magpie_effects", "model"]);
+        assert_eq!(modes.modes["crt"].description.as_deref(), Some("Tubo"));
+        assert_eq!(
+            modes.modes["crt"].settings.magpie_effects,
+            [MagpieEffectSpec::Full {
+                name: legacy::CRT_EFFECT.to_owned(),
+                params: [("maskSize".to_owned(), 2.0)].into_iter().collect(),
+            }]
+        );
+        // chain: MagpieFX was the engine, the chain stays where it was.
+        assert_eq!(keys("chain"), ["name", "magpie_effects", "model"]);
+        assert_eq!(
+            modes.modes["chain"].settings.magpie_effects,
+            [MagpieEffectSpec::Short("CAS".to_owned())]
+        );
+        // inactive: native with nothing enabled drops the inactive chain.
+        assert_eq!(keys("inactive"), ["name", "model", "future_key"]);
+        assert!(modes.modes["inactive"].settings.magpie_effects.is_empty());
+        // plain had no legacy key: untouched, no backup.
+        assert_eq!(keys("plain"), ["name", "model", "magpie_effects"]);
+        assert!(!dir.dir.join("modes/plain.yaml.bak").exists());
+        // The backups are not modes.
+        assert_eq!(modes.raw.len(), 4);
+    }
+
+    #[test]
+    fn needs_migration_sees_legacy_keys() {
+        // A mode file with a legacy key, any value.
+        let dir = Dir::new("mode: a\n", &[("a", "model: fast\ncrt_enabled: null\n")]);
+        let (file, modes) = dir.load();
+        assert!(needs_migration(&file, &modes));
+        let plan = plan(&file, &modes);
+        assert_eq!(plan.rewritten.len(), 1);
+        assert!(plan.modes.is_empty());
+        // A loose legacy key in a profile moves like a mode field.
+        let dir = Dir::new(
+            "mode: a\nprofiles:\n  P:\n    options:\n      crt_sharpness_h: 0.7\n",
+            &[("a", "model: fast\ncrt_enabled: true\n")],
+        );
+        let (plan, file, modes) = migrate_and_check(&dir);
+        assert_eq!(plan.moved_fields, 1);
+        let id = plan.profiles[0].1.clone().unwrap();
+        assert!(file.profiles["P"].options.get("crt_sharpness_h").is_none());
+        assert_eq!(
+            modes.modes[&id].settings.magpie_effects,
+            [MagpieEffectSpec::Full {
+                name: legacy::CRT_EFFECT.to_owned(),
+                params: [("sharpnessH".to_owned(), 0.7)].into_iter().collect(),
+            }]
+        );
+        // A null legacy key in a layer is not a loose field.
+        let dir = Dir::new("crt_enabled: null\nmodel: null\n", &[]);
+        let (file, modes) = dir.load();
+        assert!(!needs_migration(&file, &modes));
+    }
+
+    #[test]
+    fn second_mode_backup_keeps_the_first() {
+        let dir = Dir::new("mode: crt\n", &[("crt", "name: CRT\ncrt_enabled: true\n")]);
+        std::fs::write(dir.dir.join("modes/crt.yaml.bak"), "old\n").unwrap();
+        let original = std::fs::read_to_string(dir.dir.join("modes/crt.yaml")).unwrap();
+        let (mut file, mut modes) = dir.load();
+        let plan = plan(&file, &modes);
+        apply(&mut file, &mut modes, &plan).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.dir.join("modes/crt.yaml.bak")).unwrap(),
+            "old\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.dir.join("modes/crt.yaml.bak2")).unwrap(),
+            original
+        );
+    }
+
+    #[test]
+    fn rewrite_keeps_the_order_of_the_file() {
+        let raw: Mapping = serde_yaml_ng::from_str(
+            "name: X\nfuture: 1\nanime4k_enabled: true\ncas_enabled: true\ncrt_enabled: true\n",
+        )
+        .unwrap();
+        let out = rewrite_mode(&raw);
+        assert_eq!(
+            out.keys().filter_map(Value::as_str).collect::<Vec<_>>(),
+            ["name", "future", "magpie_effects", "cas_enabled"]
+        );
+        let chain: Vec<MagpieEffectSpec> = serde_yaml_ng::from_value(out["magpie_effects"].clone()).unwrap();
+        assert_eq!(
+            chain,
+            [
+                MagpieEffectSpec::Short(legacy::ANIME4K_EFFECT.to_owned()),
+                MagpieEffectSpec::Short(legacy::CRT_EFFECT.to_owned()),
+            ]
         );
     }
 

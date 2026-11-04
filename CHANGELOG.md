@@ -46,6 +46,30 @@
   layer, the single-mode message, the *Compare* button, A/B swap and the split
   comparison; *Modes* has a «Try live» section; *MagpieFX* explains the
   precompiled seed.
+- **MagpieFX effects before the model.** New mode key
+  `magpie_effects_before_model` (and the repeatable
+  `--magpie-effect-before-model EFFECT` flag, same `Name` /
+  `Name:param=value,...` form as `--magpie-effect`): its effects run on the
+  captured frame, at the game's resolution, and the model gets the result;
+  with `model: none` they feed the presenter directly. `magpie_effects` keeps
+  its meaning (after the model); an effect may be in both lists. While the
+  list has effects, tile processing is off and the upscaler runs full frame
+  (logged at debug level). Another list (effects or order) rebuilds the
+  upscaler; the same effects with other values apply live; effects that fail
+  to compile or bind are dropped and reported once, like the ones after the
+  model. The stats panel lists them before the SRCNN passes.
+- **The mode editor's chain has two segments**, «Antes del modelo» /
+  «Before the model» and «Después del modelo» / «After the model», with the
+  model between them («Modelo fast · 2×», or «Sin modelo…»). Each has its
+  own help, empty state and «Agregar efecto…»; a card's ⇅ button moves the
+  effect to the end of the other segment, and cards can be dragged between
+  segments. Costs: an effect before the model counts as measured, one after
+  it × s² (s = 1 without a model, 2, or 4 with `double_upscale`). The mode
+  list's summary and cost cover both lists.
+- The split comparison's OSD adds «el modelo y los efectos antes del modelo
+  no se comparan» / «the model and the effects before it are not compared»
+  when the two sides differ in the model, `double_upscale` or the chain
+  before the model (both sides use the same upscaler output).
 
 ### Changed
 
@@ -69,6 +93,60 @@
   come from the seed.
 - «Medir en mi GPU» (bench) no longer refuses MagpieFX effects when no HLSL
   compiler is installed: the seed serves the bundled ones.
+- **One effects engine: MagpieFX.** The native effects engine is retired:
+  `effects_engine` and its 24 settings (`anime4k_enabled`,
+  `luma_sharpen_*`, `crt_enabled` and the `crt_*` settings) are gone, and the
+  `magpie_effects` chain always runs. Anime4K_Upscale_S, LumaSharpen and
+  CRT_Easymode run through MagpieFX, in the same place; the image may differ
+  by rounding (MagpieFX may run Anime4K_Upscale_S in FP16).
+- **Old files keep working.** When the configuration is read (`lirtup
+  serve`, the CLI, previews), the native settings become MagpieFX effects:
+  the effects that were on, in the old order (Anime4K, LumaSharpen, CRT),
+  under their catalog names (`Anime4K/Anime4K_Upscale_S`,
+  `Sharpen/LumaSharpen`, `CRT/CRT_Easymode`) and with only the parameters
+  that differ from the default. With the native engine the inactive
+  `magpie_effects` list is dropped; with `effects_engine: magpiefx` it is
+  kept. Bad values warn and fall back to the default, as before. A file with
+  `magpie_effects` and no native setting at all (hand-written; the GUI always
+  wrote `effects_engine: magpiefx`) used to keep that chain inactive and now
+  runs it.
+- **`lirtup migrate` and the GUI's migration dialog rewrite mode files that
+  still use the native engine** (name, description and unknown keys kept),
+  copying each one first to `modes/<id>.yaml.bak` (`.bak2`… if taken). Loose
+  1.x native settings in `config.yaml` move into the new modes already
+  translated. With only that to do, the dialog is titled «Actualizar los
+  efectos» / «Update the effects»; `lirtup migrate --dry-run` prints one line
+  per rewritten mode (`mode crt: native effects → magpie_effects (1
+  effect)`). Declining the 1.x migration also declines this one; the
+  read-time translation keeps everything working.
+- A 2.1 mode with native-engine settings shows a banner in the mode editor
+  with «Migrar…» / «Migrate…» and its chain read-only, as it runs.
+- «Medir en mi GPU» / `lirtup bench` without a mode measures LumaSharpen,
+  Anime4K_Upscale_S and CRT_Easymode as MagpieFX effects under their catalog
+  names; with a mode, its native passes, then both chains (each effect once).
+  Old `native/anime4k`, `native/luma_sharpen` and `native/crt_easymode`
+  entries in `bench.json` are no longer written or read.
+- Warming up an effect (`CompileEffect`, the GUI's picker) compiles it for
+  every position in a chain (the four red/blue swap combinations), so a
+  session finds it in the cache in either list; cold and without the seed
+  that is up to four compiles.
+- Changing the deband strength live no longer rebuilds the MagpieFX chain.
+- The stats panel no longer shows the «(Native)» / «(MagpieFX)» engine row.
+- The MagpieFX help text in the mode editor says that the bundled effects
+  come precompiled; only the ones you add or edit compile the first time.
+
+### Removed
+
+- The CLI flags `--effects-engine`, `--enable-anime4k`,
+  `--enable-luma-sharpen`, `--luma-sharpen-*`, `--enable-crt` and every
+  `--crt-*` flag (use `--magpie-effect`, e.g. `--magpie-effect
+  CRT/CRT_Easymode:maskSize=2`). The old keys given with `--set` are ignored
+  with a warning («retired native engine setting, ignored; use
+  --magpie-effect»).
+- The engine selector and the native effect switches of the mode editor.
+- The app no longer embeds the SPIR-V of the three hand ports: they stay only
+  as test references (`lirtup_effects::ports`, behind the non-default cargo
+  feature `ports`).
 
 ### Fixed
 
@@ -76,6 +154,8 @@
   unsaved edits; it did nothing there before.
 - The save bar no longer overflows a narrow window: «N cambios sin guardar»
   shortens with «…», and below 860 px «Probar en vivo» keeps only its icon.
+- The chain cards find effects written with a bare stem (`LumaSharpen`, as
+  1.x files have) in the catalog instead of showing «No está en el catálogo».
 
 ## 2.1.0 (2026-11-02)
 

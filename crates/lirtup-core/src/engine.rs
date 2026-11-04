@@ -34,7 +34,7 @@
 //! | `ReloadConfig` | re-read the files, `Hotkeys::rebind`, `PipelineCommand::UpdateConfig` |
 //! | `Hotkey` and the hotkey thread | `StartFullscreen`/`StartWindowed` → `Start { target: Focused }`; `ExitApp` → stop (and quit with `lirtup run`); the rest → `PipelineCommand::Hotkey` |
 //! | `PickWindow`, `ListDevices` | `lirtup_x11` on a blocking task |
-//! | `ListEffects`, `CompileEffect` | `lirtup_magpiefx::Catalog` and `compile_effect` on a blocking task (cache in `paths::magpiefx_cache_dir`) |
+//! | `ListEffects`, `CompileEffect` | `lirtup_magpiefx::Catalog` and `compile_effect_with` on a blocking task (cache in `paths::magpiefx_cache_dir`); `CompileEffect` compiles the four red/blue swap combinations (`swap_input`, `swap_output` ∈ ff, tf, ft, tt), so a session finds the effect in the cache wherever it lands in either chain (before or after the model, first, last or in between); the first error ends it and is the one `EffectCompile { done: true, error }` |
 //! | `SetDaemon` | start or stop the daemon thread ([`crate::daemon`]); `keep_after_exit` is read by `lirtup serve` ([`crate::lifecycle`]) |
 //! | `Diagnostics` | gather `DiagReport` |
 //! | `PauseHotkeys` | count the pausers ([`Engine::pause_hotkeys`], per connection in the server); ungrab every hotkey when the count leaves 0, grab them again when it returns |
@@ -531,6 +531,25 @@ fn class_hint(pid: u32) -> Option<String> {
             .map(|c| c.trim().to_owned())
             .filter(|c| !c.is_empty())
     })
+}
+
+/// The ways `CompileEffect` compiles an effect: the four red/blue swap
+/// combinations (`(swap_input, swap_output)` = ff, tf, ft, tt), with the
+/// GPU's `fp16`. A chain swaps on the first effect's read and the last
+/// one's write, so these cover every place in either chain (before or after
+/// the model): a session then finds the effect in the SPIR-V cache.
+fn warm_up_options(fp16: bool) -> [lirtup_magpiefx::CompileOptions; 4] {
+    let options = |swap_input, swap_output| lirtup_magpiefx::CompileOptions {
+        fp16,
+        swap_input,
+        swap_output,
+    };
+    [
+        options(false, false),
+        options(true, false),
+        options(false, true),
+        options(true, true),
+    ]
 }
 
 /// `modes` with the entry of the previewed mode replaced by its unsaved
@@ -1475,7 +1494,11 @@ impl Inner {
             let entry = catalog.resolve(name)?;
             let compilers = lirtup_magpiefx::compiler::detect_compilers();
             let cache = lirtup_magpiefx::compiler::SpirvCache::new(paths::magpiefx_cache_dir());
-            lirtup_magpiefx::runtime::compile_effect(&entry, &compilers, &cache, fp16)?;
+            // Every place the effect may take in a chain; the first error
+            // stops (the others would most likely fail the same way).
+            for options in warm_up_options(fp16) {
+                lirtup_magpiefx::runtime::compile_effect_with(&entry, &compilers, &cache, &options)?;
+            }
             Ok(())
         })();
         let error = result.err().map(|e| e.to_string());
@@ -1807,6 +1830,21 @@ mod tests {
             None,
         );
         assert!(matches!(err, Err(ConfigError::UnknownMode(id)) if id == "nuevo"));
+    }
+
+    #[test]
+    fn warm_up_covers_every_swap_combination() {
+        for fp16 in [false, true] {
+            let all = warm_up_options(fp16);
+            assert!(all.iter().all(|o| o.fp16 == fp16));
+            let mut combos: Vec<(bool, bool)> = all.iter().map(|o| (o.swap_input, o.swap_output)).collect();
+            combos.sort_unstable();
+            combos.dedup();
+            assert_eq!(
+                combos,
+                [(false, false), (false, true), (true, false), (true, true)]
+            );
+        }
     }
 
     #[test]

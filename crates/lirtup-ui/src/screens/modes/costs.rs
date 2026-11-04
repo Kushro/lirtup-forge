@@ -2,16 +2,22 @@
 //! `bench.json` next to the configuration (what `lirtup bench` and «Medir
 //! en mi GPU» save, per GPU) with the last `BenchResult` of this run on top.
 //!
-//! The native passes are keyed by their label in the bench (`cas`,
-//! `anime4k`, `crt_easymode`...), MagpieFX effects by catalog name. The
-//! SRCNN model is not measured on its own, so a mode's total is the sum of
-//! its effects.
+//! The native passes are keyed by their label in the bench (`deband`,
+//! `cas`, `lut`...), MagpieFX effects by catalog name. The SRCNN model is
+//! not measured on its own, so a mode's total is the sum of its effects.
+//!
+//! The bench measures every MagpieFX effect at its own input size, which
+//! stands for the capture: an effect before the model costs what was
+//! measured, one after the model runs on `s×` that (`s` = the model's
+//! scale) and costs `s²` times as much. This is an approximation: an effect
+//! that changes the size inside a list (Anime4K_Upscale_S doubles it) is not
+//! followed, and the native passes are counted as measured.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use dioxus::prelude::*;
-use lirtup_config::{EffectsEngine, ModeSettings};
+use lirtup_config::{ModeSettings, Model};
 use lirtup_proto::{BenchEntry, BenchKind, BenchReport, GpuInfo};
 use serde_json::Value as Json;
 
@@ -59,34 +65,52 @@ impl Costs {
         }
     }
 
-    /// What a mode costs: its enabled passes, `None` if one of them was
-    /// never measured (or it has none measured at all).
-    pub fn mode(&self, mode: &ModeSettings, chain: &[String]) -> Option<f32> {
+    /// What a mode costs: its enabled native passes, the effects before the
+    /// model (`pre`, at the measured cost) and after it (`post`, × the
+    /// square of the model's scale); `None` if one of them was never
+    /// measured (or it has none measured at all).
+    pub fn mode(&self, mode: &ModeSettings, pre: &[String], post: &[String]) -> Option<f32> {
         let mut total = 0.0;
         let mut any = false;
         for label in native_passes(mode) {
             total += self.native(label)?;
             any = true;
         }
-        if mode.effects_engine == EffectsEngine::Magpiefx {
-            for name in chain {
-                total += self.magpie(name)?;
-                any = true;
-            }
+        for name in pre {
+            total += self.magpie(name)?;
+            any = true;
+        }
+        let area = post_factor(mode.model, mode.double_upscale);
+        for name in post {
+            total += self.magpie(name)? * area;
+            any = true;
         }
         any.then_some(total)
     }
 }
 
+/// How much bigger than the capture the model's output is, per side: 1
+/// without a model, 2, or 4 with `double_upscale`.
+pub(crate) fn model_scale(model: Model, double_upscale: bool) -> u32 {
+    match (model, double_upscale) {
+        (Model::None, _) => 1,
+        (_, false) => 2,
+        (_, true) => 4,
+    }
+}
+
+/// What an effect after the model costs relative to its measurement (the
+/// bench measures at the capture size): the model's scale squared.
+pub(crate) fn post_factor(model: Model, double_upscale: bool) -> f32 {
+    let s = model_scale(model, double_upscale) as f32;
+    s * s
+}
+
 /// The bench labels of the native passes a mode runs (the order of
 /// `NativeEffect::from_mode`).
 pub(crate) fn native_passes(mode: &ModeSettings) -> Vec<&'static str> {
-    let native = mode.effects_engine == EffectsEngine::Native;
     [
         (mode.deband_enabled, "deband"),
-        (native && mode.anime4k_enabled, "anime4k"),
-        (native && mode.luma_sharpen_enabled, "luma_sharpen"),
-        (native && mode.crt_enabled, "crt_easymode"),
         (mode.cas_enabled, "cas"),
         (mode.bloom_enabled, "bloom"),
         (mode.vignette_enabled, "vignette"),
@@ -183,7 +207,6 @@ mod tests {
                     "name": "AMD Radeon RX 9070 XT",
                     "native": {
                         "cas": {"ms": 0.1, "p95": 0.12, "frames": 100, "error": null},
-                        "anime4k": {"ms": 0.9, "p95": 1.0, "frames": 100, "error": null},
                         "bloom": {"ms": null, "p95": null, "frames": 0, "error": "boom"}
                     },
                     "magpiefx": {
@@ -209,19 +232,59 @@ mod tests {
     #[test]
     fn a_mode_costs_the_sum_of_its_passes() {
         let costs = from_results(&file(), None);
-        let mut mode = ModeSettings {
+        let mode = ModeSettings {
             cas_enabled: true,
-            anime4k_enabled: true,
+            model: Model::None,
             ..ModeSettings::default()
         };
-        let total = costs.mode(&mode, &[]).unwrap();
-        assert!((total - 1.0).abs() < 1e-6);
-        // MagpieFX: the native anime4k does not run, the chain does.
-        mode.effects_engine = EffectsEngine::Magpiefx;
-        let total = costs.mode(&mode, &["LumaSharpen".into()]).unwrap();
+        let total = costs.mode(&mode, &[], &[]).unwrap();
+        assert!((total - 0.1).abs() < 1e-6);
+        // Without a model the chain runs at the capture size on both sides.
+        let total = costs.mode(&mode, &[], &["LumaSharpen".into()]).unwrap();
         assert!((total - 0.3).abs() < 1e-6);
         // Something never measured: unknown total.
-        assert_eq!(costs.mode(&mode, &["Other".into()]), None);
-        assert_eq!(costs.mode(&ModeSettings::default(), &[]), None);
+        assert_eq!(costs.mode(&mode, &["Other".into()], &[]), None);
+        assert_eq!(costs.mode(&mode, &[], &["Other".into()]), None);
+        assert_eq!(costs.mode(&ModeSettings::default(), &[], &[]), None);
+    }
+
+    #[test]
+    fn effects_after_the_model_cost_its_area() {
+        let costs = from_results(&file(), None);
+        let names = ["LumaSharpen".to_owned()];
+        let mode = ModeSettings::default(); // fast: 2×
+        let pre = costs.mode(&mode, &names, &[]).unwrap();
+        let post = costs.mode(&mode, &[], &names).unwrap();
+        assert!((pre - 0.2).abs() < 1e-6, "{pre}");
+        assert!((post - 0.8).abs() < 1e-6, "{post}");
+        let double = ModeSettings {
+            double_upscale: true,
+            ..ModeSettings::default()
+        };
+        let post = costs.mode(&double, &[], &names).unwrap();
+        assert!((post - 3.2).abs() < 1e-5, "{post}");
+        // Both lists add up.
+        let both = costs.mode(&mode, &names, &names).unwrap();
+        assert!((both - 1.0).abs() < 1e-6, "{both}");
+    }
+
+    #[test]
+    fn model_scales() {
+        assert_eq!(model_scale(Model::None, false), 1);
+        assert_eq!(model_scale(Model::None, true), 1);
+        assert_eq!(model_scale(Model::Fast, false), 2);
+        assert_eq!(model_scale(Model::M8x32, true), 4);
+        assert_eq!(post_factor(Model::Fast, true), 16.0);
+    }
+
+    #[test]
+    fn native_passes_are_the_final_touches() {
+        let mode = ModeSettings {
+            deband_enabled: true,
+            lut_enabled: true,
+            cas_enabled: true,
+            ..ModeSettings::default()
+        };
+        assert_eq!(native_passes(&mode), vec!["deband", "cas", "lut"]);
     }
 }

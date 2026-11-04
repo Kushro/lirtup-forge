@@ -165,6 +165,9 @@ pub enum Dialog {
     EffectPicker {
         /// The mode the effect goes to.
         mode: ModeId,
+        /// Into `magpie_effects_before_model` (true) or `magpie_effects`
+        /// (fx-unify).
+        before_model: bool,
     },
     /// Confirm deleting a profile.
     DeleteProfile(ProfileName),

@@ -52,6 +52,7 @@ pub mod bench;
 pub mod error;
 pub mod framegen;
 pub mod latency;
+mod magpie;
 pub mod menubar;
 pub mod osd;
 pub mod pacing;
