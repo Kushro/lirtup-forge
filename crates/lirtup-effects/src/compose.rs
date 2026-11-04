@@ -177,7 +177,10 @@ mod tests {
         assert_eq!(f(7), LINE_ALPHA);
         // Out of range splits are clamped before they reach the GPU.
         let bytes = split_params((100, 100), 7.0).finish();
-        assert_eq!(f32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]), 100.0);
+        assert_eq!(
+            f32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+            100.0
+        );
     }
 
     /// Composes a solid red A and a solid blue B (BGRA bytes do not matter
