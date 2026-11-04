@@ -12,6 +12,7 @@
 //! crate's `shaders/` and `models/cunny/` ([`assets`]).
 
 pub mod assets;
+pub mod compose;
 pub mod convert;
 pub mod effects;
 pub mod error;

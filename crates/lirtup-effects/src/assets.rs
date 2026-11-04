@@ -76,6 +76,10 @@ static NATIVE: &[(&str, &[u8])] = &[
         shader!("misc/overlay_blender/overlay_blend.spv"),
     ),
     (
+        "misc/split_compose/split_compose.spv",
+        shader!("misc/split_compose/split_compose.spv"),
+    ),
+    (
         "scalers/catmull_rom/catmull_rom.spv",
         shader!("scalers/catmull_rom/catmull_rom.spv"),
     ),
