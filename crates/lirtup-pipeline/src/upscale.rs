@@ -27,6 +27,7 @@ use lirtup_gpu::{
     Buffer, BufferDesc, CopyRegion, Device, Format, MemoryLocation, Submission, SubmitOptions, Texture,
     Timestamps,
 };
+use lirtup_magpiefx::spec::EffectSpec;
 use lirtup_x11::DamageRect;
 
 use crate::Result;
@@ -275,8 +276,43 @@ impl Upscaler {
     }
 
     /// Labels of the SRCNN passes, for the chain (`SessionView.chain`).
+    ///
+    /// TODO(upscaler): the effects of the chain before the model first
+    /// (their names, as `Presenter::chain`), then the SRCNN passes.
     pub fn labels(&self) -> Vec<String> {
         self.stages.iter().map(|s| s.label().to_owned()).collect()
+    }
+
+    // ---- the MagpieFX chain before the model (fx-unify) -----------------
+
+    /// The effects of `magpie_effects_before_model` actually bound (failed
+    /// ones dropped), in order.
+    ///
+    /// TODO(upscaler): the chain is built in [`Upscaler::new`]; empty until
+    /// then.
+    pub fn pre_chain(&self) -> &[EffectSpec] {
+        &[]
+    }
+
+    /// The effects of the chain before the model disabled (compile or bind
+    /// error) since the last call: `(name, error)`, sent by the session as
+    /// `Event::EffectCompile { session: true }` like
+    /// `Presenter::take_disabled`.
+    ///
+    /// TODO(upscaler): fill it while building the chain.
+    pub fn take_disabled(&mut self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+
+    /// Same effects before the model with new parameter values: applied
+    /// live (`set_params`, no recompile, no new textures). `false` when the
+    /// upscaler must be rebuilt instead (another list of effects, or one that
+    /// failed before).
+    ///
+    /// TODO(upscaler): implement (`crate::magpie::set_chain_params`).
+    pub fn update_pre_params(&mut self, config: &Config) -> Result<bool> {
+        let _ = config;
+        Ok(false)
     }
 }
 

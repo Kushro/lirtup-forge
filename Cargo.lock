@@ -2920,6 +2920,7 @@ dependencies = [
  "ab_glyph",
  "image",
  "lirtup-config",
+ "lirtup-effects",
  "lirtup-gpu",
  "serde",
  "serde_json",

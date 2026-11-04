@@ -47,6 +47,11 @@ use crate::{ConfigError, ConfigFile, GuiConfig, Mapping, ModeStore, Value};
 /// The suffix of the backup of `config.yaml`.
 pub const BACKUP_SUFFIX: &str = ".1x.bak";
 
+/// The suffix of the backup of a mode file rewritten without the native
+/// engine (`modes/<id>.yaml.bak`, then `.bak2`, ...; `ModeStore::load` only
+/// reads `*.yaml`). fx-unify.
+pub const MODE_BACKUP_SUFFIX: &str = ".bak";
+
 /// Display name of the top level's mode.
 pub const DEFAULT_MODE_NAME: &str = "Predeterminado";
 
@@ -96,23 +101,35 @@ pub struct MigrationPlan {
     pub profiles: Vec<(String, Option<String>)>,
     /// How many loose fields move into modes (for the dialog).
     pub moved_fields: usize,
+    /// Existing mode files rewritten without the native engine
+    /// (`crate::legacy::translate_native`): id and the file's new content
+    /// (`name`, `description` and unknown keys kept). fx-unify.
+    pub rewritten: Vec<(String, Mapping)>,
 }
 
 impl MigrationPlan {
     /// Nothing to do.
     pub fn is_empty(&self) -> bool {
-        self.modes.is_empty() && self.profiles.is_empty() && self.top_mode.is_none()
+        self.modes.is_empty()
+            && self.profiles.is_empty()
+            && self.top_mode.is_none()
+            && self.rewritten.is_empty()
     }
 }
 
-/// Whether the file has loose mode fields to move.
-pub fn needs_migration(file: &ConfigFile) -> bool {
+/// Whether the file has loose mode fields to move, or (fx-unify) a mode file
+/// or a layer still uses the native engine.
+///
+/// TODO(migrate): legacy keys (`crate::legacy::LEGACY_KEYS`) in `modes`
+/// and in the layers count too; `modes` is unused by the stub.
+pub fn needs_migration(file: &ConfigFile, modes: &ModeStore) -> bool {
+    let _ = modes;
     loose_count(&file.general) > 0 || file.profiles.values().any(|p| loose_count(&p.options) > 0)
 }
 
 /// The plan for `file`, with ids that do not clash with `modes`.
 pub fn plan(file: &ConfigFile, modes: &ModeStore) -> MigrationPlan {
-    if !needs_migration(file) {
+    if !needs_migration(file, modes) {
         return MigrationPlan::default();
     }
     let mut plan = MigrationPlan {
@@ -498,7 +515,7 @@ mod tests {
         let (mut file, mut modes) = dir.load();
         let before = resolutions(&file, &modes);
         let original = std::fs::read_to_string(&file.path).unwrap();
-        assert!(needs_migration(&file));
+        assert!(needs_migration(&file, &modes));
         let plan = plan(&file, &modes);
         assert!(!plan.is_empty());
         let backup = apply(&mut file, &mut modes, &plan).unwrap();
@@ -506,7 +523,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&backup).unwrap(), original);
 
         let (file, modes) = dir.load();
-        assert!(!needs_migration(&file), "{:?}", file.general);
+        assert!(!needs_migration(&file, &modes), "{:?}", file.general);
         assert!(super::plan(&file, &modes).is_empty());
         let after = resolutions(&file, &modes);
         for ((choice, a), (_, b)) in before.iter().zip(&after) {
@@ -713,10 +730,11 @@ profiles:
     fn nothing_to_do() {
         let dir = Dir::new("mode: anime\nshow_stats: true\n", &[("anime", "model: 4x24\n")]);
         let (file, modes) = dir.load();
-        assert!(!needs_migration(&file));
+        assert!(!needs_migration(&file, &modes));
         assert!(plan(&file, &modes).is_empty());
         let only_nulls = Dir::new("model: null\nprofiles:\n  P:\n    options: {model: null}\n", &[]);
-        assert!(!needs_migration(&only_nulls.load().0));
+        let (file, modes) = only_nulls.load();
+        assert!(!needs_migration(&file, &modes));
     }
 
     #[test]

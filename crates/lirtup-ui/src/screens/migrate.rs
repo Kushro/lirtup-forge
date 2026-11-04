@@ -130,6 +130,7 @@ mod tests {
                 ("D".into(), Some("anime".into())),
             ],
             moved_fields: 5,
+            rewritten: Vec::new(),
         };
         let mut modes = ModeStore::default();
         let mut anime = Mode::from_mapping("anime", &Mapping::new()).0;

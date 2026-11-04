@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use lirtup_config::MagpieEffectSpec;
 use lirtup_proto::{EffectInfo, EffectOrigin};
 
-use super::chain::{CHAIN_KEY, ChainItem};
+use super::chain::{ChainItem, chain_key};
 use super::widgets::{CostBadge, yaml};
 use crate::app::{use_dispatch, use_store};
 use crate::components::{
@@ -43,9 +43,10 @@ pub(crate) fn matches(info: &EffectInfo, filter: Filter, query: &str) -> bool {
 }
 
 /// «Agregar efecto» (`Dialog::EffectPicker`): the catalog of `ListEffects`,
-/// with «Sin probar» on the unverified ones.
+/// with «Sin probar» on the unverified ones. `before_model`: the effect goes
+/// to `magpie_effects_before_model` instead of `magpie_effects`.
 #[component]
-pub fn EffectPickerDialog(mode: ModeId) -> Element {
+pub fn EffectPickerDialog(mode: ModeId, before_model: bool) -> Element {
     let store = use_store();
     let dispatch = use_dispatch();
     let open = use_signal(|| true);
@@ -60,7 +61,8 @@ pub fn EffectPickerDialog(mode: ModeId) -> Element {
 
     let scope = Scope::Mode(mode.clone());
     let s = store.read();
-    let chain: Vec<MagpieEffectSpec> = s.field::<Vec<MagpieEffectSpec>>(&scope, CHAIN_KEY).value();
+    let key = chain_key(before_model);
+    let chain: Vec<MagpieEffectSpec> = s.field::<Vec<MagpieEffectSpec>>(&scope, key).value();
     let in_chain: Vec<String> = chain.iter().map(|spec| ChainItem::parse(spec).name).collect();
     let mut effects: Vec<EffectInfo> = s
         .effects
@@ -78,7 +80,7 @@ pub fn EffectPickerDialog(mode: ModeId) -> Element {
         next.push(MagpieEffectSpec::Short(name.clone()));
         dispatch(Action::SetField {
             scope: scope.clone(),
-            key: CHAIN_KEY.into(),
+            key: key.into(),
             value: yaml(next),
         });
         dispatch(Action::CompileEffect(name));

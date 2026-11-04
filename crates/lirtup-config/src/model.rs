@@ -113,6 +113,9 @@ pub enum Downsampler {
 }
 
 /// Which engine runs the Magpie effects.
+///
+/// TODO(config): remove (fx-unify: the MagpieFX chain is the only one; old
+/// files are translated by [`crate::legacy::translate_native`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EffectsEngine {
@@ -444,9 +447,14 @@ pub struct ModeSettings {
     pub deband_strength: f32,
 
     /// Engine for the Magpie effects; only the selected one runs.
+    /// TODO(config): remove with the 24 native fields below (fx-unify).
     pub effects_engine: EffectsEngine,
-    /// MagpieFX chain, run on the frame before scaling.
+    /// MagpieFX chain after the model: on the upscaled frame, before the
+    /// final scaler.
     pub magpie_effects: Vec<MagpieEffectSpec>,
+    /// MagpieFX chain before the model: on the captured frame, at the game's
+    /// resolution, whose output the model takes (fx-unify).
+    pub magpie_effects_before_model: Vec<MagpieEffectSpec>,
     /// Log the GPU time of the MagpieFX chain.
     pub magpie_profile: bool,
 
@@ -487,6 +495,8 @@ pub struct ModeSettings {
     /// Apparent grain size.
     pub grain_size: f32,
 
+    // TODO(config): remove every native field below (anime4k_enabled,
+    // luma_sharpen_*, crt_*): fx-unify, see docs/developer/fx-unify-contract.md.
     /// Anime4K_Upscale_S (2x) before scaling (native engine).
     pub anime4k_enabled: bool,
 
@@ -555,6 +565,7 @@ pub const MODE_KEYS: &[&str] = &[
     "deband_strength",
     "effects_engine",
     "magpie_effects",
+    "magpie_effects_before_model",
     "magpie_profile",
     "cas_enabled",
     "cas_strength",
@@ -613,6 +624,7 @@ impl Default for ModeSettings {
             deband_strength: 0.3,
             effects_engine: EffectsEngine::Native,
             magpie_effects: Vec::new(),
+            magpie_effects_before_model: Vec::new(),
             magpie_profile: false,
             cas_enabled: false,
             cas_strength: 0.4,

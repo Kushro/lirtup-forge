@@ -24,8 +24,17 @@ use crate::components::{
 use crate::route::ModeId;
 use crate::state::{Action, CompileState, Dialog, Scope};
 
-/// The YAML key of the chain.
+/// The YAML key of the chain (after the model).
 pub(crate) const CHAIN_KEY: &str = "magpie_effects";
+
+/// The YAML key of the chain before the model (fx-unify).
+/// TODO(gui): the «Antes del modelo» segment of [`EffectChain`].
+pub(crate) const PRE_CHAIN_KEY: &str = "magpie_effects_before_model";
+
+/// The key of one segment of the chain.
+pub(crate) fn chain_key(before_model: bool) -> &'static str {
+    if before_model { PRE_CHAIN_KEY } else { CHAIN_KEY }
+}
 
 /// One effect of the chain.
 #[derive(Debug, Clone, PartialEq)]
@@ -208,7 +217,7 @@ pub(crate) fn EffectChain(id: ModeId, costs: Costs) -> Element {
                 label: t!("modes-add-effect"),
                 variant: ButtonVariant::Outlined,
                 icon: "add",
-                onclick: move |_| dispatch(Action::OpenDialog(Dialog::EffectPicker { mode: id.clone() })),
+                onclick: move |_| dispatch(Action::OpenDialog(Dialog::EffectPicker { mode: id.clone(), before_model: false })),
             }
         }
     }

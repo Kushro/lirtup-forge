@@ -17,8 +17,16 @@ ab_glyph.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+[features]
+# The hand ports of Anime4K_Upscale_S, LumaSharpen and CRT_Easymode (the
+# retired native effects engine), kept only as parity references for the
+# tests: never in the app (fx-unify). The self dev-dependency below turns it
+# on for this crate's tests, so `cargo test --workspace` builds them.
+ports = []
+
 [lints]
 workspace = true
 
 [dev-dependencies]
 image.workspace = true
+lirtup-effects = { path = ".", features = ["ports"] }

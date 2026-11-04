@@ -66,13 +66,12 @@ use lirtup_effects::{ParamValues, Pass, util};
 use lirtup_gpu::{
     CommandRecorder, Device, Format, PresentOptions, PresentStatus, SubmitOptions, Texture, Timestamps,
 };
-use lirtup_magpiefx::compiler::{HlslCompiler, SpirvCache};
 use lirtup_magpiefx::spec::EffectSpec;
-use lirtup_magpiefx::{Catalog, CompileOptions, CompiledEffect, MagpieEffect};
 use lirtup_proto::Stage;
 use lirtup_x11::{CoordinateMapper, Rect, RgbaImage};
 
 use crate::framegen::FrameGen;
+use crate::magpie::{MagpieContext, OutSize, build_magpie_chain, parse_chain, set_chain_params};
 use crate::surface::SharedSurface;
 use crate::{PipelineError, Result};
 
@@ -218,68 +217,6 @@ impl Layout {
 // Presenter
 // -------------------------------------------------------------------------
 
-/// The MagpieFX compilers, catalog and cache, created on first use.
-struct MagpieContext {
-    catalog: Catalog,
-    compilers: Vec<Box<dyn HlslCompiler>>,
-    cache: SpirvCache,
-    fp16: bool,
-    /// Compiled effects by `(name, swap input, swap output)`.
-    compiled: Vec<((String, bool, bool), CompiledEffect)>,
-    swap_rb: Option<CompiledEffect>,
-}
-
-impl MagpieContext {
-    fn new(device: &Device) -> MagpieContext {
-        let user = lirtup_config::paths::user_effects_dir();
-        MagpieContext {
-            catalog: Catalog::scan(Some(&user)),
-            compilers: lirtup_magpiefx::compiler::detect_compilers(),
-            cache: SpirvCache::new(lirtup_config::paths::magpiefx_cache_dir()),
-            fp16: lirtup_magpiefx::runtime::fp16_wanted(device),
-            compiled: Vec::new(),
-            swap_rb: None,
-        }
-    }
-
-    fn compile(&mut self, name: &str, swap_input: bool, swap_output: bool) -> Result<CompiledEffect> {
-        let key = (name.to_owned(), swap_input, swap_output);
-        if let Some((_, c)) = self.compiled.iter().find(|(k, _)| *k == key) {
-            return Ok(c.clone());
-        }
-        let started = Instant::now();
-        let entry = self.catalog.resolve(name)?;
-        let compiled = lirtup_magpiefx::runtime::compile_effect_with(
-            &entry,
-            &self.compilers,
-            &self.cache,
-            &CompileOptions {
-                fp16: self.fp16,
-                swap_input,
-                swap_output,
-            },
-        )?;
-        tracing::info!(
-            "MagpieFX effect '{}' loaded ({} passes, {} ms)",
-            compiled.desc.name,
-            compiled.desc.passes.len(),
-            started.elapsed().as_millis()
-        );
-        self.compiled.push((key, compiled.clone()));
-        Ok(compiled)
-    }
-
-    fn swap_rb(&mut self) -> Result<CompiledEffect> {
-        if self.swap_rb.is_none() {
-            self.swap_rb = Some(lirtup_magpiefx::runtime::compile_swap_rb(
-                &self.compilers,
-                &self.cache,
-            )?);
-        }
-        Ok(self.swap_rb.clone().expect("just compiled"))
-    }
-}
-
 /// What the effects of a config are, to tell what an update changes.
 #[derive(Debug, Clone, PartialEq)]
 struct EffectPlan {
@@ -319,14 +256,9 @@ impl EffectPlan {
         if let Some(lut) = lut {
             plan.screen.insert(0, lut);
         }
+        // TODO(presenter): the MagpieFX chain always runs (fx-unify).
         if config.scaling.effects_engine == EffectsEngine::Magpiefx {
-            plan.magpie = match lirtup_magpiefx::spec::parse_effect_chain(&config.scaling.magpie_effects) {
-                Ok(specs) => specs,
-                Err(e) => {
-                    tracing::error!("invalid MagpieFX configuration: {e}");
-                    Vec::new()
-                }
-            };
+            plan.magpie = parse_chain(&config.scaling.magpie_effects);
         }
         plan
     }
@@ -552,13 +484,7 @@ impl Presenter {
         if !presenter.plan.magpie.is_empty() {
             // Compile now (blocking), so the first frame does not stall.
             let mut ctx = MagpieContext::new(device);
-            for (i, spec) in presenter.plan.magpie.iter().enumerate() {
-                let last = presenter.plan.magpie.len() - 1;
-                if let Err(e) = ctx.compile(&spec.name, i == 0, i == last) {
-                    tracing::error!("MagpieFX effect '{}' disabled: {e}", spec.name);
-                    presenter.disabled.push((spec.name.clone(), e.to_string()));
-                }
-            }
+            ctx.precompile(&presenter.plan.magpie, &mut presenter.disabled);
             presenter.magpie = Some(ctx);
         }
         Ok(presenter)
@@ -878,17 +804,11 @@ impl Presenter {
         {
             return Ok(false);
         }
-        // `pre` is: [deband], [SwapRB], effects..., [SwapRB].
-        let effects: Vec<&mut Box<dyn Pass>> = self
-            .pre
-            .iter_mut()
-            .filter(|p| p.label() != "deband" && p.label() != "SwapRB")
-            .collect();
-        if effects.len() != self.plan.magpie.len() {
+        // `pre` is: [deband], [SwapRB], effects..., [SwapRB] (with MagpieFX
+        // effects, `plan.pre` is only the deband).
+        let skip = self.plan.pre.len().min(self.pre.len());
+        if !set_chain_params(&mut self.pre[skip..], &self.plan.magpie)? {
             return Ok(false);
-        }
-        for (pass, spec) in effects.into_iter().zip(&self.plan.magpie) {
-            pass.set_params(&spec.params)?;
         }
         self.magpie_active = self.plan.magpie.clone();
         Ok(true)
@@ -959,7 +879,7 @@ impl Presenter {
             out.extend(
                 self.pre
                     .iter()
-                    .filter(|p| p.label() != "SwapRB")
+                    .filter(|p| p.label() != crate::magpie::SWAP_RB_LABEL)
                     .map(|p| p.label().to_owned()),
             );
         }
@@ -1162,7 +1082,14 @@ fn build_pre_chain(
     }
     if !plan.magpie.is_empty() {
         let out_size = content_rect(layout, (input.width(), input.height()));
-        let (passes, bound) = build_magpie_chain(device, magpie, &input, &plan.magpie, out_size, disabled);
+        let (passes, bound) = build_magpie_chain(
+            device,
+            magpie,
+            &input,
+            &plan.magpie,
+            OutSize::Target(out_size),
+            disabled,
+        );
         pre.extend(passes);
         active = Some(bound);
     }
@@ -1177,34 +1104,6 @@ fn build_pre_chain(
         pre.push(pass);
     }
     Ok((pre, active))
-}
-
-/// The MagpieFX chain on `input`: the first effect reads BGRA and the
-/// last writes it (folded into the shaders, or a `SwapRB` pass where the
-/// effect does not allow it). An effect that fails is dropped (and pushed to
-/// `disabled`) and the chain is rebuilt without it, so the swaps move to the
-/// new ends (`_build_magpie_chain`).
-fn build_magpie_chain(
-    device: &Arc<Device>,
-    magpie: &mut Option<MagpieContext>,
-    input: &Texture,
-    specs: &[EffectSpec],
-    out_size: (u32, u32),
-    disabled: &mut Vec<(String, String)>,
-) -> (Vec<Box<dyn Pass>>, Vec<EffectSpec>) {
-    let ctx = magpie.get_or_insert_with(|| MagpieContext::new(device));
-    let mut active = specs.to_vec();
-    while !active.is_empty() {
-        match bind_magpie(device, ctx, input, &active, out_size) {
-            Ok(passes) => return (passes, active),
-            Err((i, e)) => {
-                tracing::error!("MagpieFX effect '{}' disabled: {e}", active[i].name);
-                let spec = active.remove(i);
-                disabled.push((spec.name, e.to_string()));
-            }
-        }
-    }
-    (Vec::new(), active)
 }
 
 /// The scaler drawing `input` into `rect` of a `screen`-sized texture, the
@@ -1250,49 +1149,6 @@ fn build_screen_passes_on(
     let mut passes = Vec::with_capacity(effects.len());
     for effect in effects {
         passes.push(effect.create(device, screen, size)?);
-    }
-    Ok(passes)
-}
-
-/// Bind every effect of `specs` in order; on failure, the index of the
-/// effect that failed.
-fn bind_magpie(
-    device: &Arc<Device>,
-    ctx: &mut MagpieContext,
-    input: &Texture,
-    specs: &[EffectSpec],
-    out_size: (u32, u32),
-) -> std::result::Result<Vec<Box<dyn Pass>>, (usize, PipelineError)> {
-    let last = specs.len() - 1;
-    let mut passes: Vec<Box<dyn Pass>> = Vec::new();
-    let mut current = input.clone();
-    let swap = |ctx: &mut MagpieContext, current: &Texture| -> Result<Box<dyn Pass>> {
-        let compiled = ctx.swap_rb()?;
-        let size = (current.width(), current.height());
-        Ok(Box::new(MagpieEffect::new(
-            device,
-            &compiled,
-            current,
-            size,
-            &ParamValues::new(),
-        )?))
-    };
-    for (i, spec) in specs.iter().enumerate() {
-        let compiled = ctx.compile(&spec.name, i == 0, i == last).map_err(|e| (i, e))?;
-        if i == 0 && !compiled.input_swapped() {
-            let pass = swap(ctx, &current).map_err(|e| (i, e))?;
-            current = pass.output().clone();
-            passes.push(pass);
-        }
-        let fx = MagpieEffect::new(device, &compiled, &current, out_size, &spec.params)
-            .map_err(|e| (i, e.into()))?;
-        current = fx.output().clone();
-        passes.push(Box::new(fx));
-        if i == last && !compiled.output_swapped() {
-            let pass = swap(ctx, &current).map_err(|e| (i, e))?;
-            current = pass.output().clone();
-            passes.push(pass);
-        }
     }
     Ok(passes)
 }

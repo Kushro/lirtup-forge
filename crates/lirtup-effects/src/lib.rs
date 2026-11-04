@@ -18,6 +18,8 @@ pub mod effects;
 pub mod error;
 mod lut;
 pub mod osd;
+#[cfg(feature = "ports")]
+pub mod ports;
 pub mod scalers;
 pub mod srcnn;
 pub mod ui_draw;

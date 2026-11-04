@@ -748,7 +748,7 @@ fn toast(key: &'static str, args: Vec<(&'static str, String)>) -> Toast {
 fn offer_migration(store: &mut Store) {
     if store.gui.migration_declined
         || store.dialog.is_some()
-        || !lirtup_config::migrate::needs_migration(&store.config.file)
+        || !lirtup_config::migrate::needs_migration(&store.config.file, &store.modes.store)
     {
         return;
     }
