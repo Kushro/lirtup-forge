@@ -784,7 +784,7 @@ fn SaveBar() -> Element {
                 Button {
                     label: t!("savebar-try-live"),
                     variant: if previewing { ButtonVariant::Tertiary } else { ButtonVariant::Outlined },
-                    icon: if previewing { "visibility" } else { "visibility_off" },
+                    icon: Some(if previewing { "visibility" } else { "visibility_off" }),
                     title: t!("savebar-try-live-hint"),
                     onclick: move |_| dispatch(Action::TogglePreview),
                 }
