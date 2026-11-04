@@ -38,7 +38,8 @@
 //! 1.x overlay:
 //!
 //! - in click-through `top-transparent`, where the window gets no pointer
-//!   events, the input region is the bar while it shows, and the pointer is
+//!   events, the input region is the bar while it shows (the whole overlay
+//!   during the split comparison, `ToolbarZone::whole`), and the pointer is
 //!   polled ([`POINTER_POLL`]) for the reveal band and for the opacity:
 //!   [`OverlayCommand::SetDimmedOpacity`] outside the target, the full one
 //!   inside (`opacity.py`);
@@ -483,17 +484,26 @@ impl Overlay {
     }
 
     /// The bar showed, hid or moved. In click-through mode the input
-    /// region follows it, so the bar can be clicked.
+    /// region follows it, so the bar can be clicked; while the zone is
+    /// whole (the split comparison) the whole overlay takes the pointer.
     fn set_toolbar_zone(&mut self, zone: Option<ToolbarZone>) -> lirtup_x11::Result<()> {
-        let old_bar = self.router.zone().and_then(|z| z.bar);
+        let old = self.router.zone();
+        let old_bar = old.and_then(|z| z.bar);
+        let old_whole = old.is_some_and(|z| z.whole);
         self.router.set_zone(zone);
         let bar = zone.and_then(|z| z.bar);
-        if bar.is_none() && self.over_bar {
+        let whole = zone.is_some_and(|z| z.whole);
+        if (bar.is_none() || old_whole) && !whole && self.over_bar {
+            // The next event over the bar shows the cursor again.
             self.set_over_bar(false)?;
         }
-        if self.click_through && bar != old_bar {
-            let region: Vec<Rect> = bar.into_iter().collect();
-            self.window.set_input_region(Some(&region))?;
+        if self.click_through && (bar != old_bar || whole != old_whole) {
+            if whole {
+                self.window.set_input_region(None)?;
+            } else {
+                let region: Vec<Rect> = bar.into_iter().collect();
+                self.window.set_input_region(Some(&region))?;
+            }
         }
         Ok(())
     }
