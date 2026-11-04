@@ -66,7 +66,8 @@ lirtup run -p "Visual novels"   # a profile instead of the matching one
 lirtup run -f                   # follow the focused window
 lirtup run -o stretch           # fill the screen, ignoring the aspect ratio
 lirtup run --crop-top 29 --crop-left 3 --crop-right 3 --crop-bottom 3
-lirtup run --magpie-effect LumaSharpen:sharpStrength=1.0
+lirtup run --magpie-effect Sharpen/LumaSharpen:sharpStrength=1.0     # after the model
+lirtup run --magpie-effect-before-model CRT/CRT_Easymode            # before the model
 lirtup run --frame-gen 2        # frame generation, ×2
 ```
 
@@ -76,6 +77,10 @@ Every option of the configuration file has a flag; for the rest,
 ```sh
 lirtup run --set overlay_opacity_max=0.9 --set hotkeys.zoom_in=Ctrl+Plus
 ```
+
+`--magpie-effect` and `--magpie-effect-before-model` are repeatable and take
+`Name` or `Name:param=value,...`; each one replaces the mode's list it names
+(see [MagpieFX effects](configuration.md#magpiefx-effects)).
 
 Options combine, and a flag wins over the profile and the configuration file
 (see [Settings precedence](configuration.md#settings-precedence)).
@@ -103,3 +108,22 @@ Options combine, and a flag wins over the profile and the configuration file
 | `upscaler.api` (Python API) | No Python API; programs can drive `lirtup serve` over its socket (`lirtup ctl` shows the protocol) |
 | A value out of range stops with code 2 | A warning, and the default value is used |
 | `--magpie-profile` with `UPSCALER_EFFECT_TIMING=1` | `--magpie-profile` alone logs the GPU times |
+
+## Removed in this version
+
+The native effects engine is gone (see
+[The retired native effects engine](configuration.md#the-retired-native-effects-engine)),
+and its flags with it: `--effects-engine`, `--enable-anime4k`,
+`--enable-luma-sharpen`, `--luma-sharpen-strength`, `--luma-sharpen-clamp`,
+`--luma-sharpen-pattern`, `--luma-sharpen-offset-bias`, `--enable-crt` and
+every `--crt-*` flag. Use the same effects through MagpieFX instead:
+
+| Before | Now |
+| --- | --- |
+| `--enable-anime4k` | `--magpie-effect Anime4K/Anime4K_Upscale_S` |
+| `--enable-luma-sharpen --luma-sharpen-strength 1` | `--magpie-effect Sharpen/LumaSharpen:sharpStrength=1` |
+| `--enable-crt --crt-mask-size 2` | `--magpie-effect CRT/CRT_Easymode:maskSize=2` |
+| `--effects-engine magpiefx` | Nothing: the MagpieFX chain always runs |
+
+The old keys given with `--set` (`--set crt_enabled=true`) are ignored with a
+warning. In the configuration files they keep working.

@@ -198,100 +198,32 @@ pub struct OptionArgs {
     )]
     pub offset_y: Option<i32>,
 
-    // Pre-processing and Magpie effects
+    // Pre-processing and MagpieFX effects
     /// Debanding before scaling.
     #[arg(long = "enable-deband", help_heading = "Pre-processing")]
     pub enable_deband: bool,
     /// Debanding intensity (0 to 1).
     #[arg(long = "deband-strength", help_heading = "Pre-processing")]
     pub deband_strength: Option<f32>,
-    /// Add a MagpieFX effect to the chain (repeatable): `Name` or `Name:param=value,...`.
+    /// Add a MagpieFX effect to the chain after the model (repeatable): `Name` or
+    /// `Name:param=value,...`.
     #[arg(
         long = "magpie-effect",
         value_name = "EFFECT",
         help_heading = "Pre-processing"
     )]
     pub magpie_effects: Vec<String>,
+    /// Add a MagpieFX effect to the chain before the model (repeatable): `Name` or
+    /// `Name:param=value,...`.
+    #[arg(
+        long = "magpie-effect-before-model",
+        value_name = "EFFECT",
+        help_heading = "Pre-processing"
+    )]
+    pub magpie_effects_before_model: Vec<String>,
     /// Log the GPU time of the MagpieFX chain.
     #[arg(long = "magpie-profile", help_heading = "Pre-processing")]
     pub magpie_profile: bool,
-    /// Engine for the Magpie effects.
-    #[arg(long = "effects-engine", value_parser = ["native", "magpiefx"], help_heading = "Magpie effects")]
-    pub effects_engine: Option<String>,
-    /// Anime4K_Upscale_S (2x) before scaling.
-    #[arg(long = "enable-anime4k", help_heading = "Magpie effects")]
-    pub enable_anime4k: bool,
-    /// LumaSharpen.
-    #[arg(long = "enable-luma-sharpen", help_heading = "Magpie effects")]
-    pub enable_luma_sharpen: bool,
-    /// LumaSharpen strength (0 to 3).
-    #[arg(long = "luma-sharpen-strength", help_heading = "Magpie effects")]
-    pub luma_sharpen_strength: Option<f32>,
-    /// Maximum sharpening per pixel (0 to 1).
-    #[arg(long = "luma-sharpen-clamp", help_heading = "Magpie effects")]
-    pub luma_sharpen_clamp: Option<f32>,
-    /// Sample pattern (0 to 3).
-    #[arg(long = "luma-sharpen-pattern", value_parser = clap::value_parser!(u32).range(0..=3),
-          help_heading = "Magpie effects")]
-    pub luma_sharpen_pattern: Option<u32>,
-    /// Sample pattern radius (0 to 6).
-    #[arg(long = "luma-sharpen-offset-bias", help_heading = "Magpie effects")]
-    pub luma_sharpen_offset_bias: Option<f32>,
-    /// CRT-Easymode (replaces the final scaler).
-    #[arg(long = "enable-crt", help_heading = "Magpie effects")]
-    pub enable_crt: bool,
-    /// Horizontal sharpness (0 to 1).
-    #[arg(long = "crt-sharpness-h", help_heading = "CRT-Easymode")]
-    pub crt_sharpness_h: Option<f32>,
-    /// Vertical sharpness (0 to 1).
-    #[arg(long = "crt-sharpness-v", help_heading = "CRT-Easymode")]
-    pub crt_sharpness_v: Option<f32>,
-    /// RGB mask strength (0 to 1).
-    #[arg(long = "crt-mask-strength", help_heading = "CRT-Easymode")]
-    pub crt_mask_strength: Option<f32>,
-    /// Mask dot width (1 to 100).
-    #[arg(long = "crt-mask-dot-width", help_heading = "CRT-Easymode")]
-    pub crt_mask_dot_width: Option<u32>,
-    /// Mask dot height (1 to 100).
-    #[arg(long = "crt-mask-dot-height", help_heading = "CRT-Easymode")]
-    pub crt_mask_dot_height: Option<u32>,
-    /// Mask stagger (0 to 100).
-    #[arg(long = "crt-mask-stagger", help_heading = "CRT-Easymode")]
-    pub crt_mask_stagger: Option<u32>,
-    /// Mask size (1 to 100).
-    #[arg(long = "crt-mask-size", help_heading = "CRT-Easymode")]
-    pub crt_mask_size: Option<u32>,
-    /// Scanline strength (0 to 1).
-    #[arg(long = "crt-scanline-strength", help_heading = "CRT-Easymode")]
-    pub crt_scanline_strength: Option<f32>,
-    /// Min scanline beam width (0.5 to 5).
-    #[arg(long = "crt-scanline-beam-width-min", help_heading = "CRT-Easymode")]
-    pub crt_scanline_beam_width_min: Option<f32>,
-    /// Max scanline beam width (0.5 to 5).
-    #[arg(long = "crt-scanline-beam-width-max", help_heading = "CRT-Easymode")]
-    pub crt_scanline_beam_width_max: Option<f32>,
-    /// Min scanline brightness (0 to 1).
-    #[arg(long = "crt-scanline-bright-min", help_heading = "CRT-Easymode")]
-    pub crt_scanline_bright_min: Option<f32>,
-    /// Max scanline brightness (0 to 1).
-    #[arg(long = "crt-scanline-bright-max", help_heading = "CRT-Easymode")]
-    pub crt_scanline_bright_max: Option<f32>,
-    /// No scanlines when the source height is at least this (1 to 1000).
-    #[arg(long = "crt-scanline-cutoff", help_heading = "CRT-Easymode")]
-    pub crt_scanline_cutoff: Option<u32>,
-    /// Input gamma (0.1 to 5).
-    #[arg(long = "crt-gamma-input", help_heading = "CRT-Easymode")]
-    pub crt_gamma_input: Option<f32>,
-    /// Output gamma (0.1 to 5).
-    #[arg(long = "crt-gamma-output", help_heading = "CRT-Easymode")]
-    pub crt_gamma_output: Option<f32>,
-    /// Brightness boost (1 to 2).
-    #[arg(long = "crt-bright-boost", help_heading = "CRT-Easymode")]
-    pub crt_bright_boost: Option<f32>,
-    /// Dilation (0 or 1).
-    #[arg(long = "crt-dilation", value_parser = clap::value_parser!(u32).range(0..=1),
-          help_heading = "CRT-Easymode")]
-    pub crt_dilation: Option<u32>,
 
     // Post-processing
     /// Contrast Adaptive Sharpening.
@@ -556,36 +488,16 @@ impl ConfigArgs {
 
         l.flag("deband_enabled", o.enable_deband, true);
         l.float("deband_strength", o.deband_strength);
-        if !o.magpie_effects.is_empty() {
-            let chain = o.magpie_effects.iter().cloned().map(Value::String).collect();
-            l.0.insert("magpie_effects".into(), Value::Sequence(chain));
+        for (key, effects) in [
+            ("magpie_effects", &o.magpie_effects),
+            ("magpie_effects_before_model", &o.magpie_effects_before_model),
+        ] {
+            if !effects.is_empty() {
+                let chain = effects.iter().cloned().map(Value::String).collect();
+                l.0.insert(key.into(), Value::Sequence(chain));
+            }
         }
         l.flag("magpie_profile", o.magpie_profile, true);
-        l.put("effects_engine", o.effects_engine.clone());
-        l.flag("anime4k_enabled", o.enable_anime4k, true);
-        l.flag("luma_sharpen_enabled", o.enable_luma_sharpen, true);
-        l.float("luma_sharpen_strength", o.luma_sharpen_strength);
-        l.float("luma_sharpen_clamp", o.luma_sharpen_clamp);
-        l.put("luma_sharpen_pattern", o.luma_sharpen_pattern);
-        l.float("luma_sharpen_offset_bias", o.luma_sharpen_offset_bias);
-        l.flag("crt_enabled", o.enable_crt, true);
-        l.float("crt_sharpness_h", o.crt_sharpness_h);
-        l.float("crt_sharpness_v", o.crt_sharpness_v);
-        l.float("crt_mask_strength", o.crt_mask_strength);
-        l.put("crt_mask_dot_width", o.crt_mask_dot_width);
-        l.put("crt_mask_dot_height", o.crt_mask_dot_height);
-        l.put("crt_mask_stagger", o.crt_mask_stagger);
-        l.put("crt_mask_size", o.crt_mask_size);
-        l.float("crt_scanline_strength", o.crt_scanline_strength);
-        l.float("crt_scanline_beam_width_min", o.crt_scanline_beam_width_min);
-        l.float("crt_scanline_beam_width_max", o.crt_scanline_beam_width_max);
-        l.float("crt_scanline_bright_min", o.crt_scanline_bright_min);
-        l.float("crt_scanline_bright_max", o.crt_scanline_bright_max);
-        l.put("crt_scanline_cutoff", o.crt_scanline_cutoff);
-        l.float("crt_gamma_input", o.crt_gamma_input);
-        l.float("crt_gamma_output", o.crt_gamma_output);
-        l.float("crt_bright_boost", o.crt_bright_boost);
-        l.put("crt_dilation", o.crt_dilation);
 
         l.flag("cas_enabled", o.enable_cas, true);
         l.float("cas_strength", o.cas_strength);
@@ -737,6 +649,8 @@ mod tests {
             "CAS",
             "--magpie-effect",
             "Lanczos",
+            "--magpie-effect-before-model",
+            "Sharpen/LumaSharpen:sharpStrength=1",
             "--mode",
             "anime",
         ]);
@@ -751,6 +665,10 @@ mod tests {
         assert_eq!(m["output_geometry"], Value::from("150%"));
         assert_eq!(m["log_level"], Value::from("DEBUG"));
         assert_eq!(m["magpie_effects"].as_sequence().unwrap().len(), 2);
+        assert_eq!(
+            m["magpie_effects_before_model"],
+            Value::Sequence(vec![Value::from("Sharpen/LumaSharpen:sharpStrength=1")])
+        );
         assert_eq!(m["mode"], Value::from("anime"));
         assert!(!m.contains_key("cas_enabled"));
 
@@ -758,6 +676,30 @@ mod tests {
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(config.scaling.model, crate::Model::M4x12);
         assert_eq!(config.frame_gen_multiplier, crate::FrameGenMultiplier::Auto);
+        assert_eq!(config.scaling.magpie_effects.len(), 2);
+        assert_eq!(config.scaling.magpie_effects_before_model.len(), 1);
+    }
+
+    #[test]
+    fn native_engine_flags_are_gone() {
+        let removed: [&[&str]; 11] = [
+            &["--effects-engine", "native"],
+            &["--enable-anime4k"],
+            &["--enable-luma-sharpen"],
+            &["--luma-sharpen-strength", "1"],
+            &["--luma-sharpen-clamp", "0.1"],
+            &["--luma-sharpen-pattern", "2"],
+            &["--luma-sharpen-offset-bias", "2"],
+            &["--enable-crt"],
+            &["--crt-sharpness-h", "0.5"],
+            &["--crt-mask-size", "2"],
+            &["--crt-dilation", "0"],
+        ];
+        for flags in removed {
+            let mut argv = vec!["lirtup"];
+            argv.extend_from_slice(flags);
+            assert!(Cli::try_parse_from(argv).is_err(), "{flags:?}");
+        }
     }
 
     #[test]

@@ -164,8 +164,14 @@ impl Mode {
     /// Read a mode file: `name` (the id when missing), `description`, the
     /// mode keys (bad values keep their defaults, with a warning) and unknown
     /// keys in [`Mode::extra`].
+    ///
+    /// Settings of the retired native effects engine (an unmigrated 2.1
+    /// file) stay in [`Mode::extra`] as written, and [`Mode::settings`] holds
+    /// what they translate to ([`crate::legacy::translate_native`]), the same
+    /// as a session with this mode alone runs.
     pub fn from_mapping(id: &str, raw: &Mapping) -> (Mode, Vec<ConfigWarning>) {
         let mut settings_map = Mapping::new();
+        let mut legacy = Mapping::new();
         let mut extra = Mapping::new();
         let mut name = None;
         let mut description = None;
@@ -177,13 +183,30 @@ impl Mode {
                 Some(k) if crate::MODE_KEYS.contains(&k) => {
                     settings_map.insert(key.clone(), value.clone());
                 }
+                Some(k) if crate::legacy::LEGACY_KEYS.contains(&k) => {
+                    legacy.insert(key.clone(), value.clone());
+                    extra.insert(key.clone(), value.clone());
+                }
                 _ => {
                     extra.insert(key.clone(), value.clone());
                 }
             }
         }
-        let (settings, warnings) =
-            crate::util::tolerant::<ModeSettings>(&settings_map, &format!("modes.{id}."));
+        let prefix = format!("modes.{id}.");
+        let mut warnings = Vec::new();
+        if !legacy.is_empty() {
+            for (key, value) in legacy {
+                settings_map.insert(key, value);
+            }
+            let mut translation = Vec::new();
+            crate::legacy::translate_native(&mut settings_map, &mut translation);
+            warnings.extend(translation.into_iter().map(|w| ConfigWarning {
+                key: format!("{prefix}{}", w.key),
+                message: w.message,
+            }));
+        }
+        let (settings, read_warnings) = crate::util::tolerant::<ModeSettings>(&settings_map, &prefix);
+        warnings.extend(read_warnings);
         let mode = Mode {
             name: name.filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_owned()),
             description,
@@ -297,5 +320,21 @@ mod tests {
         assert!(anime.extra.contains_key("future"));
         assert_eq!(store.raw["anime"].len(), 3);
         assert_eq!(store.modes["bad-value"].settings.blur, 1.0);
+    }
+
+    #[test]
+    fn native_settings_are_translated_and_kept() {
+        let yaml = "name: CRT\nmodel: none\ncrt_enabled: true\ncrt_mask_size: 200\n";
+        let raw: Mapping = serde_yaml_ng::from_str(yaml).unwrap();
+        let (mode, w) = Mode::from_mapping("crt", &raw);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert_eq!(w[0].key, "modes.crt.crt_mask_size");
+        assert_eq!(
+            mode.settings.magpie_effects,
+            vec![crate::MagpieEffectSpec::Short(crate::legacy::CRT_EFFECT.into())]
+        );
+        assert_eq!(mode.settings.model, crate::Model::None);
+        assert!(mode.extra.contains_key("crt_enabled"));
+        assert!(mode.extra.contains_key("crt_mask_size"));
     }
 }

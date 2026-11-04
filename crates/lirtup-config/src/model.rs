@@ -112,20 +112,6 @@ pub enum Downsampler {
     Lanczos,
 }
 
-/// Which engine runs the Magpie effects.
-///
-/// TODO(config): remove (fx-unify: the MagpieFX chain is the only one; old
-/// files are translated by [`crate::legacy::translate_native`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EffectsEngine {
-    /// The hand-ported passes (Anime4K S, LumaSharpen, CRT-Easymode).
-    #[default]
-    Native,
-    /// The MagpieFX chain of [`ModeSettings::magpie_effects`].
-    Magpiefx,
-}
-
 /// Overlay window behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum OverlayMode {
@@ -399,7 +385,8 @@ pub struct Crop {
 // Scaling mode settings
 // -------------------------------------------------------------------------
 
-/// Effect in [`ModeSettings::magpie_effects`]: `"Name"`,
+/// Effect in [`ModeSettings::magpie_effects`] or
+/// [`ModeSettings::magpie_effects_before_model`]: `"Name"`,
 /// `"Name:param=value,..."`, a path to an `.hlsl`, or
 /// `{name: ..., params: {...}}`. `lirtup_magpiefx::spec` parses the short form.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -417,9 +404,9 @@ pub enum MagpieEffectSpec {
     },
 }
 
-/// Everything a scaling mode holds (6.6): model, samplers, effects engine and
-/// chain, final touch-up. Flattened into [`Config`], and the body of
-/// `modes/<id>.yaml` ([`crate::Mode`]).
+/// Everything a scaling mode holds (6.6): model, samplers, both MagpieFX
+/// chains (before and after the model), final touch-up. Flattened into
+/// [`Config`], and the body of `modes/<id>.yaml` ([`crate::Mode`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModeSettings {
@@ -446,9 +433,6 @@ pub struct ModeSettings {
     /// Debanding intensity.
     pub deband_strength: f32,
 
-    /// Engine for the Magpie effects; only the selected one runs.
-    /// TODO(config): remove with the 24 native fields below (fx-unify).
-    pub effects_engine: EffectsEngine,
     /// MagpieFX chain after the model: on the upscaled frame, before the
     /// final scaler.
     pub magpie_effects: Vec<MagpieEffectSpec>,
@@ -494,59 +478,6 @@ pub struct ModeSettings {
     pub grain_strength: f32,
     /// Apparent grain size.
     pub grain_size: f32,
-
-    // TODO(config): remove every native field below (anime4k_enabled,
-    // luma_sharpen_*, crt_*): fx-unify, see docs/developer/fx-unify-contract.md.
-    /// Anime4K_Upscale_S (2x) before scaling (native engine).
-    pub anime4k_enabled: bool,
-
-    /// LumaSharpen (native engine).
-    pub luma_sharpen_enabled: bool,
-    /// LumaSharpen strength.
-    pub luma_sharpen_strength: f32,
-    /// Maximum sharpening per pixel.
-    pub luma_sharpen_clamp: f32,
-    /// Sample pattern, 0 to 3.
-    pub luma_sharpen_pattern: u32,
-    /// Sample pattern radius.
-    pub luma_sharpen_offset_bias: f32,
-
-    /// CRT-Easymode (native engine; replaces the final scaler).
-    pub crt_enabled: bool,
-    /// See Magpie's CRT_Easymode.
-    pub crt_sharpness_h: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_sharpness_v: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_mask_strength: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_mask_dot_width: u32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_mask_dot_height: u32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_mask_stagger: u32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_mask_size: u32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_scanline_strength: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_scanline_beam_width_min: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_scanline_beam_width_max: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_scanline_bright_min: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_scanline_bright_max: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_scanline_cutoff: u32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_gamma_input: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_gamma_output: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_bright_boost: f32,
-    /// See Magpie's CRT_Easymode.
-    pub crt_dilation: u32,
 }
 
 /// YAML keys that belong to a mode ([`ModeSettings`]), in declaration order.
@@ -563,7 +494,6 @@ pub const MODE_KEYS: &[&str] = &[
     "kernel_radius",
     "deband_enabled",
     "deband_strength",
-    "effects_engine",
     "magpie_effects",
     "magpie_effects_before_model",
     "magpie_profile",
@@ -583,30 +513,6 @@ pub const MODE_KEYS: &[&str] = &[
     "grain_enabled",
     "grain_strength",
     "grain_size",
-    "anime4k_enabled",
-    "luma_sharpen_enabled",
-    "luma_sharpen_strength",
-    "luma_sharpen_clamp",
-    "luma_sharpen_pattern",
-    "luma_sharpen_offset_bias",
-    "crt_enabled",
-    "crt_sharpness_h",
-    "crt_sharpness_v",
-    "crt_mask_strength",
-    "crt_mask_dot_width",
-    "crt_mask_dot_height",
-    "crt_mask_stagger",
-    "crt_mask_size",
-    "crt_scanline_strength",
-    "crt_scanline_beam_width_min",
-    "crt_scanline_beam_width_max",
-    "crt_scanline_bright_min",
-    "crt_scanline_bright_max",
-    "crt_scanline_cutoff",
-    "crt_gamma_input",
-    "crt_gamma_output",
-    "crt_bright_boost",
-    "crt_dilation",
 ];
 
 impl Default for ModeSettings {
@@ -622,7 +528,6 @@ impl Default for ModeSettings {
             kernel_radius: None,
             deband_enabled: false,
             deband_strength: 0.3,
-            effects_engine: EffectsEngine::Native,
             magpie_effects: Vec::new(),
             magpie_effects_before_model: Vec::new(),
             magpie_profile: false,
@@ -642,30 +547,6 @@ impl Default for ModeSettings {
             grain_enabled: false,
             grain_strength: 0.15,
             grain_size: 1.0,
-            anime4k_enabled: false,
-            luma_sharpen_enabled: false,
-            luma_sharpen_strength: 0.65,
-            luma_sharpen_clamp: 0.035,
-            luma_sharpen_pattern: 1,
-            luma_sharpen_offset_bias: 1.0,
-            crt_enabled: false,
-            crt_sharpness_h: 0.5,
-            crt_sharpness_v: 1.0,
-            crt_mask_strength: 0.3,
-            crt_mask_dot_width: 1,
-            crt_mask_dot_height: 1,
-            crt_mask_stagger: 0,
-            crt_mask_size: 1,
-            crt_scanline_strength: 1.0,
-            crt_scanline_beam_width_min: 1.5,
-            crt_scanline_beam_width_max: 1.5,
-            crt_scanline_bright_min: 0.35,
-            crt_scanline_bright_max: 0.65,
-            crt_scanline_cutoff: 400,
-            crt_gamma_input: 2.0,
-            crt_gamma_output: 1.8,
-            crt_bright_boost: 1.2,
-            crt_dilation: 1,
         }
     }
 }
@@ -1125,27 +1006,6 @@ impl Config {
         range!(scaling.grain_strength, 0, 1);
         range!(scaling.grain_size, 1, 10);
         range!(scaling.lut_intensity, 0, 1);
-        range!(scaling.luma_sharpen_strength, 0, 3);
-        range!(scaling.luma_sharpen_clamp, 0, 1);
-        range!(scaling.luma_sharpen_pattern, 0, 3);
-        range!(scaling.luma_sharpen_offset_bias, 0, 6);
-        range!(scaling.crt_sharpness_h, 0, 1);
-        range!(scaling.crt_sharpness_v, 0, 1);
-        range!(scaling.crt_mask_strength, 0, 1);
-        range!(scaling.crt_mask_dot_width, 1, 100);
-        range!(scaling.crt_mask_dot_height, 1, 100);
-        range!(scaling.crt_mask_stagger, 0, 100);
-        range!(scaling.crt_mask_size, 1, 100);
-        range!(scaling.crt_scanline_strength, 0, 1);
-        range!(scaling.crt_scanline_beam_width_min, 0.5, 5);
-        range!(scaling.crt_scanline_beam_width_max, 0.5, 5);
-        range!(scaling.crt_scanline_bright_min, 0, 1);
-        range!(scaling.crt_scanline_bright_max, 0, 1);
-        range!(scaling.crt_scanline_cutoff, 1, 1000);
-        range!(scaling.crt_gamma_input, 0.1, 5);
-        range!(scaling.crt_gamma_output, 0.1, 5);
-        range!(scaling.crt_bright_boost, 1, 2);
-        range!(scaling.crt_dilation, 0, 1);
         // Display and overlay
         opt_range!(scale_factor, |v: f64| v > 0.0, "must be > 0");
         opt_range!(max_fps, |v: f64| v >= 1.0, "must be >= 1");

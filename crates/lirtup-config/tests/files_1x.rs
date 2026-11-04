@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use lirtup_config::profile::IntervalOp;
 use lirtup_config::resolve::{ProfileChoice, resolve};
 use lirtup_config::{
-    Config, ConfigFile, EffectsEngine, FrameGenMultiplier, LogLevel, MagpieEffectSpec, Mapping, ModeStore,
-    Model, Value,
+    Config, ConfigFile, FrameGenMultiplier, LogLevel, MagpieEffectSpec, Mapping, ModeStore, Model, Value,
 };
 
 fn example_path() -> PathBuf {
@@ -27,14 +26,13 @@ fn without_hotkeys(map: &Mapping) -> Mapping {
 }
 
 /// Every profile resolves to the same config before and after a save.
-fn assert_same_resolution(a: &ConfigFile, b: &ConfigFile) {
-    let modes = ModeStore::default();
+fn assert_same_resolution(a: &ConfigFile, b: &ConfigFile, modes: &ModeStore) {
     let none = Mapping::new();
     let choices = std::iter::once(ProfileChoice::None)
         .chain(a.profiles.keys().map(|n| ProfileChoice::Named(n.clone())));
     for choice in choices {
-        let mut ra = resolve(a, &modes, &choice, &none).unwrap().config;
-        let mut rb = resolve(b, &modes, &choice, &none).unwrap().config;
+        let mut ra = resolve(a, modes, &choice, &none).unwrap().config;
+        let mut rb = resolve(b, modes, &choice, &none).unwrap().config;
         ra.config_file = None;
         rb.config_file = None;
         assert_eq!(ra, rb, "{choice:?}");
@@ -43,7 +41,8 @@ fn assert_same_resolution(a: &ConfigFile, b: &ConfigFile) {
 
 /// Load, save to a copy, load the copy: same options and profiles; a
 /// second save writes the same bytes; the original is never touched.
-fn round_trip(original: &Path) -> (ConfigFile, ConfigFile) {
+/// `modes` are the modes the profiles name.
+fn round_trip(original: &Path, modes: &ModeStore) -> (ConfigFile, ConfigFile) {
     let before = std::fs::read(original).unwrap();
     let (file, _) = ConfigFile::load(original).unwrap();
     assert_eq!(std::fs::read(original).unwrap(), before, "load changed the file");
@@ -69,7 +68,7 @@ fn round_trip(original: &Path) -> (ConfigFile, ConfigFile) {
             "{name}"
         );
     }
-    assert_same_resolution(&file, &reloaded);
+    assert_same_resolution(&file, &reloaded, modes);
 
     let first = std::fs::read(&copy.path).unwrap();
     reloaded.save().unwrap();
@@ -155,7 +154,7 @@ fn reads_config_example() {
 
 #[test]
 fn config_example_round_trip() {
-    let (file, reloaded) = round_trip(&example_path());
+    let (file, reloaded) = round_trip(&example_path(), &ModeStore::default());
     // Every hotkey of the example is a default, so the save drops them.
     assert!(file.general.contains_key("hotkeys"));
     assert!(!reloaded.general.contains_key("hotkeys"));
@@ -167,8 +166,12 @@ fn reads_1x_user_profiles() {
     assert!(warnings.is_empty(), "{warnings:?}");
     let (config, warnings) = Config::from_mapping(&file.general);
     assert!(warnings.is_empty(), "{warnings:?}");
-    assert!(config.extra.is_empty());
-    assert_eq!(config.scaling.effects_engine, EffectsEngine::Magpiefx);
+    // Read alone, the 1.x engine key is just unknown; the resolver
+    // translates it (below).
+    assert_eq!(
+        config.extra.keys().filter_map(Value::as_str).collect::<Vec<_>>(),
+        ["effects_engine"]
+    );
     assert_eq!(config.scaling.magpie_effects.len(), 3);
     assert!(matches!(
         &config.scaling.magpie_effects[2],
@@ -192,13 +195,28 @@ fn reads_1x_user_profiles() {
     assert_eq!(r.config.scaling.model, Model::M4x24);
     assert_eq!(r.config.background_color.to_hex(), "#202020");
     assert_eq!(r.config.hotkeys["zoom_in"], "Ctrl+Alt+Plus");
-    assert_eq!(r.config.scaling.effects_engine, EffectsEngine::Magpiefx);
+    // `effects_engine: magpiefx`: the chain runs, the key goes.
+    assert_eq!(r.config.scaling.magpie_effects, config.scaling.magpie_effects);
+    assert!(r.config.extra.is_empty(), "{:?}", r.config.extra);
     assert!(file.profiles["Video"].daemon_excluded());
+
+    // The Video profile chose the native engine with no native effect on:
+    // the top level's chain was inactive there, and still is.
+    let r = resolve(
+        &file,
+        &ModeStore::default(),
+        &ProfileChoice::Named("Video".into()),
+        &Mapping::new(),
+    )
+    .unwrap();
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    assert!(r.config.scaling.magpie_effects.is_empty());
+    assert!(r.config.scaling.cas_enabled);
 }
 
 #[test]
 fn user_profiles_round_trip() {
-    let (file, reloaded) = round_trip(&fixture("config-1x-user.yaml"));
+    let (file, reloaded) = round_trip(&fixture("config-1x-user.yaml"), &ModeStore::default());
     // A changed hotkey survives the diff.
     let hk = |f: &ConfigFile| f.profiles["Juego"].options["hotkeys"]["zoom_in"].clone();
     assert_eq!(hk(&reloaded), hk(&file));
@@ -224,5 +242,10 @@ fn reads_the_installed_config_if_any() {
         let (_, warnings) = Config::from_mapping(&profile.options);
         assert!(warnings.is_empty(), "profile {name}: {warnings:?}");
     }
-    round_trip(&path);
+    // The profiles name modes of the `modes/` folder next to the file.
+    let (modes, warnings) = ModeStore::load(&path.with_file_name("modes")).unwrap();
+    for w in &warnings {
+        eprintln!("modes: {}: {}", w.key, w.message);
+    }
+    round_trip(&path, &modes);
 }
