@@ -1,9 +1,10 @@
 //! Effect chain and presentation (`presenter.py`). Front P, round 2.
 //!
 //! The presenter takes the upscaled texture and runs, in one recording:
-//! MagpieFX chain or native effects (the `lirtup-effects` passes, in the 1.x
-//! order), the scaler into the screen texture (`output_size`, letterbox,
-//! zoom and offset), `Delinearize` or `Dither`, then the extra passes the
+//! deband, the MagpieFX chain after the model (`magpie_effects`), the scaler
+//! into the screen texture (`output_size`, letterbox, zoom and offset), the
+//! native linear effects (CAS, bloom, vignette), `Delinearize` or `Dither`,
+//! the native screen effects (LUT, grain), then the extra passes the
 //! session thread gives it (the OSD and the stats panel of front S, which
 //! blend onto [`Presenter::screen`]). Then it presents the screen texture:
 //! through the [`FrameGen`] of front F when there is one, else straight to
@@ -31,11 +32,22 @@
 //!
 //! # The chain
 //!
+//! The order of a frame (fx-unify). The chain before the model
+//! (`magpie_effects_before_model`) runs in the upscaler, on the captured
+//! frame; the presenter's `source` is the upscaler's output (the model's,
+//! or that chain's with `model: none`):
+//!
 //! ```text
-//! source ─▶ [deband] ─▶ [Anime4K, LumaSharpen, CRT | MagpieFX] ─▶ scaler (RGBA16F)
-//!        ─▶ [CAS, bloom, vignette] ─▶ Delinearize | Dither (8 bit) ─copy─▶ screen
-//!        ─▶ [LUT, grain] ─▶ OSD, stats panel ─▶ swapchain | FrameGen
+//! capture ─upload─▶ [MagpieFX before the model] ─▶ model (SRCNN ×1/×2, or none)   (upscaler)
+//!         ─▶ [deband] ─▶ [MagpieFX after the model] ─▶ scaler (RGBA16F)            (presenter)
+//!         ─▶ [CAS, bloom, vignette] ─▶ Delinearize | Dither (8 bit) ─copy─▶ screen
+//!         ─▶ [LUT, grain] ─▶ OSD, stats panel ─▶ swapchain | FrameGen
 //! ```
+//!
+//! There is no native effects engine any more: Anime4K_Upscale_S,
+//! LumaSharpen and CRT_Easymode are MagpieFX effects like any other (old
+//! configs are translated by `lirtup_config::legacy`). MagpieFX effects
+//! that do not fix their OUTPUT size render at the content size.
 //!
 //! The scaler and the converters bind their output at creation, so the
 //! stable `screen` texture (what the OSD and the panel blend onto) gets a
@@ -45,8 +57,10 @@
 //! # The split comparison (live tuning, block 3)
 //!
 //! [`Presenter::begin_compare`] renders, once and from the same source
-//! texture (the frozen frame), A's chain (another [`Config`]: its native or
-//! MagpieFX effects, its scaler and geometry) into `screen a` and this
+//! texture (the frozen frame), A's chain (another [`Config`]: its deband,
+//! MagpieFX chain after the model, native effects, scaler and geometry; the
+//! model and the chain before it are the shared upscaler's, so they are not
+//! compared) into `screen a` and this
 //! presenter's own chain (B) into `screen b`; A's passes are dropped right
 //! after that render. While the comparison is on, [`Presenter::present`]
 //! does not run either chain: it composes `screen a | screen b` at the split
@@ -57,7 +71,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use lirtup_config::{Config, Downsampler, EffectsEngine, Geometry, Upsampler};
+use lirtup_config::{Config, Downsampler, Geometry, Upsampler};
 use lirtup_effects::compose::{self, SplitCompose};
 use lirtup_effects::convert::Conversion;
 use lirtup_effects::effects::NativeEffect;
@@ -220,10 +234,10 @@ impl Layout {
 /// What the effects of a config are, to tell what an update changes.
 #[derive(Debug, Clone, PartialEq)]
 struct EffectPlan {
-    /// Before scaling, on the upscaled frame: deband, then the native
-    /// effects (MagpieFX is in `magpie`).
+    /// Before scaling, on the upscaled frame: the deband (if on). The
+    /// MagpieFX chain comes right after it, in `magpie`.
     pre: Vec<NativeEffect>,
-    /// The MagpieFX chain (empty with the native engine).
+    /// The MagpieFX chain after the model (`magpie_effects`).
     magpie: Vec<EffectSpec>,
     /// After scaling, on linear light: CAS, bloom, vignette.
     linear: Vec<NativeEffect>,
@@ -242,10 +256,7 @@ impl EffectPlan {
         let mut lut = None;
         for effect in NativeEffect::from_mode(&config.scaling) {
             match effect {
-                NativeEffect::Deband { .. }
-                | NativeEffect::Anime4kS
-                | NativeEffect::LumaSharpen { .. }
-                | NativeEffect::CrtEasymode(_) => plan.pre.push(effect),
+                NativeEffect::Deband { .. } => plan.pre.push(effect),
                 NativeEffect::Cas { .. } | NativeEffect::Bloom { .. } | NativeEffect::Vignette { .. } => {
                     plan.linear.push(effect)
                 }
@@ -256,18 +267,17 @@ impl EffectPlan {
         if let Some(lut) = lut {
             plan.screen.insert(0, lut);
         }
-        // TODO(presenter): the MagpieFX chain always runs (fx-unify).
-        if config.scaling.effects_engine == EffectsEngine::Magpiefx {
-            plan.magpie = parse_chain(&config.scaling.magpie_effects);
-        }
+        // The only effects chain: it always runs (fx-unify).
+        plan.magpie = parse_chain(&config.scaling.magpie_effects);
         plan
     }
 }
 
-/// The parameters of a native effect as `Pass::set_params` names (`None`
-/// when a change needs a new pass: CRT, a LUT preset, Anime4K).
-fn native_params(effect: &NativeEffect) -> Option<ParamValues> {
-    let p = |pairs: &[(&str, f64)]| Some(pairs.iter().map(|(k, v)| ((*k).to_owned(), *v)).collect());
+/// The parameters of a native effect as `Pass::set_params` names. Every
+/// native effect takes its values live; only another LUT preset needs a new
+/// pass (checked by [`update_native`]).
+fn native_params(effect: &NativeEffect) -> ParamValues {
+    let p = |pairs: &[(&str, f64)]| pairs.iter().map(|(k, v)| ((*k).to_owned(), *v)).collect();
     match *effect {
         NativeEffect::Cas { strength } => p(&[("cas_strength", f64::from(strength))]),
         NativeEffect::Deband { strength } => p(&[("deband_strength", f64::from(strength))]),
@@ -294,19 +304,12 @@ fn native_params(effect: &NativeEffect) -> Option<ParamValues> {
             ("grain_size", f64::from(size)),
         ]),
         NativeEffect::Lut { intensity, .. } => p(&[("lut_intensity", f64::from(intensity))]),
-        NativeEffect::LumaSharpen {
-            strength,
-            clamp,
-            pattern,
-            offset_bias,
-        } => p(&[
-            ("luma_sharpen_strength", f64::from(strength)),
-            ("luma_sharpen_clamp", f64::from(clamp)),
-            ("luma_sharpen_pattern", f64::from(pattern)),
-            ("luma_sharpen_offset_bias", f64::from(offset_bias)),
-        ]),
-        NativeEffect::Anime4kS | NativeEffect::CrtEasymode(_) => None,
     }
+}
+
+/// The same MagpieFX effects in the same order (parameters aside).
+fn same_names(a: &[EffectSpec], b: &[EffectSpec]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.name == y.name)
 }
 
 /// Whether `new` can be applied to passes built for `old` with
@@ -321,15 +324,13 @@ fn update_native(passes: &mut [Box<dyn Pass>], old: &[NativeEffect], new: &[Nati
             NativeEffect::Lut { preset, .. } => Some(*preset),
             _ => None,
         };
-        if !same_kind || lut_preset(a) != lut_preset(b) || (a != b && native_params(b).is_none()) {
+        if !same_kind || lut_preset(a) != lut_preset(b) {
             return Ok(false);
         }
     }
     for ((pass, a), b) in passes.iter_mut().zip(old).zip(new) {
-        if a != b
-            && let Some(params) = native_params(b)
-        {
-            pass.set_params(&params)?;
+        if a != b {
+            pass.set_params(&native_params(b))?;
         }
     }
     Ok(true)
@@ -749,24 +750,19 @@ impl Presenter {
         match config.output_geometry.parse() {
             Ok(geometry) if geometry != self.layout.geometry => {
                 self.layout.geometry = geometry;
-                // CRT and MagpieFX render at the content size.
+                // MagpieFX effects render at the content size.
                 self.pre_stale = true;
             }
             Ok(_) => {}
             Err(e) => tracing::warn!("{e}; keeping the geometry"),
         }
 
-        // Before scaling.
-        if (old.pre != self.plan.pre || old.magpie != self.plan.magpie) && !self.pre_stale {
-            let updated = if old.magpie.is_empty() && self.plan.magpie.is_empty() {
-                // Native only: one pass per effect, in plan order.
-                self.pre.len() == old.pre.len() && update_native(&mut self.pre, &old.pre, &self.plan.pre)?
-            } else {
-                self.update_magpie_params(&old)?
-            };
-            if !updated {
-                self.pre_stale = true;
-            }
+        // Before scaling: deband and the MagpieFX chain.
+        if (old.pre != self.plan.pre || old.magpie != self.plan.magpie)
+            && !self.pre_stale
+            && !self.update_pre_params(&old)?
+        {
+            self.pre_stale = true;
         }
 
         // Scaler and linear effects.
@@ -792,26 +788,28 @@ impl Presenter {
         Ok(())
     }
 
-    /// Same MagpieFX effects with new parameter values: `set_params`, no
-    /// recompile (the GUI sliders). `false` when the chain must be rebuilt.
-    fn update_magpie_params(&mut self, old: &EffectPlan) -> Result<bool> {
-        let names = |specs: &[EffectSpec]| specs.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
-        if old.pre != self.plan.pre
-            || self.plan.magpie.is_empty()
-            || names(&old.magpie) != names(&self.plan.magpie)
-            || self.magpie_active != old.magpie
-            || self.pre_stale
-        {
+    /// Same passes before scaling with new parameter values: the deband's
+    /// strength and the MagpieFX effects' parameters through `set_params`,
+    /// no recompile (the GUI sliders). `false` when the passes must be
+    /// rebuilt (the deband turned on or off, other MagpieFX effects or
+    /// order, an effect of the old chain was dropped).
+    fn update_pre_params(&mut self, old: &EffectPlan) -> Result<bool> {
+        // `pre` is: [deband], then the MagpieFX chain ([SwapRB], effects...,
+        // [SwapRB]).
+        let deband = old.pre.len();
+        if self.pre_stale || deband != self.plan.pre.len() || self.pre.len() < deband {
             return Ok(false);
         }
-        // `pre` is: [deband], [SwapRB], effects..., [SwapRB] (with MagpieFX
-        // effects, `plan.pre` is only the deband).
-        let skip = self.plan.pre.len().min(self.pre.len());
-        if !set_chain_params(&mut self.pre[skip..], &self.plan.magpie)? {
-            return Ok(false);
+        if old.magpie != self.plan.magpie {
+            if !same_names(&old.magpie, &self.plan.magpie) || self.magpie_active != old.magpie {
+                return Ok(false);
+            }
+            if !set_chain_params(&mut self.pre[deband..], &self.plan.magpie)? {
+                return Ok(false);
+            }
+            self.magpie_active = self.plan.magpie.clone();
         }
-        self.magpie_active = self.plan.magpie.clone();
-        Ok(true)
+        update_native(&mut self.pre[..deband], &old.pre, &self.plan.pre)
     }
 
     /// Zoom (1.0 = the configured geometry) and offset in output pixels
@@ -822,14 +820,8 @@ impl Presenter {
         let zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { 1.0 };
         if (zoom - self.layout.zoom).abs() > f32::EPSILON {
             self.layout.zoom = zoom;
-            // CRT and MagpieFX render at the content size.
-            if self
-                .plan
-                .pre
-                .iter()
-                .any(|e| matches!(e, NativeEffect::CrtEasymode(_)))
-                || !self.plan.magpie.is_empty()
-            {
+            // MagpieFX effects render at the content size.
+            if !self.plan.magpie.is_empty() {
                 self.pre_stale = true;
             }
         }
@@ -860,21 +852,8 @@ impl Presenter {
     pub fn chain(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         if self.pre_stale {
-            out.extend(
-                self.plan
-                    .pre
-                    .iter()
-                    .filter(|e| matches!(e, NativeEffect::Deband { .. }))
-                    .map(|e| e.label().to_owned()),
-            );
+            out.extend(self.plan.pre.iter().map(|e| e.label().to_owned()));
             out.extend(self.plan.magpie.iter().map(|s| s.name.clone()));
-            out.extend(
-                self.plan
-                    .pre
-                    .iter()
-                    .filter(|e| !matches!(e, NativeEffect::Deband { .. }))
-                    .map(|e| e.label().to_owned()),
-            );
         } else {
             out.extend(
                 self.pre
@@ -987,7 +966,7 @@ impl Presenter {
         record_lane(recorder, &self.pre, stage, &self.screen, &self.screen_passes)
     }
 
-    /// Deband, then the native effects or the MagpieFX chain.
+    /// Deband, then the MagpieFX chain.
     fn build_pre(&mut self, source: &Texture) -> Result<()> {
         self.pre.clear();
         let (pre, active) = build_pre_chain(
@@ -1052,9 +1031,9 @@ fn compare_layout(layout: &Layout, other: &Config) -> Layout {
 type PreChain = (Vec<Box<dyn Pass>>, Option<Vec<EffectSpec>>);
 
 /// The passes before scaling for `plan` on `source`: deband, then the
-/// MagpieFX chain, then the native effects. Also the MagpieFX effects
-/// actually bound (`None` without MagpieFX); the ones that failed are
-/// pushed to `disabled`.
+/// MagpieFX chain (at the content size). Also the MagpieFX effects actually
+/// bound (`None` without MagpieFX); the ones that failed are pushed to
+/// `disabled`.
 fn build_pre_chain(
     device: &Arc<Device>,
     magpie: &mut Option<MagpieContext>,
@@ -1071,11 +1050,7 @@ fn build_pre_chain(
     let mut pre: Vec<Box<dyn Pass>> = Vec::new();
     let mut active = None;
     let mut input = source.clone();
-    for effect in plan
-        .pre
-        .iter()
-        .filter(|e| matches!(e, NativeEffect::Deband { .. }))
-    {
+    for effect in &plan.pre {
         let pass = effect.create(device, &input, (input.width(), input.height()))?;
         input = pass.output().clone();
         pre.push(pass);
@@ -1092,16 +1067,6 @@ fn build_pre_chain(
         );
         pre.extend(passes);
         active = Some(bound);
-    }
-    for effect in plan
-        .pre
-        .iter()
-        .filter(|e| !matches!(e, NativeEffect::Deband { .. }))
-    {
-        let size = (input.width(), input.height());
-        let pass = effect.create(device, &input, content_rect(layout, size))?;
-        input = pass.output().clone();
-        pre.push(pass);
     }
     Ok((pre, active))
 }
@@ -1171,6 +1136,7 @@ fn new_texture(device: &Arc<Device>, size: (u32, u32), label: &str) -> Result<Te
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lirtup_config::MagpieEffectSpec;
 
     #[test]
     fn scaling_rect_matches_1x() {
@@ -1317,21 +1283,58 @@ mod tests {
         s.cas_enabled = true;
         s.grain_enabled = true;
         s.lut_enabled = true;
-        s.anime4k_enabled = true;
-        s.effects_engine = EffectsEngine::Native;
+        s.magpie_effects = vec![
+            MagpieEffectSpec::Short("Sharpen/LumaSharpen".into()),
+            MagpieEffectSpec::Short("CRT/CRT_Easymode".into()),
+        ];
         let plan = EffectPlan::from_config(&config);
         let labels = |v: &[NativeEffect]| v.iter().map(|e| e.label()).collect::<Vec<_>>();
-        assert_eq!(labels(&plan.pre), ["deband", "anime4k"]);
+        assert_eq!(labels(&plan.pre), ["deband"]);
+        let names = plan.magpie.iter().map(|s| s.name.as_str()).collect::<Vec<_>>();
+        assert_eq!(names, ["Sharpen/LumaSharpen", "CRT/CRT_Easymode"]);
         assert_eq!(labels(&plan.linear), ["cas"]);
         assert_eq!(labels(&plan.screen), ["lut", "grain"]);
-        assert!(plan.magpie.is_empty());
+    }
+
+    #[test]
+    fn the_magpie_chain_always_runs_and_skips_the_list_before_the_model() {
+        let mut config = Config::default();
+        assert!(EffectPlan::from_config(&config).magpie.is_empty());
+        // The list before the model is the upscaler's.
+        config.scaling.magpie_effects_before_model = vec![MagpieEffectSpec::Short("CAS".into())];
+        assert!(EffectPlan::from_config(&config).magpie.is_empty());
+        config.scaling.magpie_effects = vec![MagpieEffectSpec::Short("Sharpen/LumaSharpen".into())];
+        let plan = EffectPlan::from_config(&config);
+        assert_eq!(plan.magpie.len(), 1);
+        assert_eq!(plan.magpie[0].name, "Sharpen/LumaSharpen");
+        assert!(plan.pre.is_empty());
+    }
+
+    #[test]
+    fn same_names_ignores_the_parameters() {
+        let chain = |items: &[&str]| {
+            parse_chain(
+                &items
+                    .iter()
+                    .map(|s| MagpieEffectSpec::Short((*s).to_owned()))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let a = chain(&["Sharpen/LumaSharpen:sharpStrength=0.5", "CAS"]);
+        let b = chain(&["Sharpen/LumaSharpen:sharpStrength=1", "CAS"]);
+        assert_ne!(a, b);
+        assert!(same_names(&a, &b));
+        assert!(!same_names(&a, &chain(&["CAS", "Sharpen/LumaSharpen"])));
+        assert!(!same_names(&a, &chain(&["Sharpen/LumaSharpen"])));
+        assert!(same_names(&[], &[]));
     }
 
     #[test]
     fn native_params_cover_live_changes_only() {
-        assert!(native_params(&NativeEffect::Anime4kS).is_none());
-        let p = native_params(&NativeEffect::Cas { strength: 0.25 }).unwrap();
+        let p = native_params(&NativeEffect::Cas { strength: 0.25 });
         assert_eq!(p.get("cas_strength"), Some(&0.25));
+        let p = native_params(&NativeEffect::Deband { strength: 0.5 });
+        assert_eq!(p.get("deband_strength"), Some(&0.5));
         let mut e = NativeEffect::Bloom {
             strength: 0.1,
             threshold: 0.2,
@@ -1341,9 +1344,7 @@ mod tests {
             strength: 0.5,
             threshold: 0.6,
             radius: 7,
-        })
-        .unwrap()
-        {
+        }) {
             assert!(e.set_param(&k, v));
         }
         assert_eq!(
@@ -1367,8 +1368,8 @@ mod tests {
     #[test]
     fn plan_a_differs_only_where_the_other_config_does() {
         let mut current = Config::default();
-        current.scaling.effects_engine = EffectsEngine::Native;
         current.scaling.deband_enabled = true;
+        current.scaling.magpie_effects = vec![MagpieEffectSpec::Short("CAS".into())];
         current.scaling.grain_enabled = true;
         let mut other = current.clone();
         other.scaling.cas_enabled = true;
