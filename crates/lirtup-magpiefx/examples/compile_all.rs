@@ -6,7 +6,8 @@
 //! ```
 //!
 //! Without `--cache` it compiles into a fresh temporary folder, so nothing
-//! comes from an earlier run. Exits with 1 if any effect fails.
+//! comes from an earlier run (nor from the precompiled seed). Exits with 1 if
+//! any effect fails. The seed itself is written by the `magpiefx-seed` binary.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -31,7 +32,8 @@ fn main() {
         }
     }
     let tmp = tempfile::tempdir().expect("temporary folder");
-    let cache = SpirvCache::new(cache_dir.unwrap_or_else(|| tmp.path().to_owned()));
+    // No seed: this measures the compilers.
+    let cache = SpirvCache::with_seed(cache_dir.unwrap_or_else(|| tmp.path().to_owned()), None);
 
     let compilers = detect_compilers();
     if compilers.is_empty() {

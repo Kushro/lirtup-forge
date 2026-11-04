@@ -191,7 +191,7 @@ fn verified_effects_match_python() {
     let compilers = detect_compilers();
     assert!(!compilers.is_empty(), "no HLSL compiler found (dxc or glslang)");
     let cache_dir = tempfile::tempdir().expect("temporary folder");
-    let cache = SpirvCache::new(cache_dir.path().to_owned());
+    let cache = SpirvCache::with_seed(cache_dir.path().to_owned(), None);
     let catalog = Catalog::scan(None);
     // As MagpieEffect.load of 1.x: RGBA input and output, FP16 by policy.
     let options = CompileOptions {

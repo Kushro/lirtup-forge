@@ -138,7 +138,12 @@ pub fn compile_source(
         match compile_passes(&desc, include_dir, compilers, cache, options, true) {
             Ok(result) => Ok(result),
             Err(e) => {
-                tracing::warn!("MagpieFX {name}: FP16 compilation failed, using 32-bit floats:\n{e}");
+                if matches!(e, MagpieError::NoCompiler) {
+                    // no compiler and no FP16 variant in the cache or the seed
+                    tracing::debug!("MagpieFX {name}: no FP16 variant precompiled, using 32-bit floats");
+                } else {
+                    tracing::warn!("MagpieFX {name}: FP16 compilation failed, using 32-bit floats:\n{e}");
+                }
                 fp16 = false;
                 compile_passes(&desc, include_dir, compilers, cache, options, false)
             }
@@ -219,12 +224,27 @@ fn compile_passes(
     'attempts: for (sin, sout) in attempts {
         let mut spirv = Vec::with_capacity(desc.passes.len());
         for (i, p) in desc.passes.iter().enumerate() {
-            match compile_pass(desc, i, p, include_dir, compilers, cache, sin, sout, fp16)? {
-                Some(code) => spirv.push(code),
-                None => {
+            match compile_pass(desc, i, p, include_dir, compilers, cache, sin, sout, fp16) {
+                Ok(Some(code)) => spirv.push(code),
+                Ok(None) => {
                     tracing::debug!("MagpieFX {}: swap rewrite limited (pass {})", desc.name, p.index);
                     continue 'attempts;
                 }
+                // Without a compiler, a swapped variant missing from the
+                // cache and the seed may be one whose rewrite is declined
+                // (only a compiler's preprocessor can tell): try the next
+                // attempt, down to the unswapped one.
+                Err(MagpieError::NoCompiler) if sin || sout => {
+                    tracing::debug!(
+                        "MagpieFX {}: swapped variant ({}, {}) not precompiled (pass {})",
+                        desc.name,
+                        sin,
+                        sout,
+                        p.index
+                    );
+                    continue 'attempts;
+                }
+                Err(e) => return Err(e),
             }
         }
         return Ok((spirv, sin, sout));
@@ -641,7 +661,7 @@ mod tests {
             }
         }
         let compilers: Vec<Box<dyn HlslCompiler>> = vec![Box::new(Shared(fake.clone()))];
-        let cache = SpirvCache::new(dir.path().to_path_buf());
+        let cache = SpirvCache::with_seed(dir.path().to_path_buf(), None);
         let options = CompileOptions {
             fp16,
             ..CompileOptions::default()
@@ -698,7 +718,7 @@ mod tests {
     #[test]
     fn swap_is_folded_or_dropped() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = SpirvCache::new(dir.path().to_path_buf());
+        let cache = SpirvCache::with_seed(dir.path().to_path_buf(), None);
         let compilers: Vec<Box<dyn HlslCompiler>> =
             vec![Box::new(Fake::new("dxc", |r| Ok(r.source.as_bytes().to_vec())))];
         let both = CompileOptions {
@@ -723,9 +743,45 @@ mod tests {
     }
 
     #[test]
+    fn without_a_compiler_the_seed_serves_the_closest_variant() {
+        let root = tempfile::tempdir().unwrap();
+        let seed = root.path().join("seed");
+        let compilers: Vec<Box<dyn HlslCompiler>> =
+            vec![Box::new(Fake::new("dxc", |r| Ok(r.source.as_bytes().to_vec())))];
+        // the seed only has the unswapped FP32 variant
+        let plain = SpirvCache::with_seed(seed.clone(), None);
+        let base = compile_source(
+            "Test",
+            &source(true),
+            None,
+            &compilers,
+            &plain,
+            &CompileOptions::default(),
+        )
+        .unwrap();
+
+        let cache = SpirvCache::with_seed(root.path().join("user"), Some(seed));
+        let all = CompileOptions {
+            fp16: true,
+            swap_input: true,
+            swap_output: true,
+        };
+        let fx = compile_source("Test", &source(true), None, &[], &cache, &all).unwrap();
+        assert!(!fx.fp16 && !fx.input_swapped() && !fx.output_swapped());
+        assert_eq!(fx.spirv, base.spirv);
+
+        // nothing at all: no compiler
+        let empty = SpirvCache::with_seed(root.path().join("empty"), None);
+        assert!(matches!(
+            compile_source("Test", &source(true), None, &[], &empty, &all),
+            Err(MagpieError::NoCompiler)
+        ));
+    }
+
+    #[test]
     fn swap_rb_effect_compiles() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = SpirvCache::new(dir.path().to_path_buf());
+        let cache = SpirvCache::with_seed(dir.path().to_path_buf(), None);
         let compilers: Vec<Box<dyn HlslCompiler>> =
             vec![Box::new(Fake::new("dxc", |_| Ok(vec![1, 2, 3, 4])))];
         let fx = compile_swap_rb(&compilers, &cache).unwrap();
@@ -770,7 +826,7 @@ mod tests {
             .replace("//!IN INPUT", "//!IN INPUT, lut");
         let path = fx_dir.join("Lut.hlsl");
         std::fs::write(&path, &src).unwrap();
-        let cache = SpirvCache::new(dir.path().join("cache"));
+        let cache = SpirvCache::with_seed(dir.path().join("cache"), None);
         let compilers: Vec<Box<dyn HlslCompiler>> = vec![Box::new(Fake::new("dxc", |_| Ok(vec![0; 4])))];
         let entry = CatalogEntry::from_path(&path);
         let fx = compile_effect(&entry, &compilers, &cache, false).unwrap();
