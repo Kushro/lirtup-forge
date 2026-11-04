@@ -122,6 +122,22 @@ pub(crate) fn parse_chain(items: &[MagpieEffectSpec]) -> Vec<EffectSpec> {
     }
 }
 
+/// Whether two chains hold the same effects in the same order (parameters
+/// aside): then new values go live through [`set_chain_params`] instead of a
+/// rebuild.
+pub(crate) fn same_names(a: &[EffectSpec], b: &[EffectSpec]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.name == y.name)
+}
+
+/// The effect names of a config list, in order; `None` when an entry is
+/// invalid (the chain is then empty, [`parse_chain`]). Quiet: for comparing
+/// two configurations without logging the error again.
+pub(crate) fn chain_names(items: &[MagpieEffectSpec]) -> Option<Vec<String>> {
+    lirtup_magpiefx::spec::parse_effect_chain(items)
+        .ok()
+        .map(|specs| specs.into_iter().map(|s| s.name).collect())
+}
+
 /// The size each effect of a chain renders at when it does not fix its
 /// OUTPUT size itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,7 +147,6 @@ pub(crate) enum OutSize {
     /// The size of the effect's own input (the upscaler's chain before the
     /// model: what the model takes is what the capture gave, unless an
     /// effect fixes another size).
-    #[allow(dead_code)] // TODO(upscaler): the chain before the model.
     Input,
 }
 
@@ -250,5 +265,35 @@ mod tests {
             MagpieEffectSpec::Short("Lanczos:x=big".into()),
         ];
         assert!(parse_chain(&bad).is_empty());
+    }
+
+    #[test]
+    fn same_names_ignores_the_parameters() {
+        let a = parse_chain(&[
+            MagpieEffectSpec::Short("CAS".into()),
+            MagpieEffectSpec::Short("LumaSharpen:sharpStrength=0.5".into()),
+        ]);
+        let b = parse_chain(&[
+            MagpieEffectSpec::Short("CAS".into()),
+            MagpieEffectSpec::Short("LumaSharpen:sharpStrength=1.5".into()),
+        ]);
+        assert!(same_names(&a, &b));
+        assert!(!same_names(&a, &b[..1]), "one effect less");
+        let swapped: Vec<EffectSpec> = b.iter().rev().cloned().collect();
+        assert!(!same_names(&a, &swapped), "another order");
+        assert!(same_names(&[], &[]));
+    }
+
+    #[test]
+    fn chain_names_are_quiet_about_invalid_entries() {
+        assert_eq!(
+            chain_names(&[
+                MagpieEffectSpec::Short("CAS".into()),
+                MagpieEffectSpec::Short("LumaSharpen:sharpStrength=0.5".into()),
+            ]),
+            Some(vec!["CAS".to_owned(), "LumaSharpen".to_owned()])
+        );
+        assert_eq!(chain_names(&[]), Some(Vec::new()));
+        assert_eq!(chain_names(&[MagpieEffectSpec::Short("Lanczos:x=big".into())]), None);
     }
 }

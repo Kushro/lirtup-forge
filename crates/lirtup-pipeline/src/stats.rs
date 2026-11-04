@@ -445,8 +445,6 @@ pub struct PanelContext {
     pub output: String,
     /// Effect chain labels, in order.
     pub chain: Vec<String>,
-    /// `Native` or `MagpieFX`.
-    pub engine: String,
     /// The post effects that are on (`Deband`, `CAS`, `Bloom`, `Vignette`,
     /// `LUT <preset>`, `Grain`).
     pub post: Vec<String>,
@@ -571,18 +569,17 @@ fn panel_rows(sample: &StatsSample, context: &PanelContext) -> Vec<Row> {
             format!("{label}{ms}"),
         ));
     }
-    if !context.chain.is_empty() {
-        rows.push(Row::new("", format!("({})", context.engine)));
-        if let Some(w) = &sample.gpu_warning {
-            let heaviest = w.heaviest.first().map_or("", |(name, _)| name.as_str());
-            rows.push(Row::warning(
-                "GPU",
-                format!(
-                    "{:.1} ms > {:.1} ms/frame, heaviest: {heaviest}",
-                    w.gpu_ms, w.budget_ms
-                ),
-            ));
-        }
+    if !context.chain.is_empty()
+        && let Some(w) = &sample.gpu_warning
+    {
+        let heaviest = w.heaviest.first().map_or("", |(name, _)| name.as_str());
+        rows.push(Row::warning(
+            "GPU",
+            format!(
+                "{:.1} ms > {:.1} ms/frame, heaviest: {heaviest}",
+                w.gpu_ms, w.budget_ms
+            ),
+        ));
     }
     rows.push(Row::new(
         "Output",
@@ -938,7 +935,6 @@ mod tests {
             dst: (2560, 1440),
             output: "fit  lanczos/catmull_rom".into(),
             chain: vec!["cas".into(), "lut".into()],
-            engine: "Native".into(),
             present: "fifo, new frames only".into(),
             framegen: Some(FrameGenLine {
                 text: "x2 built-in FP16".into(),
@@ -961,7 +957,6 @@ mod tests {
                 "Upscale",
                 "Effects",
                 "",
-                "",
                 "Output",
                 "Post",
                 "Present",
@@ -976,8 +971,7 @@ mod tests {
         assert_eq!(rows[5].value, "2x16 x2  full frame");
         assert_eq!(rows[6].value, "cas  0.50 ms");
         assert_eq!(rows[7].value, "lut");
-        assert_eq!(rows[8].value, "(Native)");
-        assert_eq!(rows[9].value, "2560x1440  fit  lanczos/catmull_rom");
-        assert_eq!(rows[10].value, "none");
+        assert_eq!(rows[8].value, "2560x1440  fit  lanczos/catmull_rom");
+        assert_eq!(rows[9].value, "none");
     }
 }
